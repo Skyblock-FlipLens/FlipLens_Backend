@@ -1,13 +1,12 @@
-package TBD.TBD;
+package com.skyblockflipper.backend;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class TbdApplication {
+public class SkyblockFlipperBackendApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(TbdApplication.class, args);
+		SpringApplication.run(SkyblockFlipperBackendApplication.class, args);
 	}
-
 }
