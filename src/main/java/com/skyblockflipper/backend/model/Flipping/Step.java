@@ -4,16 +4,28 @@ import com.skyblockflipper.backend.model.Flipping.Enums.DurationType;
 import com.skyblockflipper.backend.model.Flipping.Enums.SchedulingPolicy;
 import com.skyblockflipper.backend.model.Flipping.Enums.StepResource;
 import com.skyblockflipper.backend.model.Flipping.Enums.StepType;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
 
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
 @Table(name = "flip_step")
 public class Step {
 
+    private static final long DEFAULT_MARKET_BASED_SECONDS = 30L;
+
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Enumerated(EnumType.STRING)
@@ -24,6 +36,10 @@ public class Step {
     @Column(nullable = false)
     private DurationType durationType;
 
+    /**
+     * Base duration in seconds depending on {@link #durationType}:
+     * FIXED/INSTANT expects a concrete duration, MARKET_BASED is a fallback if no liquidity stats exist.
+     */
     @Column(name = "base_duration_seconds")
     private Long baseDurationSeconds;
 
@@ -41,7 +57,187 @@ public class Step {
     @Column(nullable = false)
     private SchedulingPolicy schedulingPolicy = SchedulingPolicy.NONE;
 
-    @Column(columnDefinition = "jsonb")
+    @Column(columnDefinition = "text")
     private String paramsJson;
-}
 
+    protected Step() {
+    }
+
+    public Step(UUID id, StepType type, DurationType durationType, Long baseDurationSeconds, Double durationFactor,
+                StepResource resource, int resourceUnits, SchedulingPolicy schedulingPolicy, String paramsJson) {
+        this.id = id;
+        this.type = type;
+        this.durationType = durationType;
+        this.baseDurationSeconds = baseDurationSeconds;
+        this.durationFactor = durationFactor;
+        this.resource = resource == null ? StepResource.NONE : resource;
+        this.resourceUnits = resourceUnits;
+        this.schedulingPolicy = schedulingPolicy == null ? SchedulingPolicy.NONE : schedulingPolicy;
+        this.paramsJson = paramsJson;
+    }
+
+    public static Step forBuyMarketBased(long baseSeconds, String paramsJson) {
+        return new Step(null, StepType.BUY, DurationType.MARKET_BASED, baseSeconds, null,
+                StepResource.NONE, 0, SchedulingPolicy.BEST_EFFORT, paramsJson);
+    }
+
+    public static Step forSellMarketBased(long baseSeconds, String paramsJson) {
+        return new Step(null, StepType.SELL, DurationType.MARKET_BASED, baseSeconds, null,
+                StepResource.NONE, 0, SchedulingPolicy.BEST_EFFORT, paramsJson);
+    }
+
+    public static Step forForgeFixed(long durationSeconds) {
+        return new Step(null, StepType.FORGE, DurationType.FIXED, durationSeconds, null,
+                StepResource.FORGE_SLOT, 1, SchedulingPolicy.LIMITED_BY_RESOURCE, null);
+    }
+
+    public static Step forCraftInstant(long seconds) {
+        return new Step(null, StepType.CRAFT, DurationType.INSTANT, seconds, null,
+                StepResource.NONE, 0, SchedulingPolicy.NONE, null);
+    }
+
+    @PrePersist
+    @PreUpdate
+    private void validate() {
+        if (type == null) {
+            throw new IllegalStateException("Step type must be provided.");
+        }
+        if (durationType == null) {
+            throw new IllegalStateException("Duration type must be provided.");
+        }
+        if (resource == null) {
+            resource = StepResource.NONE;
+        }
+        if (schedulingPolicy == null) {
+            schedulingPolicy = SchedulingPolicy.NONE;
+        }
+        if (resourceUnits < 0) {
+            throw new IllegalStateException("Resource units must be >= 0.");
+        }
+
+        if (durationType == DurationType.MARKET_BASED) {
+            if (baseDurationSeconds == null) {
+                baseDurationSeconds = DEFAULT_MARKET_BASED_SECONDS;
+            }
+        } else {
+            if (baseDurationSeconds == null) {
+                throw new IllegalStateException("Base duration seconds must be provided for FIXED or INSTANT steps.");
+            }
+            if (baseDurationSeconds < 0) {
+                throw new IllegalStateException("Base duration seconds must be >= 0.");
+            }
+        }
+
+        if (type == StepType.FORGE) {
+            if (durationType != DurationType.FIXED) {
+                throw new IllegalStateException("Forge steps must use FIXED duration.");
+            }
+            if (resource != StepResource.FORGE_SLOT) {
+                throw new IllegalStateException("Forge steps must use FORGE_SLOT resource.");
+            }
+            if (resourceUnits < 1) {
+                throw new IllegalStateException("Forge steps must use at least one resource unit.");
+            }
+            if (schedulingPolicy != SchedulingPolicy.LIMITED_BY_RESOURCE) {
+                throw new IllegalStateException("Forge steps must be limited by resource scheduling.");
+            }
+        }
+
+        if (type == StepType.BUY || type == StepType.SELL) {
+            if (durationType != DurationType.MARKET_BASED && durationType != DurationType.INSTANT) {
+                throw new IllegalStateException("Buy/Sell steps must use MARKET_BASED or INSTANT duration.");
+            }
+            if (resource != StepResource.NONE) {
+                throw new IllegalStateException("Buy/Sell steps cannot require a resource.");
+            }
+            if (schedulingPolicy != SchedulingPolicy.BEST_EFFORT) {
+                throw new IllegalStateException("Buy/Sell steps must use BEST_EFFORT scheduling.");
+            }
+        }
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public StepType getType() {
+        return type;
+    }
+
+    public void setType(StepType type) {
+        this.type = type;
+    }
+
+    public DurationType getDurationType() {
+        return durationType;
+    }
+
+    public void setDurationType(DurationType durationType) {
+        this.durationType = durationType;
+    }
+
+    public Long getBaseDurationSeconds() {
+        return baseDurationSeconds;
+    }
+
+    public void setBaseDurationSeconds(Long baseDurationSeconds) {
+        this.baseDurationSeconds = baseDurationSeconds;
+    }
+
+    public Double getDurationFactor() {
+        return durationFactor;
+    }
+
+    public void setDurationFactor(Double durationFactor) {
+        this.durationFactor = durationFactor;
+    }
+
+    public StepResource getResource() {
+        return resource;
+    }
+
+    public void setResource(StepResource resource) {
+        this.resource = resource;
+    }
+
+    public int getResourceUnits() {
+        return resourceUnits;
+    }
+
+    public void setResourceUnits(int resourceUnits) {
+        this.resourceUnits = resourceUnits;
+    }
+
+    public SchedulingPolicy getSchedulingPolicy() {
+        return schedulingPolicy;
+    }
+
+    public void setSchedulingPolicy(SchedulingPolicy schedulingPolicy) {
+        this.schedulingPolicy = schedulingPolicy;
+    }
+
+    public String getParamsJson() {
+        return paramsJson;
+    }
+
+    public void setParamsJson(String paramsJson) {
+        this.paramsJson = paramsJson;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Step step = (Step) o;
+        return Objects.equals(id, step.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+}
