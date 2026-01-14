@@ -5,10 +5,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import lombok.Getter;
 
 import java.io.Serializable;
 import java.util.Objects;
 
+@Getter
 @Embeddable
 public class Constraint implements Serializable {
 
@@ -45,22 +47,6 @@ public class Constraint implements Serializable {
 
     public static Constraint minCapital(long coins) {
         return new Constraint(ConstraintType.MIN_CAPITAL, null, null, coins);
-    }
-
-    public ConstraintType getType() {
-        return type;
-    }
-
-    public String getStringValue() {
-        return stringValue;
-    }
-
-    public Integer getIntValue() {
-        return intValue;
-    }
-
-    public Long getLongValue() {
-        return longValue;
     }
 
     @Override

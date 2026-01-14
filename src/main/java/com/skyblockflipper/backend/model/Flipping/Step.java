@@ -14,10 +14,13 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.Objects;
 import java.util.UUID;
 
+@Getter
 @Entity
 @Table(name = "flip_step")
 public class Step {
@@ -28,10 +31,12 @@ public class Step {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StepType type;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private DurationType durationType;
@@ -40,23 +45,29 @@ public class Step {
      * Base duration in seconds depending on {@link #durationType}:
      * FIXED/INSTANT expects a concrete duration, MARKET_BASED is a fallback if no liquidity stats exist.
      */
+    @Setter
     @Column(name = "base_duration_seconds")
     private Long baseDurationSeconds;
 
+    @Setter
     @Column(name = "duration_factor")
     private Double durationFactor;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StepResource resource = StepResource.NONE;
 
+    @Setter
     @Column(nullable = false)
     private int resourceUnits = 0;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SchedulingPolicy schedulingPolicy = SchedulingPolicy.NONE;
 
+    @Setter
     @Column(columnDefinition = "text")
     private String paramsJson;
 
@@ -154,74 +165,6 @@ public class Step {
                 throw new IllegalStateException("Buy/Sell steps must use BEST_EFFORT scheduling.");
             }
         }
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public StepType getType() {
-        return type;
-    }
-
-    public void setType(StepType type) {
-        this.type = type;
-    }
-
-    public DurationType getDurationType() {
-        return durationType;
-    }
-
-    public void setDurationType(DurationType durationType) {
-        this.durationType = durationType;
-    }
-
-    public Long getBaseDurationSeconds() {
-        return baseDurationSeconds;
-    }
-
-    public void setBaseDurationSeconds(Long baseDurationSeconds) {
-        this.baseDurationSeconds = baseDurationSeconds;
-    }
-
-    public Double getDurationFactor() {
-        return durationFactor;
-    }
-
-    public void setDurationFactor(Double durationFactor) {
-        this.durationFactor = durationFactor;
-    }
-
-    public StepResource getResource() {
-        return resource;
-    }
-
-    public void setResource(StepResource resource) {
-        this.resource = resource;
-    }
-
-    public int getResourceUnits() {
-        return resourceUnits;
-    }
-
-    public void setResourceUnits(int resourceUnits) {
-        this.resourceUnits = resourceUnits;
-    }
-
-    public SchedulingPolicy getSchedulingPolicy() {
-        return schedulingPolicy;
-    }
-
-    public void setSchedulingPolicy(SchedulingPolicy schedulingPolicy) {
-        this.schedulingPolicy = schedulingPolicy;
-    }
-
-    public String getParamsJson() {
-        return paramsJson;
-    }
-
-    public void setParamsJson(String paramsJson) {
-        this.paramsJson = paramsJson;
     }
 
     @Override

@@ -15,6 +15,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+@Getter
 @Entity
 @Table(name = "flip")
 public class Flip {
@@ -30,6 +33,7 @@ public class Flip {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     private FlipType flipType;
 
@@ -38,6 +42,7 @@ public class Flip {
     @OrderColumn(name = "step_order")
     private List<Step> steps = new ArrayList<>();
 
+    @Setter
     @Column(nullable = false)
     private String resultItemId;
 
@@ -59,36 +64,8 @@ public class Flip {
         }
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public FlipType getFlipType() {
-        return flipType;
-    }
-
-    public void setFlipType(FlipType flipType) {
-        this.flipType = flipType;
-    }
-
-    public List<Step> getSteps() {
-        return steps;
-    }
-
     public void setSteps(List<Step> steps) {
         this.steps = steps == null ? new ArrayList<>() : new ArrayList<>(steps);
-    }
-
-    public String getResultItemId() {
-        return resultItemId;
-    }
-
-    public void setResultItemId(String resultItemId) {
-        this.resultItemId = resultItemId;
-    }
-
-    public List<Constraint> getConstraints() {
-        return constraints;
     }
 
     public void setConstraints(List<Constraint> constraints) {

@@ -1,7 +1,10 @@
 package com.skyblockflipper.backend.model.Flipping.Recipe;
 
+import lombok.Getter;
+
 import java.util.Objects;
 
+@Getter
 public class RecipeRequirement {
 
     private final RecipeRequirementType type;
@@ -28,19 +31,4 @@ public class RecipeRequirement {
         return new RecipeRequirement(RecipeRequirementType.MIN_CAPITAL, null, null, coins);
     }
 
-    public RecipeRequirementType getType() {
-        return type;
-    }
-
-    public String getStringValue() {
-        return stringValue;
-    }
-
-    public Integer getIntValue() {
-        return intValue;
-    }
-
-    public Long getLongValue() {
-        return longValue;
-    }
 }

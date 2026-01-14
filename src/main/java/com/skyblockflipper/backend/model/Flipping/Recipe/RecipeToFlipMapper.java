@@ -15,26 +15,26 @@ public class RecipeToFlipMapper {
 
     public Flip fromRecipe(Recipe recipe) {
         List<Step> steps = new ArrayList<>();
-        for (RecipeIngredient ingredient : recipe.getIngredients()) {
+        for (RecipeIngredient ingredient : recipe.ingredients()) {
             steps.add(Step.forBuyMarketBased(DEFAULT_BUY_SECONDS, buildParamsJson(ingredient)));
         }
 
         steps.add(buildProcessStep(recipe));
 
         List<Constraint> constraints = new ArrayList<>();
-        for (RecipeRequirement requirement : recipe.getRequirements()) {
+        for (RecipeRequirement requirement : recipe.requirements()) {
             Constraint constraint = mapConstraint(requirement);
             if (constraint != null) {
                 constraints.add(constraint);
             }
         }
 
-        return new Flip(UUID.randomUUID(), mapFlipType(recipe.getProcessType()), steps, recipe.getOutputItemId(), constraints);
+        return new Flip(UUID.randomUUID(), mapFlipType(recipe.processType()), steps, recipe.outputItemId(), constraints);
     }
 
     private Step buildProcessStep(Recipe recipe) {
-        long durationSeconds = Math.max(0L, recipe.getProcessDurationSeconds());
-        return switch (recipe.getProcessType()) {
+        long durationSeconds = Math.max(0L, recipe.processDurationSeconds());
+        return switch (recipe.processType()) {
             case FORGE -> Step.forForgeFixed(durationSeconds);
             case CRAFT -> Step.forCraftInstant(durationSeconds);
         };
@@ -53,6 +53,6 @@ public class RecipeToFlipMapper {
     }
 
     private String buildParamsJson(RecipeIngredient ingredient) {
-        return "{\"itemId\":\"" + ingredient.getItemId() + "\",\"amount\":" + ingredient.getAmount() + "}";
+        return "{\"itemId\":\"" + ingredient.itemId() + "\",\"amount\":" + ingredient.amount() + "}";
     }
 }
