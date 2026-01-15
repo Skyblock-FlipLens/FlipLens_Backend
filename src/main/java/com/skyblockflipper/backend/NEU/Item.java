@@ -1,4 +1,4 @@
-package com.yourcompany.yourapp.domain.item;
+package com.skyblockflipper.backend.NEU;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
