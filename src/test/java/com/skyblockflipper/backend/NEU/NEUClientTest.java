@@ -4,7 +4,9 @@ import com.skyblockflipper.backend.model.DataSourceHash;
 import com.skyblockflipper.backend.repository.DataSourceHashRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
@@ -24,22 +26,25 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@SpringBootTest(properties = "config.NEU.refresh-days=3")
 class NEUClientTest {
 
     @TempDir
     Path tempDir;
+    @Autowired
+    NEUClient client;
 
     @Test
-    void updateHashReturnsFalseWhenHashMatches() throws Exception {
+    void updateHashReturnsFalseWhenUpToDate() throws Exception {
         Path itemsDir = createItemsDir();
         String expectedHash = computeExpectedHash(itemsDir);
 
+        ReflectionTestUtils.setField(client, "itemsDir", itemsDir);
+
         DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
         when(repository.findBySourceKey("NEU-ITEMS"))
-                .thenReturn(new DataSourceHash(null, "NEU-ITEMS", expectedHash, Instant.EPOCH));
+                .thenReturn(new DataSourceHash(null, "NEU-ITEMS", expectedHash, Instant.now()));
 
-        NEUClient client = new NEUClient("https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO",
-                itemsDir.toString(), "master");
         ReflectionTestUtils.setField(client, "dataSourceHashRepository", repository);
 
         boolean updated = client.updateHash();
@@ -49,16 +54,34 @@ class NEUClientTest {
     }
 
     @Test
-    void updateHashSavesWhenHashChanges() throws Exception {
+    void updateHashSkipsWhenWithinRefreshWindow() throws Exception {
         Path itemsDir = createItemsDir();
         String expectedHash = computeExpectedHash(itemsDir);
 
-        DataSourceHash existing = new DataSourceHash(null, "NEU-ITEMS", "old", Instant.EPOCH);
-        DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
-        when(repository.findBySourceKey("NEU-ITEMS")).thenReturn(existing);
+        ReflectionTestUtils.setField(client, "itemsDir", itemsDir);
 
-        NEUClient client = new NEUClient("https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO",
-                itemsDir.toString(), "master");
+        DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
+        when(repository.findBySourceKey("NEU-ITEMS"))
+                .thenReturn(new DataSourceHash(null, "NEU-ITEMS", expectedHash, Instant.now().minusSeconds(60 * 60 * 24)));
+
+        ReflectionTestUtils.setField(client, "dataSourceHashRepository", repository);
+
+        boolean updated = client.updateHash();
+
+        assertFalse(updated);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void updateHashSavesWhenMissing() throws Exception {
+        Path itemsDir = createItemsDir();
+        String expectedHash = computeExpectedHash(itemsDir);
+
+        ReflectionTestUtils.setField(client, "itemsDir", itemsDir);
+
+        DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
+        when(repository.findBySourceKey("NEU-ITEMS")).thenReturn(null);
+
         ReflectionTestUtils.setField(client, "dataSourceHashRepository", repository);
 
         boolean updated = client.updateHash();

@@ -13,3 +13,4 @@ config:
     api-url: https://api.hypixel.net/v2
   NEU:
     repo-url: https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO
+    refresh-days: 1

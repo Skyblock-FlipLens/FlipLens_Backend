@@ -6,6 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -18,8 +21,11 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.stream.Stream;
@@ -28,15 +34,19 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 public class NEUClient {
+    private static final String NEU_SOURCE_KEY = "NEU-ITEMS";
     private final Path itemsDir;
     private final String repoUrl;
     private final String branch;
+    private final long refreshDays;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     @Autowired
     private DataSourceHashRepository dataSourceHashRepository;
 
     public NEUClient(@Value("${config.NEU.repo-url}") String repoUrl,
                      @Value("${config.NEU.items-dir:NotEnoughUpdates-REPO/items}") String itemsDirValue,
-                     @Value("${config.NEU.branch:master}") String branch) {
+                     @Value("${config.NEU.branch:master}") String branch,
+                     @Value("${config.NEU.refresh-days:1}") long refreshDays) {
         Path resolvedItemsDir = Paths.get(itemsDirValue);
         if (!resolvedItemsDir.isAbsolute()) {
             resolvedItemsDir = Paths.get(System.getProperty("user.dir")).resolve(resolvedItemsDir).normalize();
@@ -44,18 +54,12 @@ public class NEUClient {
         this.itemsDir = resolvedItemsDir;
         this.repoUrl = repoUrl;
         this.branch = branch;
+        this.refreshDays = refreshDays;
         log.info("NEU items dir: {}", itemsDir.toAbsolutePath());
     }
 
     public synchronized boolean updateHash() throws IOException, InterruptedException {
-        fetchData();
-        var newHash = computeItemsHash(itemsDir);
-        var oldHash = dataSourceHashRepository.findBySourceKey("NEU-ITEMS");
-        if (Objects.equals(newHash.getHash(), oldHash.getHash())) return false;
-        oldHash.setHash(newHash.getHash());
-        oldHash.setUpdatedAt(Instant.now());
-        dataSourceHashRepository.save(oldHash);
-        return true;
+        return refreshItemsIfStale();
     }
 
     public synchronized void fetchData() throws IOException, InterruptedException {
@@ -65,6 +69,77 @@ public class NEUClient {
         }
         Files.createDirectories(itemsDir);
         downloadAndExtractItems(repoUrl, branch, itemsDir);
+    }
+
+    public synchronized boolean refreshItemsIfStale() throws IOException, InterruptedException {
+        DataSourceHash existing = dataSourceHashRepository.findBySourceKey(NEU_SOURCE_KEY);
+        boolean hasItems = Files.exists(itemsDir) && hasItemFiles(itemsDir);
+        if (existing == null && hasItems) {
+            DataSourceHash newHash = computeItemsHash(itemsDir);
+            dataSourceHashRepository.save(newHash);
+            return true;
+        }
+        if (existing != null && hasItems && !isRefreshDue(existing.getUpdatedAt(), Instant.now())) {
+            return false;
+        }
+        if (Files.exists(itemsDir)) {
+            deleteDirectory(itemsDir);
+        }
+        fetchData();
+        DataSourceHash newHash = computeItemsHash(itemsDir);
+        if (existing == null) {
+            dataSourceHashRepository.save(newHash);
+        } else {
+            existing.setHash(newHash.getHash());
+            existing.setUpdatedAt(newHash.getUpdatedAt());
+            dataSourceHashRepository.save(existing);
+        }
+        return true;
+    }
+
+    private boolean isRefreshDue(Instant lastUpdated, Instant now) {
+        if (refreshDays <= 0) {
+            return true;
+        }
+        return now.isAfter(lastUpdated.plus(Duration.ofDays(refreshDays)));
+    }
+
+    private void deleteDirectory(Path dir) throws IOException {
+        try (Stream<Path> paths = Files.walk(dir)) {
+            paths.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+        } catch (RuntimeException e) {
+            if (e.getCause() instanceof IOException io) {
+                throw io;
+            }
+            throw e;
+        }
+    }
+
+
+    public synchronized List<JsonNode> loadItemJsons() throws IOException, InterruptedException {
+        refreshItemsIfStale();
+        List<Path> itemPaths;
+        try (Stream<Path> paths = Files.walk(itemsDir)) {
+            itemPaths = paths.filter(path -> Files.isRegularFile(path)
+                            && path.getFileName().toString().endsWith(".json"))
+                    .sorted(Comparator.comparing(Path::toString))
+                    .toList();
+        }
+
+        List<JsonNode> items = new ArrayList<>(itemPaths.size());
+        for (Path path : itemPaths) {
+            try (InputStream input = Files.newInputStream(path)) {
+                items.add(objectMapper.readTree(input));
+            }
+        }
+        return items;
     }
 
     private DataSourceHash computeItemsHash(Path dir) throws IOException {
@@ -102,7 +177,7 @@ public class NEUClient {
             }
             throw e;
         }
-        return new DataSourceHash("NEU-ITEMS", toHex(digest.digest()));
+        return new DataSourceHash(NEU_SOURCE_KEY, toHex(digest.digest()));
     }
 
     private String toHex(byte[] bytes) {
