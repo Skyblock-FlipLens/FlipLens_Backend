@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+server:
+  port: ${SERVER_PORT:0}
+
+config:
+  hypixel:
+    api-url: ${CONFIG_HYPIXEL_API_URL:https://api.hypixel.net/v2}
+  NEU:
+    repo-url: ${CONFIG_NEU_REPO_URL:https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO}

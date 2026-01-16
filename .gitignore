@@ -33,3 +33,8 @@ build/
 .vscode/
 /package-lock.json
 /package.json
+
+### Local config ###
+/src/main/resources/application-local.yml
+
+###
