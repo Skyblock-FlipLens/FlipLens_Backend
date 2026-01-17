@@ -15,10 +15,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -92,6 +95,69 @@ class NEUClientTest {
         DataSourceHash saved = captor.getValue();
         assertEquals("NEU-ITEMS", saved.getSourceKey());
         assertEquals(expectedHash, saved.getHash());
+    }
+
+
+    @Test
+    void loadItemJsonsReadsItemsWhenRefreshNotDue() throws Exception {
+        Path itemsDir = createItemsDir();
+
+        ReflectionTestUtils.setField(client, "itemsDir", itemsDir);
+
+        DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
+        when(repository.findBySourceKey("NEU-ITEMS"))
+                .thenReturn(new DataSourceHash(null, "NEU-ITEMS", "hash", Instant.now()));
+
+        ReflectionTestUtils.setField(client, "dataSourceHashRepository", repository);
+
+        Set<String> ids = client.loadItemJsons().stream()
+                .map(node -> node.get("id").asString())
+                .collect(java.util.stream.Collectors.toSet());
+
+        assertEquals(Set.of("a", "b"), ids);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void resolveZipUrlSupportsGitHubAndZipUrls() {
+        String github = ReflectionTestUtils.invokeMethod(client, "resolveZipUrl",
+                "https://github.com/owner/repo", "main");
+        String githubWithSlash = ReflectionTestUtils.invokeMethod(client, "resolveZipUrl",
+                "https://github.com/owner/repo/", "dev");
+        String directZip = ReflectionTestUtils.invokeMethod(client, "resolveZipUrl",
+                "https://example.com/repo.zip", "ignored");
+
+        assertEquals("https://codeload.github.com/owner/repo/zip/refs/heads/main", github);
+        assertEquals("https://codeload.github.com/owner/repo/zip/refs/heads/dev", githubWithSlash);
+        assertEquals("https://example.com/repo.zip", directZip);
+    }
+
+    @Test
+    void resolveZipUrlRejectsUnsupportedUrl() {
+        assertThrows(IllegalArgumentException.class, () -> ReflectionTestUtils.invokeMethod(
+                client, "resolveZipUrl", "https://example.com/repo", "main"));
+    }
+
+    @Test
+    void deleteDirectoryRemovesNestedFiles() throws Exception {
+        Path dir = tempDir.resolve("to-delete");
+        Files.createDirectories(dir.resolve("nested"));
+        Files.writeString(dir.resolve("nested").resolve("a.json"), "{\"id\":\"a\"}");
+
+        ReflectionTestUtils.invokeMethod(client, "deleteDirectory", dir);
+
+        assertFalse(Files.exists(dir));
+    }
+
+    @Test
+    void isRefreshDueRespectsZeroRefreshWindow() {
+        NEUClient zeroRefreshClient = new NEUClient("https://github.com/owner/repo",
+                tempDir.toString(), "main", 0);
+        Boolean due = ReflectionTestUtils.invokeMethod(zeroRefreshClient, "isRefreshDue",
+                Instant.now(), Instant.now());
+
+        assertNotNull(due);
+        assertTrue(due);
     }
 
     private Path createItemsDir() throws IOException {

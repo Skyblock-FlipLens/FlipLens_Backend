@@ -30,6 +30,66 @@ class StepTest {
         assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
     }
 
+
+    @Test
+    void validateDefaultsNullResourceAndScheduling() {
+        Step step = new Step(null, StepType.CRAFT, DurationType.FIXED, 5L, null,
+                null, 0, null, null);
+
+        ReflectionTestUtils.invokeMethod(step, "validate");
+
+        assertEquals(StepResource.NONE, step.getResource());
+        assertEquals(SchedulingPolicy.NONE, step.getSchedulingPolicy());
+    }
+
+    @Test
+    void validateRejectsNegativeResourceUnits() {
+        Step step = new Step(null, StepType.CRAFT, DurationType.FIXED, 5L, null,
+                StepResource.NONE, -1, SchedulingPolicy.NONE, null);
+
+        assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
+    }
+
+    @Test
+    void validateRejectsMissingBaseDurationForFixed() {
+        Step step = new Step(null, StepType.CRAFT, DurationType.FIXED, null, null,
+                StepResource.NONE, 0, SchedulingPolicy.NONE, null);
+
+        assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
+    }
+
+    @Test
+    void validateRejectsNegativeBaseDurationForFixed() {
+        Step step = new Step(null, StepType.CRAFT, DurationType.FIXED, -1L, null,
+                StepResource.NONE, 0, SchedulingPolicy.NONE, null);
+
+        assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
+    }
+
+    @Test
+    void validateRejectsBuySellInvalidDuration() {
+        Step step = new Step(null, StepType.BUY, DurationType.FIXED, 5L, null,
+                StepResource.NONE, 0, SchedulingPolicy.BEST_EFFORT, null);
+
+        assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
+    }
+
+    @Test
+    void validateRejectsBuySellWithResource() {
+        Step step = new Step(null, StepType.SELL, DurationType.INSTANT, 1L, null,
+                StepResource.FORGE_SLOT, 1, SchedulingPolicy.BEST_EFFORT, null);
+
+        assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
+    }
+
+    @Test
+    void validateRejectsBuySellWithWrongScheduling() {
+        Step step = new Step(null, StepType.BUY, DurationType.INSTANT, 1L, null,
+                StepResource.NONE, 0, SchedulingPolicy.NONE, null);
+
+        assertThrows(IllegalStateException.class, () -> ReflectionTestUtils.invokeMethod(step, "validate"));
+    }
+
     @Test
     void factoryMethodsSetExpectedDefaults() {
         Step buy = Step.forBuyMarketBased(25L, "{}");

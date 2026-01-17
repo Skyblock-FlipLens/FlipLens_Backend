@@ -3,7 +3,7 @@
     <option name="ALTERNATIVE_JRE_PATH" value="openjdk-21" />
     <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
     <option name="MAIN_CLASS_NAME" value="com.skyblockflipper.backend.SkyblockFlipperBackendApplication" />
-    <module name="TBD" />
+    <module name="SkyblockFlipperBackend" />
     <option name="VM_PARAMETERS" value="-Dspring.profiles.active=test" />
     <extension name="coverage">
       <pattern>

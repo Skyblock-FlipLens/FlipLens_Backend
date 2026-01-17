@@ -39,4 +39,43 @@ class FlipTest {
 
         assertFalse(flip.requiresForgeSlot());
     }
+
+
+    @Test
+    void setStepsAndConstraintsHandleNulls() {
+        Flip flip = new Flip(null, FlipType.CRAFTING, null, "item", null);
+
+        assertEquals(0, flip.getSteps().size());
+        assertEquals(0, flip.getConstraints().size());
+
+        flip.setSteps(null);
+        flip.setConstraints(null);
+
+        assertEquals(0, flip.getSteps().size());
+        assertEquals(0, flip.getConstraints().size());
+    }
+
+    @Test
+    void constructorCopiesStepsList() {
+        Step buy = new Step(null, StepType.BUY, DurationType.MARKET_BASED, 30L, null,
+                null, 0, null, null);
+        List<Step> steps = new java.util.ArrayList<>(List.of(buy));
+
+        Flip flip = new Flip(null, FlipType.CRAFTING, steps, "item", List.of());
+        steps.add(Step.forCraftInstant(10L));
+
+        assertEquals(1, flip.getSteps().size());
+    }
+
+    @Test
+    void totalDurationSkipsNullBaseSeconds() {
+        Step craft = new Step(null, StepType.CRAFT, DurationType.FIXED, null, null,
+                null, 0, null, null);
+        Step forge = Step.forForgeFixed(60L);
+
+        Flip flip = new Flip(null, FlipType.CRAFTING, List.of(craft, forge), "item", List.of());
+
+        assertEquals(Duration.ofSeconds(60L), flip.getTotalDuration());
+    }
+
 }
