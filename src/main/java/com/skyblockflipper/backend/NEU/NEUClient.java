@@ -214,6 +214,7 @@ public class NEUClient {
                 throw new IOException("Failed to download NEU repo zip: HTTP " + response.statusCode());
             }
 
+            Path normalizedTargetDir = targetDir.toAbsolutePath().normalize();
             int extracted = 0;
             try (InputStream fileStream = Files.newInputStream(tempZip);
                  ZipInputStream zipStream = new ZipInputStream(fileStream)) {
@@ -228,7 +229,10 @@ public class NEUClient {
                         continue;
                     }
                     String relative = name.substring(itemsIndex + "/items/".length());
-                    Path outPath = targetDir.resolve(relative);
+                    Path outPath = targetDir.resolve(relative).toAbsolutePath().normalize();
+                    if (!outPath.startsWith(normalizedTargetDir)) {
+                        throw new IOException("Bad zip entry (Zip Slip attempt): " + name);
+                    }
                     Files.createDirectories(outPath.getParent());
                     Files.copy(zipStream, outPath, StandardCopyOption.REPLACE_EXISTING);
                     extracted++;
