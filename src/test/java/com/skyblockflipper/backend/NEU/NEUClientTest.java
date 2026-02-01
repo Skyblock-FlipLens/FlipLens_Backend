@@ -9,20 +9,24 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -111,10 +115,16 @@ class NEUClientTest {
         ReflectionTestUtils.setField(client, "dataSourceHashRepository", repository);
 
         Set<String> ids = client.loadItemJsons().stream()
-                .map(node -> node.get("id").asString())
+                .map(node -> {
+                    String id = getString(node.path("id"));
+                    if (id.isBlank()) {
+                        id = getString(node.path("internalname"));
+                    }
+                    return id;
+                })
                 .collect(java.util.stream.Collectors.toSet());
 
-        assertEquals(Set.of("a", "b"), ids);
+        assertEquals(Set.of("ARMOR_OF_YOG_BOOTS", "ARMADILLO;5"), ids);
         verify(repository, never()).save(any());
     }
 
@@ -136,6 +146,90 @@ class NEUClientTest {
     void resolveZipUrlRejectsUnsupportedUrl() {
         assertThrows(IllegalArgumentException.class, () -> ReflectionTestUtils.invokeMethod(
                 client, "resolveZipUrl", "https://example.com/repo", "main"));
+    }
+
+    @Test
+    void fetchDataSkipsWhenItemsAlreadyPresent() throws Exception {
+        Path itemsDir = tempDir.resolve("existing-items");
+        Files.createDirectories(itemsDir);
+        Files.writeString(itemsDir.resolve("already.json"), "{\"id\":\"x\"}");
+
+        NEUClient localClient = new NEUClient("https://example.com/repo.zip",
+                itemsDir.toString(), "main", 1, new NEUItemFilterHandler());
+
+        localClient.fetchData();
+
+        assertTrue(Files.exists(itemsDir.resolve("already.json")));
+    }
+
+    @Test
+    void downloadAndExtractItemsDownloadsZipWithItems() throws Exception {
+        byte[] zipBytes = buildZip(Map.of(
+                "repo/items/ITEM_A.json", "{\"id\":\"ITEM_A\"}",
+                "repo/README.txt", "ignore"
+        ));
+        HttpServer server = startZipServer(zipBytes);
+        String url = "http://localhost:" + server.getAddress().getPort() + "/repo.zip";
+
+        Path itemsDir = tempDir.resolve("downloaded-items");
+        Files.createDirectories(itemsDir);
+
+        try {
+            ReflectionTestUtils.invokeMethod(client, "downloadAndExtractItems", url, "main", itemsDir);
+        } finally {
+            server.stop(0);
+        }
+
+        assertTrue(Files.exists(itemsDir.resolve("ITEM_A.json")));
+    }
+
+    @Test
+    void downloadAndExtractItemsThrowsWhenNoItemJsons() throws Exception {
+        byte[] zipBytes = buildZip(Map.of(
+                "repo/README.txt", "no items here"
+        ));
+        HttpServer server = startZipServer(zipBytes);
+        String url = "http://localhost:" + server.getAddress().getPort() + "/repo.zip";
+
+        Path itemsDir = tempDir.resolve("downloaded-empty");
+        Files.createDirectories(itemsDir);
+
+        try {
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> ReflectionTestUtils.invokeMethod(
+                    client, "downloadAndExtractItems", url, "main", itemsDir));
+            assertInstanceOf(IOException.class, thrown.getCause());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void refreshItemsIfStaleDownloadsAndUpdatesHash() throws Exception {
+        byte[] zipBytes = buildZip(Map.of(
+                "repo/items/ITEM_B.json", "{\"id\":\"ITEM_B\"}"
+        ));
+        HttpServer server = startZipServer(zipBytes);
+        String url = "http://localhost:" + server.getAddress().getPort() + "/repo.zip";
+
+        Path itemsDir = tempDir.resolve("refresh-items");
+        Files.createDirectories(itemsDir.resolve("nested"));
+        Files.writeString(itemsDir.resolve("nested").resolve("old.json"), "{\"id\":\"old\"}");
+
+        NEUClient localClient = new NEUClient(url, itemsDir.toString(), "main", 1, new NEUItemFilterHandler());
+        DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
+        when(repository.findBySourceKey("NEU-ITEMS"))
+                .thenReturn(new DataSourceHash(null, "NEU-ITEMS", "old-hash", Instant.now().minus(Duration.ofDays(10))));
+        ReflectionTestUtils.setField(localClient, "dataSourceHashRepository", repository);
+
+        try {
+            boolean updated = localClient.refreshItemsIfStale();
+            assertTrue(updated);
+        } finally {
+            server.stop(0);
+        }
+
+        verify(repository).save(any(DataSourceHash.class));
+        assertTrue(Files.exists(itemsDir.resolve("ITEM_B.json")));
     }
 
     @Test
@@ -162,12 +256,53 @@ class NEUClientTest {
 
     private Path createItemsDir() throws IOException {
         Path itemsDir = tempDir.resolve("items");
-        Files.createDirectories(itemsDir.resolve("nested"));
-        Files.writeString(itemsDir.resolve("nested").resolve("a.json"),
-                "{\"id\":\"a\",\"recipe\":{\"A1\":\"ITEM:1\"}}");
-        Files.writeString(itemsDir.resolve("b.json"),
-                "{\"id\":\"b\",\"recipes\":[{\"type\":\"forge\"}]}");
+        Path nested = itemsDir.resolve("nested");
+        Files.createDirectories(nested);
+        copyTestJson("test_jsons/ARMOR_OF_YOG_BOOTS.json", nested.resolve("ARMOR_OF_YOG_BOOTS.json"));
+        copyTestJson("test_jsons/ARMADILLO;5.json", itemsDir.resolve("ARMADILLO;5.json"));
         return itemsDir;
+    }
+
+    private void copyTestJson(String resourcePath, Path destination) throws IOException {
+        try (var input = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+            if (input == null) {
+                throw new IOException("Missing test resource: " + resourcePath);
+            }
+            Files.copy(input, destination);
+        }
+    }
+
+    private String getString(tools.jackson.databind.JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        String value = node.asString();
+        return value == null ? "" : value;
+    }
+
+    private HttpServer startZipServer(byte[] zipBytes) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/repo.zip", exchange -> {
+            exchange.sendResponseHeaders(200, zipBytes.length);
+            try (OutputStream output = exchange.getResponseBody()) {
+                output.write(zipBytes);
+            }
+        });
+        server.start();
+        return server;
+    }
+
+    private byte[] buildZip(Map<String, String> entries) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zipStream = new ZipOutputStream(output)) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                ZipEntry zipEntry = new ZipEntry(entry.getKey());
+                zipStream.putNextEntry(zipEntry);
+                zipStream.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zipStream.closeEntry();
+            }
+        }
+        return output.toByteArray();
     }
 
     private String computeExpectedHash(Path dir) throws Exception {
