@@ -1,4 +1,4 @@
-package com.skyblockflipper.backend.repository;
+package com.skyblockflipper.backend.NEU.repository;
 
 import com.skyblockflipper.backend.NEU.model.Item;
 import org.springframework.data.jpa.repository.JpaRepository;
