@@ -13,6 +13,7 @@ server:
 config:
   hypixel:
     api-url: ${CONFIG_HYPIXEL_API_URL:https://api.hypixel.net/v2}
+    api-key: ${CONFIG_HYPIXEL_API_KEY:}
   NEU:
     repo-url: ${CONFIG_NEU_REPO_URL:https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO}
     refresh-days: ${CONFIG_NEU_REFRESH_DAYS:1}
