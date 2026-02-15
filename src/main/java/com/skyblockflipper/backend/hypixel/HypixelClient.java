@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
@@ -72,15 +74,25 @@ public class HypixelClient {
             return;
         }
         log.info(new ObjectMapper().writeValueAsString(result.getTotalAuctions()));
-        log.info(new ObjectMapper().writeValueAsString(result.getAuctions().getFirst().getAuctioneer()));
+        if (result.getAuctions() != null && !result.getAuctions().isEmpty()) {
+            log.info(new ObjectMapper().writeValueAsString(result.getAuctions().getFirst().getAuctioneer()));
+        }
         log.info(new ObjectMapper().writeValueAsString(result.getLastUpdated()));
     }
 
     private <T> T request(String uri, ParameterizedTypeReference<T> responseType) {
-        RestClient.RequestHeadersSpec<?> request = restClient.get().uri(uri);
-        if (!apiKey.isBlank()) {
-            request = request.header("API-Key", apiKey);
+        try {
+            RestClient.RequestHeadersSpec<?> request = restClient.get().uri(uri);
+            if (!apiKey.isBlank()) {
+                request = request.header("API-Key", apiKey);
+            }
+            return request.retrieve().body(responseType);
+        } catch (RestClientResponseException e) {
+            log.warn("Hypixel request failed for {} with status {}: {}", uri, e.getStatusCode(), e.getStatusText());
+            return null;
+        } catch (RestClientException e) {
+            log.warn("Hypixel request failed for {}: {}", uri, e.getMessage());
+            return null;
         }
-        return request.retrieve().body(responseType);
     }
 }
