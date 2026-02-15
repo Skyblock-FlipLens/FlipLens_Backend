@@ -155,7 +155,7 @@ class NEUClientTest {
         Files.writeString(itemsDir.resolve("already.json"), "{\"id\":\"x\"}");
 
         NEUClient localClient = new NEUClient("https://example.com/repo.zip",
-                itemsDir.toString(), "main", 1, new NEUItemFilterHandler());
+                itemsDir.toString(), "main", 1, new NEUItemFilterHandler(), mock(DataSourceHashRepository.class));
 
         localClient.fetchData();
 
@@ -215,7 +215,8 @@ class NEUClientTest {
         Files.createDirectories(itemsDir.resolve("nested"));
         Files.writeString(itemsDir.resolve("nested").resolve("old.json"), "{\"id\":\"old\"}");
 
-        NEUClient localClient = new NEUClient(url, itemsDir.toString(), "main", 1, new NEUItemFilterHandler());
+        NEUClient localClient = new NEUClient(url, itemsDir.toString(), "main", 1,
+                new NEUItemFilterHandler(), mock(DataSourceHashRepository.class));
         DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
         when(repository.findBySourceKey("NEU-ITEMS"))
                 .thenReturn(new DataSourceHash(null, "NEU-ITEMS", "old-hash", Instant.now().minus(Duration.ofDays(10))));
@@ -246,7 +247,7 @@ class NEUClientTest {
     @Test
     void isRefreshDueRespectsZeroRefreshWindow() {
         NEUClient zeroRefreshClient = new NEUClient("https://github.com/owner/repo",
-                tempDir.toString(), "main", 0, new NEUItemFilterHandler());
+                tempDir.toString(), "main", 0, new NEUItemFilterHandler(), mock(DataSourceHashRepository.class));
         Boolean due = ReflectionTestUtils.invokeMethod(zeroRefreshClient, "isRefreshDue",
                 Instant.now(), Instant.now());
 

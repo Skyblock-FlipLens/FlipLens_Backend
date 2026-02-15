@@ -3,7 +3,6 @@ package com.skyblockflipper.backend.NEU;
 import com.skyblockflipper.backend.model.DataSourceHash;
 import com.skyblockflipper.backend.repository.DataSourceHashRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -41,14 +40,15 @@ public class NEUClient {
     private final long refreshDays;
     private final NEUItemFilterHandler itemFilterHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    @Autowired
-    private DataSourceHashRepository dataSourceHashRepository;
+    private final DataSourceHashRepository dataSourceHashRepository;
 
     public NEUClient(@Value("${config.NEU.repo-url}") String repoUrl,
                      @Value("${config.NEU.items-dir:NotEnoughUpdates-REPO/items}") String itemsDirValue,
                      @Value("${config.NEU.branch:master}") String branch,
                      @Value("${config.NEU.refresh-days:1}") long refreshDays,
-                     NEUItemFilterHandler itemFilterHandler) {
+                     NEUItemFilterHandler itemFilterHandler,
+                     DataSourceHashRepository dataSourceHashRepository) {
+        this.dataSourceHashRepository = dataSourceHashRepository;
         Path resolvedItemsDir = Paths.get(itemsDirValue);
         if (!resolvedItemsDir.isAbsolute()) {
             resolvedItemsDir = Paths.get(System.getProperty("user.dir")).resolve(resolvedItemsDir).normalize();

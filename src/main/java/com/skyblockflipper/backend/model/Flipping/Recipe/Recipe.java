@@ -32,7 +32,7 @@ public class Recipe {
     private long processDurationSeconds;
 
     @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<RecipeIngredient> ingredients = new ArrayList<>();
+    private final List<RecipeIngredient> ingredients = new ArrayList<>();
 
     public Recipe(String recipeId, Item outputItem, RecipeProcessType processType, long processDurationSeconds,
                   List<RecipeIngredient> ingredients) {
