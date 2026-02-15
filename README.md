@@ -12,23 +12,26 @@ Zielbild:
 - Fokus auf **deterministische Berechnungen**, **ROI/ROI-h**, **Kapitalbindung** und später **Risk/Liquidity-Scoring**.
 - API-First statt UI-First: Das Backend ist als Plattform gedacht, auf der Dashboards, Bots oder Research-Tools aufsetzen können.
 
-## Features
+## Funktionen (Ist-Stand)
 
 Aktueller Stand (im Repository vorhanden):
 - Spring Boot 4 Backend mit Java 21.
 - Persistenz mit Spring Data JPA.
 - Datenquellen-Clients für:
-  - Hypixel Auction API.
+  - Hypixel Auction API (einzelne Seite + Multi-Page Fetch).
+  - Hypixel Bazaar API (`/skyblock/bazaar`) inkl. `quick_status` und Summary-Strukturen.
   - NEU-Item-Daten (Download/Refresh aus dem NotEnoughUpdates-Repo).
 - Geplante/angelegte Domain-Struktur für Flips mit:
   - `Flip`, `Step`, `Constraint`, `Recipe`.
   - Berechnung von Gesamt-/Aktiv-/Passivdauer pro Flip.
 - Scheduling-Infrastruktur (ThreadPool + geplante Jobs).
+- Robuste Fehlerbehandlung im Hypixel-Client (HTTP/Netzwerkfehler werden geloggt).
+- `fetchAllAuctions()` arbeitet fail-fast bei unvollständigen Seitenabrufen, um keine leeren Marktzustände zu persistieren.
 - Dockerfile + docker-compose für Container-Betrieb.
 
-## Architecture
+## Architektur
 
-### High-Level
+### Überblick
 
 ```text
 [Hypixel API]        [NEU Repo / Items]
@@ -52,7 +55,7 @@ Aktueller Stand (im Repository vorhanden):
 - **Runtime:** Java 21
 - **Framework:** Spring Boot 4 (`web`, `validation`, `actuator`)
 - **Persistenz:** Spring Data JPA
-- **Datenbanken:** PostgreSQL (runtime), H2 (Tests)
+- **Datenbanken:** PostgreSQL (Betrieb), H2 (Tests)
 - **Scheduling:** `@EnableScheduling`, `@Scheduled`, `ThreadPoolTaskScheduler`
 - **Externe Clients:**
   - Hypixel REST via `RestClient`
@@ -67,7 +70,7 @@ Aktueller Stand (im Repository vorhanden):
 - **Domain/Model:** Flips, Steps, Constraints, Recipes
 - **Repositories:** `FlipRepository`, `RecipeRepository`, `ItemRepository`, etc.
 
-## Supported Flip Types
+## Unterstützte Flip-Typen
 
 ### Bereits im Domain-Modell als `FlipType` vorhanden
 - **Bazaar** (`BAZAAR`)
@@ -85,86 +88,45 @@ Aktueller Stand (im Repository vorhanden):
 
 > Hinweis: Aktuell sind im Code bereits die grundlegenden Flip-Domainobjekte vorhanden; die vollständige End-to-End-Abdeckung aller Ziel-Fliptypen ist als nächster Ausbauschritt zu sehen.
 
-## Unified Flip Schema (JSON Sample)
+## Unified Flip Schema (Kurzfassung)
 
-Das folgende JSON zeigt ein **geplantes, vereinheitlichtes API-Schema** für Flips.
+Geplante Kernfelder:
+- `id`, `flipType`, `snapshotTimestamp`
+- `inputItems`, `outputItems`, `steps`, `constraints`
+- `requiredCapital`, `expectedProfit`, `fees`
+- `roi`, `roiPerHour`, `durationSeconds`
+- `liquidityScore`, `riskScore`
 
+Beispiel (gekürzt):
 ```json
 {
-  "id": "a91e7fe3-4ee8-4f7d-8d84-8a9fd9b44884",
+  "id": "uuid",
   "flipType": "FORGE",
-  "snapshotTimestamp": "2026-01-12T20:45:00Z",
   "requiredCapital": 1250000,
   "expectedProfit": 185000,
   "roi": 0.148,
   "roiPerHour": 0.032,
-  "durationSeconds": 16600,
-  "fees": {
-    "auctionTax": 0,
-    "bazaarTax": 0,
-    "other": 2500
-  },
-  "liquidityScore": 0.71,
-  "riskScore": 0.38,
-  "inputItems": [
-    { "itemId": "MITHRIL_PLATE", "amount": 1, "source": "BAZAAR", "unitPrice": 890000 },
-    { "itemId": "REFINED_DIAMOND", "amount": 2, "source": "BAZAAR", "unitPrice": 180000 }
-  ],
-  "outputItems": [
-    { "itemId": "GEMSTONE_MIXTURE", "amount": 1, "targetMarket": "AUCTION", "expectedUnitPrice": 1430000 }
-  ],
-  "steps": [
-    {
-      "type": "BUY",
-      "durationType": "MARKET_BASED",
-      "baseDurationSeconds": 45,
-      "resource": "NONE",
-      "schedulingPolicy": "BEST_EFFORT",
-      "params": { "itemId": "MITHRIL_PLATE", "amount": 1 }
-    },
-    {
-      "type": "FORGE",
-      "durationType": "FIXED",
-      "baseDurationSeconds": 16500,
-      "resource": "FORGE_SLOT",
-      "resourceUnits": 1,
-      "schedulingPolicy": "LIMITED_BY_RESOURCE"
-    },
-    {
-      "type": "SELL",
-      "durationType": "MARKET_BASED",
-      "baseDurationSeconds": 55,
-      "resource": "NONE",
-      "schedulingPolicy": "BEST_EFFORT",
-      "params": { "itemId": "GEMSTONE_MIXTURE", "amount": 1 }
-    }
-  ],
-  "constraints": [
-    { "type": "MIN_CAPITAL", "longValue": 1250000 },
-    { "type": "MIN_FORGE_SLOTS", "intValue": 1 }
-  ]
+  "durationSeconds": 16600
 }
 ```
 
-## API Endpoints (planned)
+## API-Endpunkte (Ist + Planung)
 
 ### Bereits vorhanden
 - `GET /api/status` – einfacher Health-/Connectivity-Check (triggert aktuell einen Auction-Fetch).
 
+Aktuell noch nicht als öffentliche Endpunkte verfügbar:
+- Bazaar-Daten (liegen über `HypixelClient#fetchBazaar()` intern vor).
+- Vollständige Flip-Read-API (`/api/v1/flips`, `/api/v1/items`, `/api/v1/recipes`, ...).
+
 ### Geplante v1-Endpunkte
 
-- `GET /api/v1/flips`
-  - Filter: `flipType`, `minProfit`, `maxDurationSeconds`, `minRoi`, `sort`, `limit`, `offset`.
-- `GET /api/v1/flips/{id}`
-  - Details zu einem Flip inkl. Steps, Constraints, Snapshot-Metadaten.
-- `GET /api/v1/items`
-  - Item-Metadaten (NEU-basiert), Such-/Filterparameter.
-- `GET /api/v1/recipes`
-  - Rezeptdaten (Craft/Forge) inkl. Ingredients und Prozessdauer.
+- `GET /api/v1/flips` (Filter/Sortierung/Pagination)
+- `GET /api/v1/flips/{id}` (Detailansicht)
+- `GET /api/v1/items` (NEU-basierte Item-Metadaten)
+- `GET /api/v1/recipes` (Craft/Forge-Rezepte)
 - `GET /api/v1/snapshots`
-  - Verfügbare Snapshot-Zeitpunkte.
 - `GET /api/v1/snapshots/{timestamp}/flips`
-  - Reproduzierbarer Flip-Stand für Analysen/Backtests.
 
 ### API-Design-Prinzipien
 - Versionierung über `/api/v1/...`
@@ -172,13 +134,13 @@ Das folgende JSON zeigt ein **geplantes, vereinheitlichtes API-Schema** für Fli
 - Deterministische Antworten pro Snapshot
 - Erweiterbar ohne Breaking Changes (deprecate-first)
 
-## Build & Run (Docker & Local)
+## Starten (Lokal & Docker)
 
 ### Voraussetzungen
 - Java 21
 - Docker (optional, für Containerbetrieb)
 
-### Lokal (Dev)
+### Lokal
 
 ```bash
 ./mvnw clean test
@@ -191,6 +153,8 @@ Hinweise:
   - `SPRING_DATASOURCE_USERNAME`
   - `SPRING_DATASOURCE_PASSWORD`
 - Der Server-Port ist über `SERVER_PORT` steuerbar (Default fallback im Config-File).
+- Optional kann ein Hypixel API Key gesetzt werden:
+  - `CONFIG_HYPIXEL_API_KEY`
 
 Beispiel:
 
@@ -210,7 +174,7 @@ docker compose up --build
 
 Danach läuft der Service via `docker-compose.yml` auf Port `8080`.
 
-## Roadmap / Differentiators
+## Roadmap (Kurz)
 
 ### P0 – Kritisch
 - Unified Flip DTO und stabile Read-API (`/api/v1/flips`, `/api/v1/flips/{id}`)
@@ -222,22 +186,21 @@ Danach läuft der Service via `docker-compose.yml` auf Port `8080`.
 - Zeitgewichtete ROI-Kennzahlen (`ROI/h`, aktive vs. passive Zeit)
 - Kapitalbindungslogik und Ressourcen-Constraints (z. B. Forge-Slots)
 
-### P2 – Differenzierung / USP
+### P2 – Differenzierung
 - Liquidity Score + Risk Score
 - Risk-adjusted Ranking statt reinem Profit-Sorting
 - Slippage/Fill-Probability Modell
 - Multi-Step Flip Chains (DAG) inkl. Optimierung
 - Backtesting API für historische Snapshots
 
-### Mögliche Marktlücken / USP
-- **Unified Flip Abstraction Layer:** ein Contract für alle Flip-Typen.
-- **API-First Product:** ideal für externe Clients, Tools und Automationen.
-- **Snapshot + Backtesting:** reproduzierbare, auditierbare Entscheidungen.
-- **Risk/Liquidity-Normalisierung:** realitätsnähere Scores statt statischer ROI-Listen.
+USP-Fokus:
+- Einheitlicher API-Contract für alle Flip-Typen.
+- Reproduzierbare Snapshots für Analyse und Backtesting.
+- Risiko-/Liquiditäts-normalisierte Bewertung statt reinem Profit-Ranking.
 
-## Contributing
+## Mitwirken
 
-Contributions sind willkommen.
+Beiträge sind willkommen.
 
 Empfohlener Ablauf:
 1. Fork/Branch erstellen (`feature/...`, `fix/...`).
@@ -249,9 +212,3 @@ Leitlinien:
 - Kleine, fokussierte PRs.
 - Keine Breaking Changes ohne Versionierungsstrategie.
 - Neue Flip-Typen über das Unified Model integrieren.
-
-## License
-
-Aktuell liegt eine `LICENSE`-Datei im Repository.
-
-> Falls noch nicht final definiert: Lizenztext/Typ hier finalisieren (z. B. MIT, Apache-2.0, proprietär).
