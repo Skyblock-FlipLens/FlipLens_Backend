@@ -1,6 +1,5 @@
 package com.skyblockflipper.backend.model.Flipping.Recipe;
 
-import com.skyblockflipper.backend.NEU.model.Item;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;

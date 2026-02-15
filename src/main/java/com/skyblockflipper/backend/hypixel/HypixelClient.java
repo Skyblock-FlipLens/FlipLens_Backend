@@ -41,6 +41,10 @@ public class HypixelClient {
     }
 
     public List<Auction> fetchAllAuctions() {
+        return fetchAllAuctionPages().getAuctions();
+    }
+
+    public AuctionResponse fetchAllAuctionPages() {
         AuctionResponse firstPage = fetchAuctionPage(0);
         if (firstPage == null) {
             throw new IllegalStateException("Failed to fetch auctions page 0 from Hypixel API.");
@@ -59,7 +63,14 @@ public class HypixelClient {
                 allAuctions.addAll(nextPage.getAuctions());
             }
         }
-        return allAuctions;
+        return new AuctionResponse(
+                true,
+                0,
+                firstPage.getTotalPages(),
+                firstPage.getTotalAuctions(),
+                firstPage.getLastUpdated(),
+                allAuctions
+        );
     }
 
     public BazaarResponse fetchBazaar() {

@@ -92,7 +92,7 @@ public class NEUItemMapper {
                     long duration = readDurationSeconds(recipeNode);
                     recipes.add(new Recipe(buildRecipeId(item.getId(), "forge", forgeIndex++), item,
                             RecipeProcessType.FORGE, duration, ingredients));
-                } else if (isCraft) {
+                } else {
                     long duration = isKatgrade ? readDurationSeconds(recipeNode) : 0;
                     recipes.add(new Recipe(buildRecipeId(item.getId(), "craft", craftIndex++), item,
                             RecipeProcessType.CRAFT, duration, ingredients));
