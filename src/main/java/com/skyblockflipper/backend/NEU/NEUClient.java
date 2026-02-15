@@ -200,8 +200,9 @@ public class NEUClient {
 
     private void downloadAndExtractItems(String repoUrl, String branch, Path targetDir) throws IOException, InterruptedException {
         String zipUrl = resolveZipUrl(repoUrl, branch);
-        Path tempZip = Files.createTempFile("neu-repo-", ".zip");
+        Path tempZip = null;
         try {
+            tempZip = Files.createTempFile("neu-repo-", ".zip");
             HttpClient client = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.NORMAL)
                     .build();

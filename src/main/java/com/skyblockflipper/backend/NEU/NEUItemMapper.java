@@ -77,7 +77,6 @@ public class NEUItemMapper {
                         ingredients = ingredientsFromCraftingGrid(recipeNode);
                     }
                 } else if (hasCraftingGrid(recipeNode.path("slots")) || hasCraftingGrid(recipeNode)) {
-                    isCraft = true;
                     ingredients = ingredientsFromCraftingGrid(recipeNode.path("slots"));
                     if (ingredients.isEmpty()) {
                         ingredients = ingredientsFromCraftingGrid(recipeNode);
