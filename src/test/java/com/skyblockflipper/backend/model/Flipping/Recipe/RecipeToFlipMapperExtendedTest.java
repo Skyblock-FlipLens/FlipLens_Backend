@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.model.Flipping.Recipe;
 
 import com.skyblockflipper.backend.NEU.model.Item;
+import com.skyblockflipper.backend.model.Flipping.Enums.ConstraintType;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Enums.StepType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
@@ -29,7 +30,10 @@ class RecipeToFlipMapperTest {
 
         assertEquals(FlipType.FORGE, flip.getFlipType());
         assertEquals("out", flip.getResultItemId());
-        assertTrue(flip.getConstraints().isEmpty());
+        assertEquals(2, flip.getConstraints().size());
+        assertEquals(ConstraintType.RECIPE_UNLOCKED, flip.getConstraints().get(0).getType());
+        assertEquals("r1", flip.getConstraints().get(0).getStringValue());
+        assertEquals(ConstraintType.MIN_FORGE_SLOTS, flip.getConstraints().get(1).getType());
         assertEquals(StepType.BUY, flip.getSteps().get(0).getType());
         assertEquals(StepType.FORGE, flip.getSteps().get(1).getType());
         assertTrue(flip.getSteps().get(1).getBaseDurationSeconds() >= 0);

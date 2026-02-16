@@ -135,4 +135,94 @@ class UnifiedFlipDtoMapperTest {
         assertEquals(529.137055837563D, dto.roiPerHour(), 1e-9);
         assertFalse(dto.partial());
     }
+
+    @Test
+    void explicitAuctionSellUsesAuctionPriceEvenWhenBazaarPriceExists() {
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.AUCTION,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"INPUT_ITEM\",\"amount\":1,\"market\":\"BAZAAR\"}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"OUTPUT_ITEM\",\"amount\":1,\"market\":\"AUCTION\",\"durationHours\":12}")
+                ),
+                "OUTPUT_ITEM",
+                List.of()
+        );
+
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T11:00:00Z"),
+                Map.of(
+                        "INPUT_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(50D, 49D, 5000L, 4800L, 40, 35),
+                        "OUTPUT_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(100D, 100D, 5000L, 4800L, 40, 35)
+                ),
+                Map.of(
+                        "OUTPUT_ITEM", new UnifiedFlipInputSnapshot.AuctionQuote(150L, 220L, 200D, 15)
+                )
+        );
+
+        UnifiedFlipDto dto = mapper.toDto(flip, FlipCalculationContext.standard(snapshot));
+
+        assertEquals(152L, dto.requiredCapital());
+        assertEquals(48L, dto.expectedProfit());
+        assertEquals(102L, dto.fees());
+        assertFalse(dto.partial());
+    }
+
+    @Test
+    void npcBuySourceUsesNpcUnitPriceInCapitalAndProfit() {
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.CRAFTING,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"NPC_ITEM\",\"amount\":2,\"market\":\"NPC\",\"npcPrice\":100}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"NPC_ITEM\",\"amount\":2,\"market\":\"BAZAAR\"}")
+                ),
+                "NPC_ITEM",
+                List.of()
+        );
+
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T11:00:00Z"),
+                Map.of(
+                        "NPC_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(170D, 160D, 2000L, 2200L, 25, 20)
+                ),
+                Map.of()
+        );
+
+        UnifiedFlipDto dto = mapper.toDto(flip, FlipCalculationContext.standard(snapshot));
+
+        assertEquals(200L, dto.requiredCapital());
+        assertEquals(116L, dto.expectedProfit());
+        assertEquals(4L, dto.fees());
+        assertFalse(dto.partial());
+    }
+
+    @Test
+    void buyWithoutSourceMarksPartialWhenBothBazaarAndAuctionExist() {
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.CRAFTING,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"AMBIGUOUS_ITEM\",\"amount\":1}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"AMBIGUOUS_ITEM\",\"amount\":1,\"market\":\"BAZAAR\"}")
+                ),
+                "AMBIGUOUS_ITEM",
+                List.of()
+        );
+
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T11:00:00Z"),
+                Map.of(
+                        "AMBIGUOUS_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(100D, 90D, 2000L, 2200L, 25, 20)
+                ),
+                Map.of(
+                        "AMBIGUOUS_ITEM", new UnifiedFlipInputSnapshot.AuctionQuote(80L, 120L, 110D, 10)
+                )
+        );
+
+        UnifiedFlipDto dto = mapper.toDto(flip, FlipCalculationContext.standard(snapshot));
+
+        assertTrue(dto.partial());
+        assertTrue(dto.partialReasons().contains("AMBIGUOUS_INPUT_MARKET_SOURCE:AMBIGUOUS_ITEM"));
+    }
 }

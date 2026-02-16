@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.model.Flipping;
 
 import com.skyblockflipper.backend.NEU.model.Item;
+import com.skyblockflipper.backend.model.Flipping.Enums.ConstraintType;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Enums.StepType;
 import com.skyblockflipper.backend.model.Flipping.Recipe.*;
@@ -33,7 +34,11 @@ class RecipeToFlipMapperTest {
         assertEquals("REFINED_DIAMOND", flip.getResultItemId());
         assertEquals(3, flip.getSteps().size());
         assertEquals(StepType.FORGE, flip.getSteps().getLast().getType());
-        assertTrue(flip.getConstraints().isEmpty());
+        assertEquals(2, flip.getConstraints().size());
+        assertEquals(ConstraintType.RECIPE_UNLOCKED, flip.getConstraints().get(0).getType());
+        assertEquals("forge_recipe_1", flip.getConstraints().get(0).getStringValue());
+        assertEquals(ConstraintType.MIN_FORGE_SLOTS, flip.getConstraints().get(1).getType());
+        assertEquals(1, flip.getConstraints().get(1).getIntValue());
     }
 
     private Item item(String id) {
@@ -60,5 +65,8 @@ class RecipeToFlipMapperTest {
         assertEquals("ARMADILLO;5", flip.getResultItemId());
         assertEquals(3, flip.getSteps().size());
         assertEquals(StepType.WAIT, flip.getSteps().getLast().getType());
+        assertEquals(1, flip.getConstraints().size());
+        assertEquals(ConstraintType.RECIPE_UNLOCKED, flip.getConstraints().getFirst().getType());
+        assertEquals("kat_recipe_1", flip.getConstraints().getFirst().getStringValue());
     }
 }
