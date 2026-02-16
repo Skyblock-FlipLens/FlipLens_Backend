@@ -419,7 +419,6 @@ public class UnifiedFlipDtoMapper {
         boolean hasBazaar = bazaarQuote != null && bazaarQuote.buyPrice() > 0;
         boolean hasAuction = auctionQuote != null && auctionQuote.lowestStartingBid() > 0;
 
-        assert bazaarQuote != null;
         PriceQuote priceQuote = new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
@@ -429,7 +428,6 @@ public class UnifiedFlipDtoMapper {
             return null;
         }
 
-        assert auctionQuote != null;
         PriceQuote priceQuote1 = new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
             if (hasAuction) {
@@ -469,7 +467,6 @@ public class UnifiedFlipDtoMapper {
         boolean hasAuctionAverage = auctionQuote != null && auctionQuote.averageObservedPrice() > 0;
         boolean hasAuctionHighest = auctionQuote != null && auctionQuote.highestObservedBid() > 0;
 
-        assert bazaarQuote != null;
         PriceQuote priceQuote2 = new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
@@ -479,7 +476,6 @@ public class UnifiedFlipDtoMapper {
             return null;
         }
 
-        assert auctionQuote != null;
         PriceQuote priceQuote = new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
         PriceQuote priceQuote1 = new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
