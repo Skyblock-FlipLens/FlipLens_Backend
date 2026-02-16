@@ -6,6 +6,8 @@ import com.skyblockflipper.backend.model.Flipping.Enums.ConstraintType;
 import com.skyblockflipper.backend.model.Flipping.Enums.StepType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.Flipping.Step;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -19,6 +21,7 @@ import java.util.Map;
 @Component
 public class UnifiedFlipDtoMapper {
 
+    private static final Logger log = LoggerFactory.getLogger(UnifiedFlipDtoMapper.class);
     private final ObjectMapper objectMapper;
 
     public UnifiedFlipDtoMapper(ObjectMapper objectMapper) {
@@ -175,16 +178,22 @@ public class UnifiedFlipDtoMapper {
 
     private ParsedItemStack parseItemStack(String paramsJson) {
         if (paramsJson == null || paramsJson.isBlank()) {
+            log.debug("ParsedItemStack parse skipped: reason=missing_or_blank_params_json rawParamsJson='{}' parsedType={} objectMapper={}",
+                    paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName());
             return null;
         }
         try {
             JsonNode node = objectMapper.readTree(paramsJson);
             JsonNode itemNode = node.path("itemId");
             if (!itemNode.isString()) {
+                log.warn("ParsedItemStack parse failed: reason=missing_or_invalid_itemId rawParamsJson='{}' parsedType={} objectMapper={}",
+                        paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName());
                 return null;
             }
             String itemId = itemNode.asString();
             if (itemId.isBlank()) {
+                log.warn("ParsedItemStack parse failed: reason=blank_itemId rawParamsJson='{}' parsedType={} objectMapper={}",
+                        paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName());
                 return null;
             }
             int amount = 1;
@@ -194,11 +203,21 @@ public class UnifiedFlipDtoMapper {
             } else if (amountNode.isString()) {
                 try {
                     amount = Integer.parseInt(amountNode.asString().trim());
-                } catch (NumberFormatException ignored) {
+                } catch (NumberFormatException e) {
+                    log.warn("ParsedItemStack amount parse fallback: reason=invalid_amount_format rawAmount='{}' rawParamsJson='{}' parsedType={} objectMapper={}",
+                            amountNode.asString(), paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName(), e);
                 }
+            } else if (amountNode.isMissingNode() || amountNode.isNull()) {
+                log.debug("ParsedItemStack amount defaulted: reason=missing_amount rawParamsJson='{}' parsedType={} objectMapper={}",
+                        paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName());
+            } else {
+                log.warn("ParsedItemStack amount defaulted: reason=unsupported_amount_type amountNode='{}' rawParamsJson='{}' parsedType={} objectMapper={}",
+                        amountNode, paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName());
             }
             return new ParsedItemStack(itemId, Math.max(1, amount));
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("ParsedItemStack parse failed: reason=exception_during_json_parse rawParamsJson='{}' parsedType={} objectMapper={}",
+                    paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName(), e);
             return null;
         }
     }
