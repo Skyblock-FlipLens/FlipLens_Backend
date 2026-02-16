@@ -208,9 +208,8 @@ public class NEUClient {
 
     private void downloadAndExtractItems(String repoUrl, String branch, Path targetDir) throws IOException, InterruptedException {
         String zipUrl = resolveZipUrl(repoUrl, branch);
-        Path tempZip = null;
-        try {
-            tempZip = Files.createTempFile("neu-repo-", ".zip");
+        try (TemporaryFile tempZip = TemporaryFile.create("neu-repo-", ".zip")) {
+            Path tempZipPath = tempZip.path();
             HttpClient client = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.NORMAL)
                     .build();
@@ -218,15 +217,14 @@ public class NEUClient {
                     .uri(URI.create(zipUrl))
                     .GET()
                     .build();
-            HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(tempZip));
+            HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(tempZipPath));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("Failed to download NEU repo zip: HTTP " + response.statusCode());
             }
 
             Path normalizedTargetDir = targetDir.toAbsolutePath().normalize();
             int extracted = 0;
-            try (InputStream fileStream = Files.newInputStream(tempZip);
-                 ZipInputStream zipStream = new ZipInputStream(fileStream)) {
+            try (ZipInputStream zipStream = new ZipInputStream(Files.newInputStream(tempZipPath))) {
                 ZipEntry entry;
                 while ((entry = zipStream.getNextEntry()) != null) {
                     if (entry.isDirectory()) {
@@ -251,8 +249,6 @@ public class NEUClient {
             if (extracted == 0) {
                 throw new IOException("No item JSONs found in NEU repo zip.");
             }
-        } finally {
-            Files.deleteIfExists(tempZip);
         }
     }
 
@@ -273,6 +269,27 @@ public class NEUClient {
             }
         }
         throw new IllegalArgumentException("Unsupported NEU repo URL, provide a direct .zip URL: " + repoUrl);
+    }
+
+    private static final class TemporaryFile implements AutoCloseable {
+        private final Path path;
+
+        private TemporaryFile(Path path) {
+            this.path = path;
+        }
+
+        private static TemporaryFile create(String prefix, String suffix) throws IOException {
+            return new TemporaryFile(Files.createTempFile(prefix, suffix));
+        }
+
+        private Path path() {
+            return path;
+        }
+
+        @Override
+        public void close() throws IOException {
+            Files.deleteIfExists(path);
+        }
     }
 
 }
