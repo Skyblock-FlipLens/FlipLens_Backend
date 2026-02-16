@@ -419,19 +419,17 @@ public class UnifiedFlipDtoMapper {
         boolean hasBazaar = bazaarQuote != null && bazaarQuote.buyPrice() > 0;
         boolean hasAuction = auctionQuote != null && auctionQuote.lowestStartingBid() > 0;
 
-        PriceQuote priceQuote = new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
-                return priceQuote;
+                return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
             }
             partialReasons.add("MISSING_INPUT_PRICE_BAZAAR:" + itemId);
             return null;
         }
 
-        PriceQuote priceQuote1 = new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
             if (hasAuction) {
-                return priceQuote1;
+                return new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
             }
             partialReasons.add("MISSING_INPUT_PRICE_AUCTION:" + itemId);
             return null;
@@ -439,13 +437,13 @@ public class UnifiedFlipDtoMapper {
 
         if (hasBazaar && hasAuction) {
             partialReasons.add("AMBIGUOUS_INPUT_MARKET_SOURCE:" + itemId);
-            return priceQuote;
+            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         }
         if (hasBazaar) {
-            return priceQuote;
+            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         }
         if (hasAuction) {
-            return priceQuote1;
+            return new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
         }
 
         partialReasons.add("MISSING_INPUT_PRICE:" + itemId);
@@ -467,36 +465,33 @@ public class UnifiedFlipDtoMapper {
         boolean hasAuctionAverage = auctionQuote != null && auctionQuote.averageObservedPrice() > 0;
         boolean hasAuctionHighest = auctionQuote != null && auctionQuote.highestObservedBid() > 0;
 
-        PriceQuote priceQuote2 = new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
-                return priceQuote2;
+                return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
             }
             partialReasons.add("MISSING_OUTPUT_PRICE_BAZAAR:" + itemId);
             return null;
         }
 
-        PriceQuote priceQuote = new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
-        PriceQuote priceQuote1 = new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
             if (hasAuctionAverage) {
-                return priceQuote;
+                return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
             }
             if (hasAuctionHighest) {
-                return priceQuote1;
+                return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
             }
             partialReasons.add("MISSING_OUTPUT_PRICE_AUCTION:" + itemId);
             return null;
         }
 
         if (hasBazaar) {
-            return priceQuote2;
+            return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         }
         if (hasAuctionAverage) {
-            return priceQuote;
+            return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
         }
         if (hasAuctionHighest) {
-            return priceQuote1;
+            return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
         }
 
         partialReasons.add("MISSING_OUTPUT_PRICE:" + itemId);
