@@ -31,6 +31,9 @@ public class NpcShopReadService {
         try {
             offers = extractNpcShopOffers(neuClient.loadAllItemJsons());
         } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             throw new IllegalStateException("Failed to load NPC shop offers from NEU data.", e);
         }
 
