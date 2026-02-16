@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -225,7 +226,7 @@ public class UnifiedFlipDtoMapper {
                     continue;
                 }
 
-                PriceQuote quote = resolveBuyPriceQuote(parsed.itemId(), snapshot, partialReasons);
+                PriceQuote quote = resolveBuyPriceQuote(parsed, snapshot, partialReasons);
                 if (quote == null) {
                     continue;
                 }
@@ -261,7 +262,7 @@ public class UnifiedFlipDtoMapper {
         }
 
         if (!hasExplicitSellStep && flip.getResultItemId() != null && !flip.getResultItemId().isBlank()) {
-            ParsedItemStack implicitSell = new ParsedItemStack(flip.getResultItemId(), 1);
+            ParsedItemStack implicitSell = ParsedItemStack.implicitSell(flip.getResultItemId());
             SellComputation sellComputation = computeSell(
                     implicitSell,
                     null,
@@ -305,7 +306,7 @@ public class UnifiedFlipDtoMapper {
                                         UnifiedFlipInputSnapshot snapshot,
                                         FlipCalculationContext context,
                                         LinkedHashSet<String> partialReasons) {
-        PriceQuote quote = resolveSellPriceQuote(parsed.itemId(), snapshot, partialReasons);
+        PriceQuote quote = resolveSellPriceQuote(parsed, snapshot, partialReasons);
         if (quote == null) {
             return null;
         }
@@ -395,23 +396,53 @@ public class UnifiedFlipDtoMapper {
         return switch (durationHours) {
             case 1 -> 20L;
             case 6 -> 45L;
-            case 12 -> 100L;
             case 24 -> 350L;
             case 48 -> 1200L;
             default -> 100L;
         };
     }
 
-    private PriceQuote resolveBuyPriceQuote(String itemId,
+    private PriceQuote resolveBuyPriceQuote(ParsedItemStack parsed,
                                             UnifiedFlipInputSnapshot snapshot,
                                             LinkedHashSet<String> partialReasons) {
-        UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote = snapshot.bazaarQuotes().get(itemId);
-        if (bazaarQuote != null && bazaarQuote.buyPrice() > 0) {
-            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+        String itemId = parsed.itemId();
+        if (parsed.marketPreference() == MarketPreference.NPC) {
+            if (parsed.npcUnitPrice() != null && parsed.npcUnitPrice() > 0) {
+                return new PriceQuote(itemId, parsed.npcUnitPrice(), MarketSource.NPC, null, null);
+            }
+            partialReasons.add("MISSING_NPC_PRICE:" + itemId);
+            return null;
         }
 
+        UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote = snapshot.bazaarQuotes().get(itemId);
         UnifiedFlipInputSnapshot.AuctionQuote auctionQuote = snapshot.auctionQuotesByItem().get(itemId);
-        if (auctionQuote != null && auctionQuote.lowestStartingBid() > 0) {
+        boolean hasBazaar = bazaarQuote != null && bazaarQuote.buyPrice() > 0;
+        boolean hasAuction = auctionQuote != null && auctionQuote.lowestStartingBid() > 0;
+
+        if (parsed.marketPreference() == MarketPreference.BAZAAR) {
+            if (hasBazaar) {
+                return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+            }
+            partialReasons.add("MISSING_INPUT_PRICE_BAZAAR:" + itemId);
+            return null;
+        }
+
+        if (parsed.marketPreference() == MarketPreference.AUCTION) {
+            if (hasAuction) {
+                return new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
+            }
+            partialReasons.add("MISSING_INPUT_PRICE_AUCTION:" + itemId);
+            return null;
+        }
+
+        if (hasBazaar && hasAuction) {
+            partialReasons.add("AMBIGUOUS_INPUT_MARKET_SOURCE:" + itemId);
+            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+        }
+        if (hasBazaar) {
+            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+        }
+        if (hasAuction) {
             return new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
         }
 
@@ -419,19 +450,47 @@ public class UnifiedFlipDtoMapper {
         return null;
     }
 
-    private PriceQuote resolveSellPriceQuote(String itemId,
+    private PriceQuote resolveSellPriceQuote(ParsedItemStack parsed,
                                              UnifiedFlipInputSnapshot snapshot,
                                              LinkedHashSet<String> partialReasons) {
-        UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote = snapshot.bazaarQuotes().get(itemId);
-        if (bazaarQuote != null && bazaarQuote.sellPrice() > 0) {
-            return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+        String itemId = parsed.itemId();
+        if (parsed.marketPreference() == MarketPreference.NPC) {
+            partialReasons.add("UNSUPPORTED_OUTPUT_MARKET_NPC:" + itemId);
+            return null;
         }
 
+        UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote = snapshot.bazaarQuotes().get(itemId);
         UnifiedFlipInputSnapshot.AuctionQuote auctionQuote = snapshot.auctionQuotesByItem().get(itemId);
-        if (auctionQuote != null && auctionQuote.averageObservedPrice() > 0) {
+        boolean hasBazaar = bazaarQuote != null && bazaarQuote.sellPrice() > 0;
+        boolean hasAuctionAverage = auctionQuote != null && auctionQuote.averageObservedPrice() > 0;
+        boolean hasAuctionHighest = auctionQuote != null && auctionQuote.highestObservedBid() > 0;
+
+        if (parsed.marketPreference() == MarketPreference.BAZAAR) {
+            if (hasBazaar) {
+                return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+            }
+            partialReasons.add("MISSING_OUTPUT_PRICE_BAZAAR:" + itemId);
+            return null;
+        }
+
+        if (parsed.marketPreference() == MarketPreference.AUCTION) {
+            if (hasAuctionAverage) {
+                return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
+            }
+            if (hasAuctionHighest) {
+                return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
+            }
+            partialReasons.add("MISSING_OUTPUT_PRICE_AUCTION:" + itemId);
+            return null;
+        }
+
+        if (hasBazaar) {
+            return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+        }
+        if (hasAuctionAverage) {
             return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
         }
-        if (auctionQuote != null && auctionQuote.highestObservedBid() > 0) {
+        if (hasAuctionHighest) {
             return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
         }
 
@@ -548,7 +607,12 @@ public class UnifiedFlipDtoMapper {
                 log.warn("ParsedItemStack amount defaulted: reason=unsupported_amount_type amountNode='{}' rawParamsJson='{}' parsedType={} objectMapper={}",
                         amountNode, paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName());
             }
-            return new ParsedItemStack(itemId, Math.max(1, amount));
+            MarketPreference marketPreference = parseMarketPreference(node);
+            Double npcUnitPrice = null;
+            if (marketPreference == MarketPreference.NPC) {
+                npcUnitPrice = readPositiveDouble(node, "unitPrice", "npcUnitPrice", "npcPrice", "price", "coinCost");
+            }
+            return new ParsedItemStack(itemId, Math.max(1, amount), marketPreference, npcUnitPrice);
         } catch (Exception e) {
             log.warn("ParsedItemStack parse failed: reason=exception_during_json_parse rawParamsJson='{}' parsedType={} objectMapper={}",
                     paramsJson, ParsedItemStack.class.getSimpleName(), objectMapper.getClass().getName(), e);
@@ -556,9 +620,64 @@ public class UnifiedFlipDtoMapper {
         }
     }
 
+    private MarketPreference parseMarketPreference(JsonNode node) {
+        String market = "";
+        JsonNode marketNode = node.path("market");
+        if (marketNode.isString()) {
+            market = marketNode.asString("");
+        } else {
+            JsonNode sourceNode = node.path("source");
+            if (sourceNode.isString()) {
+                market = sourceNode.asString("");
+            }
+        }
+        if (market == null || market.isBlank()) {
+            return MarketPreference.ANY;
+        }
+        String normalized = market.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "BAZAAR" -> MarketPreference.BAZAAR;
+            case "AUCTION" -> MarketPreference.AUCTION;
+            case "NPC", "NPC_SHOP" -> MarketPreference.NPC;
+            default -> MarketPreference.ANY;
+        };
+    }
+
+    private Double readPositiveDouble(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode valueNode = node.path(key);
+            if (valueNode.isNumber()) {
+                double value = valueNode.asDouble();
+                if (value > 0) {
+                    return value;
+                }
+                continue;
+            }
+            if (valueNode.isString()) {
+                try {
+                    double value = Double.parseDouble(valueNode.asString().trim());
+                    if (value > 0) {
+                        return value;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Continue with fallback keys.
+                }
+            }
+        }
+        return null;
+    }
+
     private enum MarketSource {
         BAZAAR,
-        AUCTION
+        AUCTION,
+        NPC
+    }
+
+    private enum MarketPreference {
+        ANY,
+        BAZAAR,
+        AUCTION,
+        NPC
     }
 
     private record PricingComputation(
@@ -598,6 +717,14 @@ public class UnifiedFlipDtoMapper {
     ) {
     }
 
-    private record ParsedItemStack(String itemId, int amount) {
+    private record ParsedItemStack(
+            String itemId,
+            int amount,
+            MarketPreference marketPreference,
+            Double npcUnitPrice
+    ) {
+        private static ParsedItemStack implicitSell(String itemId) {
+            return new ParsedItemStack(itemId, 1, MarketPreference.ANY, null);
+        }
     }
 }

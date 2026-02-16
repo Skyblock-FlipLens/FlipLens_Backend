@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.model.Flipping.Recipe;
 
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
+import com.skyblockflipper.backend.model.Flipping.Constraint;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.Flipping.Step;
 
@@ -20,7 +21,13 @@ public class RecipeToFlipMapper {
 
         steps.add(buildProcessStep(recipe));
 
-        return new Flip(UUID.randomUUID(), mapFlipType(recipe.getProcessType()), steps, recipe.getOutputItem().getId(), List.of());
+        return new Flip(
+                UUID.randomUUID(),
+                mapFlipType(recipe.getProcessType()),
+                steps,
+                recipe.getOutputItem().getId(),
+                buildConstraints(recipe)
+        );
     }
 
     private Step buildProcessStep(Recipe recipe) {
@@ -38,6 +45,15 @@ public class RecipeToFlipMapper {
             case KATGRADE -> FlipType.KATGRADE;
             case CRAFT -> FlipType.CRAFTING;
         };
+    }
+
+    private List<Constraint> buildConstraints(Recipe recipe) {
+        List<Constraint> constraints = new ArrayList<>();
+        constraints.add(Constraint.recipeUnlocked(recipe.getRecipeId()));
+        if (recipe.getProcessType() == RecipeProcessType.FORGE) {
+            constraints.add(Constraint.minForgeSlots(1));
+        }
+        return constraints;
     }
 
     private String buildParamsJson(RecipeIngredient ingredient) {
