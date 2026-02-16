@@ -25,6 +25,8 @@ public record UnifiedFlipDto(
         Double liquidityScore,
         Double riskScore,
         Instant snapshotTimestamp,
+        boolean partial,
+        List<String> partialReasons,
         List<StepDto> steps,
         List<ConstraintDto> constraints
 ) {

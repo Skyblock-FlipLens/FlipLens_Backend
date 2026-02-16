@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -79,6 +80,17 @@ public class HypixelClient {
                 new ParameterizedTypeReference<>() {}
         );
         if (result == null || !result.isSuccess()) {
+            return null;
+        }
+        return result;
+    }
+
+    public JsonNode fetchElection() {
+        JsonNode result = request(
+                "/resources/skyblock/election",
+                new ParameterizedTypeReference<>() {}
+        );
+        if (result == null || !result.path("success").asBoolean(false)) {
             return null;
         }
         return result;

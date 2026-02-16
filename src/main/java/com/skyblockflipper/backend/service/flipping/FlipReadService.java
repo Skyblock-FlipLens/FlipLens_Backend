@@ -16,20 +16,26 @@ public class FlipReadService {
 
     private final FlipRepository flipRepository;
     private final UnifiedFlipDtoMapper unifiedFlipDtoMapper;
+    private final FlipCalculationContextService flipCalculationContextService;
 
-    public FlipReadService(FlipRepository flipRepository, UnifiedFlipDtoMapper unifiedFlipDtoMapper) {
+    public FlipReadService(FlipRepository flipRepository,
+                           UnifiedFlipDtoMapper unifiedFlipDtoMapper,
+                           FlipCalculationContextService flipCalculationContextService) {
         this.flipRepository = flipRepository;
         this.unifiedFlipDtoMapper = unifiedFlipDtoMapper;
+        this.flipCalculationContextService = flipCalculationContextService;
     }
 
     public Page<UnifiedFlipDto> listFlips(FlipType flipType, Pageable pageable) {
+        FlipCalculationContext context = flipCalculationContextService.loadCurrentContext();
         Page<Flip> flips = flipType == null
                 ? flipRepository.findAll(pageable)
                 : flipRepository.findAllByFlipType(flipType, pageable);
-        return flips.map(unifiedFlipDtoMapper::toDto);
+        return flips.map(flip -> unifiedFlipDtoMapper.toDto(flip, context));
     }
 
     public Optional<UnifiedFlipDto> findFlipById(UUID id) {
-        return flipRepository.findById(id).map(unifiedFlipDtoMapper::toDto);
+        FlipCalculationContext context = flipCalculationContextService.loadCurrentContext();
+        return flipRepository.findById(id).map(flip -> unifiedFlipDtoMapper.toDto(flip, context));
     }
 }

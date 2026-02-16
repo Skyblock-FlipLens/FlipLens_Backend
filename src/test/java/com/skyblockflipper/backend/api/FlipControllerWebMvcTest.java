@@ -56,6 +56,8 @@ class FlipControllerWebMvcTest {
                 null,
                 null,
                 Instant.parse("2026-02-16T00:00:00Z"),
+                false,
+                List.of(),
                 List.of(),
                 List.of()
         );

@@ -83,6 +83,8 @@ class FlipControllerTest {
                 null,
                 null,
                 Instant.now(),
+                false,
+                List.of(),
                 List.of(),
                 List.of()
         );
