@@ -35,7 +35,11 @@ public class FlipReadService {
     }
 
     public Optional<UnifiedFlipDto> findFlipById(UUID id) {
+        Optional<Flip> flip = flipRepository.findById(id);
+        if (flip.isEmpty()) {
+            return Optional.empty();
+        }
         FlipCalculationContext context = flipCalculationContextService.loadCurrentContext();
-        return flipRepository.findById(id).map(flip -> unifiedFlipDtoMapper.toDto(flip, context));
+        return flip.map(value -> unifiedFlipDtoMapper.toDto(value, context));
     }
 }

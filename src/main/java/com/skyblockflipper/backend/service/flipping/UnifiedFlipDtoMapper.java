@@ -392,6 +392,7 @@ public class UnifiedFlipDtoMapper {
         return switch (durationHours) {
             case 1 -> 20L;
             case 6 -> 45L;
+            case 12 -> 100L;
             case 24 -> 350L;
             case 48 -> 1200L;
             default -> 100L;
@@ -464,12 +465,17 @@ public class UnifiedFlipDtoMapper {
             return null;
         }
         double sum = 0D;
+        int nonNullCount = 0;
         for (Double value : values) {
             if (value != null) {
                 sum += value;
+                nonNullCount++;
             }
         }
-        return clamp01(sum / values.size());
+        if (nonNullCount == 0) {
+            return null;
+        }
+        return clamp01(sum / nonNullCount);
     }
 
     private double clamp01(double value) {

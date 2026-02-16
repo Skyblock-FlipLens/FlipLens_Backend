@@ -17,6 +17,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -181,5 +182,45 @@ class HypixelClientTest {
         assertNotNull(product.getQuickStatus());
         assertEquals(7, product.getQuickStatus().getBuyOrders());
         assertEquals(6, product.getQuickStatus().getSellOrders());
+    }
+
+    @Test
+    void fetchElectionUsesResourcePathRelativeToBaseV2() {
+        RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
+        tools.jackson.databind.JsonNode electionResponse = new ObjectMapper().readTree("""
+                {
+                  "success": true,
+                  "mayor": { "name": "Derpy" }
+                }
+                """);
+        when(restClient.get().uri(anyString()).retrieve().body(any(ParameterizedTypeReference.class)))
+                .thenReturn(electionResponse);
+
+        HypixelClient client = new HypixelClient("https://api.hypixel.net/v2", "");
+        ReflectionTestUtils.setField(client, "restClient", restClient);
+
+        tools.jackson.databind.JsonNode election = client.fetchElection();
+
+        assertNotNull(election);
+        assertEquals("Derpy", election.path("mayor").path("name").asString());
+        verify(restClient.get(), atLeastOnce()).uri("/resources/skyblock/election");
+    }
+
+    @Test
+    void fetchElectionReturnsNullWhenRequestFailsOrSuccessFalse() {
+        RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
+        tools.jackson.databind.JsonNode unsuccessfulResponse = new ObjectMapper().readTree("""
+                {
+                  "success": false
+                }
+                """);
+        when(restClient.get().uri(anyString()).retrieve().body(any(ParameterizedTypeReference.class)))
+                .thenReturn(unsuccessfulResponse, null);
+
+        HypixelClient client = new HypixelClient("https://api.hypixel.net/v2", "");
+        ReflectionTestUtils.setField(client, "restClient", restClient);
+
+        assertNull(client.fetchElection());
+        assertNull(client.fetchElection());
     }
 }

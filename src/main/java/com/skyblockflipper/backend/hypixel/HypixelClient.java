@@ -19,6 +19,8 @@ import java.util.List;
 @Slf4j
 @Service
 public class HypixelClient {
+    private static final String ELECTION_RESOURCE_PATH = "/resources/skyblock/election";
+
     private final RestClient restClient;
     private final String apiKey;
 
@@ -87,7 +89,7 @@ public class HypixelClient {
 
     public JsonNode fetchElection() {
         JsonNode result = request(
-                "/resources/skyblock/election",
+                ELECTION_RESOURCE_PATH,
                 new ParameterizedTypeReference<>() {}
         );
         if (result == null || !result.path("success").asBoolean(false)) {

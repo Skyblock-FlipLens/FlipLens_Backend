@@ -58,6 +58,7 @@ Every item file contains these core fields:
 ## Recipe Types
 
 ### 1. Crafting Table (`recipe`)
+
 Items crafted at a 3x3 crafting grid.
 
 **Count:** ~2,650 items with `viewrecipe`
@@ -71,6 +72,7 @@ Items crafted at a 3x3 crafting grid.
 ```
 
 ### 2. Forge (`type: "forge"`)
+
 Items crafted at the Forge.
 
 **Count:** 116 items
@@ -86,6 +88,7 @@ Items crafted at the Forge.
 ```
 
 ### 3. NPC Shop (`type: "npc_shop"`)
+
 Items bought from NPCs.
 
 **Count:** 947 items
@@ -99,6 +102,7 @@ Items bought from NPCs.
 ```
 
 ### 4. Drops (`type: "drops"`)
+
 Items dropped by mobs/sea creatures.
 
 **Count:** 386 items
@@ -121,6 +125,7 @@ Items dropped by mobs/sea creatures.
 ```
 
 ### 5. Kat Upgrade (`type: "katgrade"`)
+
 Pet upgrades via Kat.
 
 **Count:** 185 items
@@ -137,6 +142,7 @@ Pet upgrades via Kat.
 ```
 
 ### 6. Trade (`type: "trade"`)
+
 Items from villager trades.
 
 **Count:** 78 items
@@ -150,6 +156,7 @@ Items from villager trades.
 ```
 
 ### 7. Crafting (recipes array) (`type: "crafting"`)
+
 Alternative crafting format.
 
 **Count:** 296 items
@@ -235,6 +242,7 @@ Rarity can be combined with item type:
 ## Special Fields
 
 ### Pet Fields
+
 ```json
 "nbttag": "{petInfo:\"{\\\"type\\\":\\\"BEE\\\",\\\"tier\\\":\\\"LEGENDARY\\\",\\\"exp\\\":0.0}\"}"
 ```
@@ -247,12 +255,14 @@ Pet rarity tiers (filename suffix):
 - `;4` = LEGENDARY
 
 ### Enchantment Fields
+
 ```json
 "parent": "SHARPNESS;4",
 "nbttag": "{ExtraAttributes:{enchantments:{sharpness:5}}}"
 ```
 
 ### NPC Location Fields
+
 ```json
 "x": -42,
 "y": 72,
@@ -261,15 +271,19 @@ Pet rarity tiers (filename suffix):
 ```
 
 ### Vanilla Items
+
 ```json
 "vanilla": true
 ```
+
 **Count:** 490 vanilla Minecraft items
 
 ### Parent/Child Relationships
+
 ```json
 "parent": "ITEM;4"
 ```
+
 **Count:** 473 items with parent reference
 
 ---

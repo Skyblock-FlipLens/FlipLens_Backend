@@ -30,6 +30,10 @@ public record UnifiedFlipDto(
         List<StepDto> steps,
         List<ConstraintDto> constraints
 ) {
+    public UnifiedFlipDto {
+        partialReasons = partialReasons == null ? List.of() : List.copyOf(partialReasons);
+    }
+
     public record ItemStackDto(
             String itemId,
             int amount

@@ -16,6 +16,7 @@ This document describes how to filter items in the `/items` directory by type.
 ## Detailed Patterns
 
 ### Craft Items
+
 Items crafted at a crafting table have a `recipe` object with grid positions:
 
 ```json
@@ -33,6 +34,7 @@ Items crafted at a crafting table have a `recipe` object with grid positions:
 ```
 
 ### Forge Items
+
 Items from the Forge have a `recipes` array with `"type": "forge"`:
 
 ```json
@@ -47,6 +49,7 @@ Items from the Forge have a `recipes` array with `"type": "forge"`:
 ```
 
 ### Pets
+
 Pet files use a semicolon suffix indicating rarity tier:
 - `;0` = COMMON
 - `;1` = UNCOMMON
@@ -57,11 +60,13 @@ Pet files use a semicolon suffix indicating rarity tier:
 Example: `BEE;4.json` = Legendary Bee Pet
 
 NBT contains `petInfo`:
+
 ```json
 "petInfo": "{\"type\":\"BEE\",\"tier\":\"LEGENDARY\",\"exp\":0.0}"
 ```
 
 ### Shards
+
 Shard items have `SHARD` in the filename.
 
 Example: `ATTRIBUTE_SHARD_ALMIGHTY;1.json`

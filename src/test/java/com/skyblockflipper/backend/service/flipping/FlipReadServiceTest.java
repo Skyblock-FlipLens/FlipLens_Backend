@@ -18,7 +18,9 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class FlipReadServiceTest {
@@ -101,17 +103,16 @@ class FlipReadServiceTest {
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
         FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
         FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
-        FlipCalculationContext context = FlipCalculationContext.standard(null);
 
         UUID id = UUID.randomUUID();
         when(flipRepository.findById(id)).thenReturn(Optional.empty());
-        when(contextService.loadCurrentContext()).thenReturn(context);
 
         Optional<UnifiedFlipDto> result = service.findFlipById(id);
 
         assertTrue(result.isEmpty());
         verify(flipRepository).findById(id);
-        verify(contextService).loadCurrentContext();
+        verify(contextService, never()).loadCurrentContext();
+        verifyNoInteractions(mapper);
     }
 
     private UnifiedFlipDto sampleDto() {
