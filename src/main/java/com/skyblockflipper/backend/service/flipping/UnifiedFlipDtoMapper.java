@@ -396,7 +396,6 @@ public class UnifiedFlipDtoMapper {
         return switch (durationHours) {
             case 1 -> 20L;
             case 6 -> 45L;
-            case 12 -> 100L;
             case 24 -> 350L;
             case 48 -> 1200L;
             default -> 100L;
@@ -420,17 +419,21 @@ public class UnifiedFlipDtoMapper {
         boolean hasBazaar = bazaarQuote != null && bazaarQuote.buyPrice() > 0;
         boolean hasAuction = auctionQuote != null && auctionQuote.lowestStartingBid() > 0;
 
+        assert bazaarQuote != null;
+        PriceQuote priceQuote = new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
-                return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+                return priceQuote;
             }
             partialReasons.add("MISSING_INPUT_PRICE_BAZAAR:" + itemId);
             return null;
         }
 
+        assert auctionQuote != null;
+        PriceQuote priceQuote1 = new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
             if (hasAuction) {
-                return new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
+                return priceQuote1;
             }
             partialReasons.add("MISSING_INPUT_PRICE_AUCTION:" + itemId);
             return null;
@@ -438,13 +441,13 @@ public class UnifiedFlipDtoMapper {
 
         if (hasBazaar && hasAuction) {
             partialReasons.add("AMBIGUOUS_INPUT_MARKET_SOURCE:" + itemId);
-            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+            return priceQuote;
         }
         if (hasBazaar) {
-            return new PriceQuote(itemId, bazaarQuote.buyPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+            return priceQuote;
         }
         if (hasAuction) {
-            return new PriceQuote(itemId, auctionQuote.lowestStartingBid(), MarketSource.AUCTION, null, auctionQuote);
+            return priceQuote1;
         }
 
         partialReasons.add("MISSING_INPUT_PRICE:" + itemId);
@@ -466,33 +469,38 @@ public class UnifiedFlipDtoMapper {
         boolean hasAuctionAverage = auctionQuote != null && auctionQuote.averageObservedPrice() > 0;
         boolean hasAuctionHighest = auctionQuote != null && auctionQuote.highestObservedBid() > 0;
 
+        assert bazaarQuote != null;
+        PriceQuote priceQuote2 = new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
-                return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+                return priceQuote2;
             }
             partialReasons.add("MISSING_OUTPUT_PRICE_BAZAAR:" + itemId);
             return null;
         }
 
+        assert auctionQuote != null;
+        PriceQuote priceQuote = new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
+        PriceQuote priceQuote1 = new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
             if (hasAuctionAverage) {
-                return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
+                return priceQuote;
             }
             if (hasAuctionHighest) {
-                return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
+                return priceQuote1;
             }
             partialReasons.add("MISSING_OUTPUT_PRICE_AUCTION:" + itemId);
             return null;
         }
 
         if (hasBazaar) {
-            return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
+            return priceQuote2;
         }
         if (hasAuctionAverage) {
-            return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
+            return priceQuote;
         }
         if (hasAuctionHighest) {
-            return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
+            return priceQuote1;
         }
 
         partialReasons.add("MISSING_OUTPUT_PRICE:" + itemId);
@@ -624,12 +632,12 @@ public class UnifiedFlipDtoMapper {
     private MarketPreference parseMarketPreference(JsonNode node) {
         String market = "";
         JsonNode marketNode = node.path("market");
-        if (marketNode.isTextual()) {
-            market = marketNode.asText("");
+        if (marketNode.isString()) {
+            market = marketNode.asString("");
         } else {
             JsonNode sourceNode = node.path("source");
-            if (sourceNode.isTextual()) {
-                market = sourceNode.asText("");
+            if (sourceNode.isString()) {
+                market = sourceNode.asString("");
             }
         }
         if (market == null || market.isBlank()) {
@@ -654,9 +662,9 @@ public class UnifiedFlipDtoMapper {
                 }
                 continue;
             }
-            if (valueNode.isTextual()) {
+            if (valueNode.isString()) {
                 try {
-                    double value = Double.parseDouble(valueNode.asText().trim());
+                    double value = Double.parseDouble(valueNode.asString().trim());
                     if (value > 0) {
                         return value;
                     }
