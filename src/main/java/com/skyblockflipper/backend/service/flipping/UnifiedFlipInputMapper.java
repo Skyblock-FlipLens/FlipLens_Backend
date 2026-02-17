@@ -41,6 +41,8 @@ public class UnifiedFlipInputMapper {
                     record.sellPrice(),
                     record.buyVolume(),
                     record.sellVolume(),
+                    record.buyMovingWeek(),
+                    record.sellMovingWeek(),
                     record.buyOrders(),
                     record.sellOrders()
             ));

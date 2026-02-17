@@ -30,6 +30,15 @@ public class UnifiedFlipDtoMapper {
     private static final Set<Integer> AUCTION_DURATION_PRESETS_HOURS = Set.of(1, 6, 12, 24, 48);
     private static final long CLAIM_TAX_MIN_REMAINING_COINS = 1_000_000L;
 
+    private static final double LIQUIDITY_TIME_SCALE_HOURS = 1.0D;
+    private static final double LIQUIDITY_SPREAD_SCALE = 0.02D;
+    private static final double EXECUTION_SPREAD_CAP = 0.05D;
+    private static final double EXECUTION_TIME_CAP_HOURS = 6.0D;
+    private static final double EXPOSURE_TIME_CAP_HOURS = 6.0D;
+    private static final double MAX_TIME_FOR_SCORING_HOURS = 24.0D;
+    private static final double EXECUTION_SPREAD_WEIGHT = 0.5D;
+    private static final double EXECUTION_TIME_WEIGHT = 0.5D;
+
     private static final Logger log = LoggerFactory.getLogger(UnifiedFlipDtoMapper.class);
     private final ObjectMapper objectMapper;
 
@@ -202,8 +211,8 @@ public class UnifiedFlipDtoMapper {
                                               UnifiedFlipInputSnapshot snapshot,
                                               FlipCalculationContext context,
                                               LinkedHashSet<String> partialReasons) {
-        List<Double> liquiditySignals = new ArrayList<>();
-        List<Double> riskSignals = new ArrayList<>();
+        List<Double> legLiquidityScores = new ArrayList<>();
+        List<Double> legExecutionRiskScores = new ArrayList<>();
 
         long runningExposure = 0L;
         long peakExposure = 0L;
@@ -211,6 +220,9 @@ public class UnifiedFlipDtoMapper {
         long totalInputCost = 0L;
         long grossRevenue = 0L;
         long totalFees = 0L;
+        double inputFillHours = 0D;
+        double outputFillHours = 0D;
+        double craftDelayHours = 0D;
 
         List<Step> steps = flip.getSteps() == null ? List.of() : flip.getSteps();
         boolean hasExplicitSellStep = false;
@@ -236,7 +248,11 @@ public class UnifiedFlipDtoMapper {
                 totalInputCost += stepCost;
                 runningExposure += stepCost;
                 peakExposure = Math.max(peakExposure, runningExposure);
-                updateSignals(quote, liquiditySignals, riskSignals);
+                Double fillTimeHours = updateSignals(quote, parsed.amount(), TradeSide.BUY, legLiquidityScores, legExecutionRiskScores, partialReasons);
+                if (fillTimeHours != null) {
+                    inputFillHours += fillTimeHours;
+                }
+                continue;
             }
 
             if (step.getType() == StepType.SELL) {
@@ -257,8 +273,14 @@ public class UnifiedFlipDtoMapper {
                 runningExposure += sellComputation.upfrontFees();
                 peakExposure = Math.max(peakExposure, runningExposure);
                 runningExposure = Math.max(0L, runningExposure - sellComputation.netProceeds());
-                updateSignals(sellComputation.quote(), liquiditySignals, riskSignals);
+                Double fillTimeHours = updateSignals(sellComputation.quote(), parsed.amount(), TradeSide.SELL, legLiquidityScores, legExecutionRiskScores, partialReasons);
+                if (fillTimeHours != null) {
+                    outputFillHours += fillTimeHours;
+                }
+                continue;
             }
+
+            craftDelayHours += Math.max(0D, (step.getBaseDurationSeconds() == null ? 0L : step.getBaseDurationSeconds()) / 3600D);
         }
 
         if (!hasExplicitSellStep && flip.getResultItemId() != null && !flip.getResultItemId().isBlank()) {
@@ -275,20 +297,17 @@ public class UnifiedFlipDtoMapper {
                 totalFees += sellComputation.totalFees();
                 runningExposure += sellComputation.upfrontFees();
                 peakExposure = Math.max(peakExposure, runningExposure);
-                updateSignals(sellComputation.quote(), liquiditySignals, riskSignals);
+                Double fillTimeHours = updateSignals(sellComputation.quote(), implicitSell.amount(), TradeSide.SELL, legLiquidityScores, legExecutionRiskScores, partialReasons);
+                if (fillTimeHours != null) {
+                    outputFillHours += fillTimeHours;
+                }
             } else {
                 partialReasons.add("MISSING_OUTPUT_PRICE:" + flip.getResultItemId());
             }
         }
 
-        Double liquidityScore = average(liquiditySignals);
-        Double riskScore = average(riskSignals);
-        if (riskScore == null && liquidityScore != null) {
-            // Heuristic fallback: if average(riskSignals) is unavailable but liquidityScore exists,
-            // derive riskScore as inverse liquidity (low liquidity => higher risk). This is intentional
-            // and means risk/liquidity are not fully independent metrics for consumers.
-            riskScore = 1D - liquidityScore;
-        }
+        Double liquidityScore = minValue(legLiquidityScores);
+        Double riskScore = computeTotalRiskScore(legExecutionRiskScores, inputFillHours, outputFillHours, craftDelayHours);
 
         return new PricingComputation(
                 totalInputCost,
@@ -498,50 +517,127 @@ public class UnifiedFlipDtoMapper {
         return null;
     }
 
-    private void updateSignals(PriceQuote quote, List<Double> liquiditySignals, List<Double> riskSignals) {
+    private Double updateSignals(PriceQuote quote,
+                                 int amount,
+                                 TradeSide tradeSide,
+                                 List<Double> legLiquidityScores,
+                                 List<Double> legExecutionRiskScores,
+                                 LinkedHashSet<String> partialReasons) {
         if (quote == null) {
-            return;
+            return null;
         }
 
         if (quote.source() == MarketSource.BAZAAR && quote.bazaarQuote() != null) {
             UnifiedFlipInputSnapshot.BazaarQuote bazaar = quote.bazaarQuote();
-            double liquidity = clamp01((double) Math.min(bazaar.buyVolume(), bazaar.sellVolume()) / 10_000D);
-            liquiditySignals.add(liquidity);
+            double spreadRel = computeRelativeSpread(bazaar);
+            double fillTimeHours = computeFillTimeHours(bazaar, amount, tradeSide, partialReasons, quote.itemId());
 
-            if (bazaar.buyPrice() > 0) {
-                double spread = Math.max(0D, bazaar.buyPrice() - bazaar.sellPrice()) / bazaar.buyPrice();
-                riskSignals.add(clamp01(spread));
-            }
+            double liquidityScore = 100D
+                    * (1D / (1D + fillTimeHours / LIQUIDITY_TIME_SCALE_HOURS))
+                    * (1D / (1D + spreadRel / LIQUIDITY_SPREAD_SCALE));
+            legLiquidityScores.add(clamp(liquidityScore, 0D, 100D));
+
+            double spreadRisk = clamp01(spreadRel / EXECUTION_SPREAD_CAP) * 100D;
+            double timeRisk = clamp01(fillTimeHours / EXECUTION_TIME_CAP_HOURS) * 100D;
+            legExecutionRiskScores.add(
+                    (EXECUTION_SPREAD_WEIGHT * spreadRisk) + (EXECUTION_TIME_WEIGHT * timeRisk)
+            );
+            return fillTimeHours;
         }
 
         if (quote.source() == MarketSource.AUCTION && quote.auctionQuote() != null) {
             UnifiedFlipInputSnapshot.AuctionQuote auction = quote.auctionQuote();
-            double liquidity = clamp01((double) auction.sampleSize() / 20D);
-            liquiditySignals.add(liquidity);
-            riskSignals.add(1D - liquidity);
+            double sampleLiquidity = clamp((double) auction.sampleSize() / 20D, 0D, 1D);
+            legLiquidityScores.add(sampleLiquidity * 100D);
+            legExecutionRiskScores.add((1D - sampleLiquidity) * 100D);
+            return null;
         }
+
+        return null;
     }
 
-    private Double average(List<Double> values) {
+    private Double minValue(List<Double> values) {
         if (values == null || values.isEmpty()) {
             return null;
         }
-        double sum = 0D;
-        int nonNullCount = 0;
-        for (Double value : values) {
-            if (value != null) {
-                sum += value;
-                nonNullCount++;
-            }
-        }
-        if (nonNullCount == 0) {
+        return values.stream().filter(v -> v != null).min(Double::compareTo).orElse(null);
+    }
+
+    private Double computeTotalRiskScore(List<Double> legExecutionRiskScores,
+                                         double inputFillHours,
+                                         double outputFillHours,
+                                         double craftDelayHours) {
+        Double executionRisk = maxValue(legExecutionRiskScores);
+        if (executionRisk == null) {
             return null;
         }
-        return clamp01(sum / nonNullCount);
+
+        double exposureHours = inputFillHours + outputFillHours + craftDelayHours;
+        double craftRisk = clamp01(exposureHours / EXPOSURE_TIME_CAP_HOURS) * 100D;
+        double volatilityProxy = executionRisk;
+
+        return clamp(
+                (0.45D * executionRisk) + (0.35D * volatilityProxy) + (0.20D * craftRisk),
+                0D,
+                100D
+        );
+    }
+
+    private Double maxValue(List<Double> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return values.stream().filter(v -> v != null).max(Double::compareTo).orElse(null);
+    }
+
+    private double computeRelativeSpread(UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote) {
+        double high = Math.max(bazaarQuote.buyPrice(), bazaarQuote.sellPrice());
+        double low = Math.min(bazaarQuote.buyPrice(), bazaarQuote.sellPrice());
+        double mid = (high + low) / 2D;
+        if (mid <= 0D) {
+            return 1D;
+        }
+        return Math.max(0D, (high - low) / mid);
+    }
+
+    private double computeFillTimeHours(UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote,
+                                        int amount,
+                                        TradeSide tradeSide,
+                                        LinkedHashSet<String> partialReasons,
+                                        String itemId) {
+        double turnover = resolveTurnoverPerHour(bazaarQuote, tradeSide);
+        if (turnover <= 0D) {
+            partialReasons.add("ZERO_TURNOVER:" + itemId);
+            return MAX_TIME_FOR_SCORING_HOURS;
+        }
+
+        double hours = Math.max(0D, amount) / turnover;
+        if (Double.isNaN(hours) || Double.isInfinite(hours)) {
+            partialReasons.add("INVALID_FILL_TIME:" + itemId);
+            return MAX_TIME_FOR_SCORING_HOURS;
+        }
+        return clamp(hours, 0D, MAX_TIME_FOR_SCORING_HOURS);
+    }
+
+    private double resolveTurnoverPerHour(UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote, TradeSide tradeSide) {
+        if (tradeSide == TradeSide.BUY) {
+            if (bazaarQuote.sellMovingWeek() > 0) {
+                return bazaarQuote.sellMovingWeek() / 168D;
+            }
+            return bazaarQuote.sellVolume();
+        }
+        if (bazaarQuote.buyMovingWeek() > 0) {
+            return bazaarQuote.buyMovingWeek() / 168D;
+        }
+        return bazaarQuote.buyVolume();
     }
 
     private double clamp01(double value) {
-        return Math.max(0D, Math.min(1D, value));
+        return clamp(value, 0D, 1D);
+    }
+
+    private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private long ceilToLong(double value) {
@@ -665,6 +761,11 @@ public class UnifiedFlipDtoMapper {
             }
         }
         return null;
+    }
+
+    private enum TradeSide {
+        BUY,
+        SELL
     }
 
     private enum MarketSource {

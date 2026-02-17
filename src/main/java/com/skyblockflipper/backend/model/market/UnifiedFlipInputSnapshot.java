@@ -21,6 +21,8 @@ public record UnifiedFlipInputSnapshot(
             double sellPrice,
             long buyVolume,
             long sellVolume,
+            long buyMovingWeek,
+            long sellMovingWeek,
             int buyOrders,
             int sellOrders
     ) {
