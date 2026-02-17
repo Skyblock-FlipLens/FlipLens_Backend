@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UnifiedFlipDtoMapperTest {
 
-    private final UnifiedFlipDtoMapper mapper = new UnifiedFlipDtoMapper(new ObjectMapper());
+    private final UnifiedFlipDtoMapper mapper = new UnifiedFlipDtoMapper(new ObjectMapper(), new FlipRiskScorer());
 
     @Test
     void mapsCoreUnifiedFieldsFromFlip() {
@@ -254,6 +254,46 @@ class UnifiedFlipDtoMapperTest {
         assertTrue(dto.liquidityScore() >= 0D && dto.liquidityScore() <= 100D);
         assertTrue(dto.riskScore() >= 0D && dto.riskScore() <= 100D);
         assertTrue(dto.riskScore() > dto.liquidityScore());
+    }
+
+    @Test
+    void auctionLegDurationsContributeToExposureRisk() {
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T12:00:00Z"),
+                Map.of(),
+                Map.of(
+                        "INPUT_ITEM", new UnifiedFlipInputSnapshot.AuctionQuote(1_000L, 1_200L, 1_100D, 10),
+                        "OUTPUT_ITEM", new UnifiedFlipInputSnapshot.AuctionQuote(2_000L, 2_200L, 2_100D, 10)
+                )
+        );
+
+        Flip shortAuctionFlip = new Flip(
+                UUID.randomUUID(),
+                FlipType.AUCTION,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"INPUT_ITEM\",\"amount\":1,\"market\":\"AUCTION\"}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"OUTPUT_ITEM\",\"amount\":1,\"market\":\"AUCTION\",\"durationHours\":1}")
+                ),
+                "OUTPUT_ITEM",
+                List.of()
+        );
+        Flip longAuctionFlip = new Flip(
+                UUID.randomUUID(),
+                FlipType.AUCTION,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"INPUT_ITEM\",\"amount\":1,\"market\":\"AUCTION\"}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"OUTPUT_ITEM\",\"amount\":1,\"market\":\"AUCTION\",\"durationHours\":48}")
+                ),
+                "OUTPUT_ITEM",
+                List.of()
+        );
+
+        UnifiedFlipDto shortDurationDto = mapper.toDto(shortAuctionFlip, FlipCalculationContext.standard(snapshot));
+        UnifiedFlipDto longDurationDto = mapper.toDto(longAuctionFlip, FlipCalculationContext.standard(snapshot));
+
+        assertNotNull(shortDurationDto.riskScore());
+        assertNotNull(longDurationDto.riskScore());
+        assertTrue(longDurationDto.riskScore() > shortDurationDto.riskScore());
     }
 
 }

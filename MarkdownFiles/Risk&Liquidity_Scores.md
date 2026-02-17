@@ -7,7 +7,8 @@ To make scoring stable and resistant to micro-noise, the system stores **multipl
 
 ## Snapshot Layers
 
-### 1) Current / Micro Snapshots (every 5 seconds)
+### 1. Current / Micro Snapshots (every 5 seconds)
+
 **Purpose:** near-real-time monitoring, microstructure signals, fast detection of regime changes.
 
 - Every 5 seconds we fetch Bazaar quick_status data and write a `Snapshot5s`.
@@ -21,7 +22,8 @@ To make scoring stable and resistant to micro-noise, the system stores **multipl
 
 ---
 
-### 2) Minute Snapshot View (derived from 5s)
+### 2. Minute Snapshot View (derived from 5s)
+
 **Purpose:** stable short-horizon returns/volatility and fill-time stability without separate polling.
 
 We do NOT poll separately every minute. We derive minute-level metrics from the 5s window:
@@ -38,7 +40,8 @@ We do NOT poll separately every minute. We derive minute-level metrics from the 
 
 ---
 
-### 3) Daily Snapshots (one chosen 5s snapshot per day)
+### 3. Daily Snapshots (one chosen 5s snapshot per day)
+
 **Purpose:** long-horizon baseline, drift detection, and “macro” risk that cannot be inferred from a short 5s/1m window.
 
 Daily snapshots are stored as:
@@ -60,7 +63,7 @@ These features are designed to be robust against short-term manipulation/noise.
 Daily snapshots are stored using `java.time.Instant` and therefore operate in **absolute UTC time**.  
 They are not based on local calendar dates and must never depend on system timezone.
 
-### 1) Defining a Day (canonical)
+### 1. Defining a Day (canonical)
 
 `epochDay = floor(snapshotInstant.getEpochSecond() / 86400)`
 
@@ -69,7 +72,7 @@ They are not based on local calendar dates and must never depend on system timez
 
 This day key is monotonic and independent of DST, server region, JVM timezone, and local calendar assumptions.
 
-### 2) Selecting the Daily Snapshot
+### 2. Selecting the Daily Snapshot
 
 We do not poll separately once per day.  
 Daily snapshots are derived from the 5-second stream:
@@ -82,7 +85,7 @@ Equivalent replay/backfill rule:
 
 This guarantees deterministic daily anchors without requiring a midnight-exact poll.
 
-### 3) Guardrails
+### 3. Guardrails
 
 - Do not use `LocalDate.now()` for day semantics.
 - Do not use `ZonedDateTime.systemDefault()`.
@@ -96,6 +99,7 @@ This guarantees deterministic daily anchors without requiring a midnight-exact p
 The scoring model should treat each snapshot layer as producing **one estimate** per metric at evaluation time:
 
 ### A) Liquidity Score integration (mostly “current” + optionally “macro guardrails”)
+
 Liquidity is primarily a function of:
 - spread
 - fill-time (position-size aware)
@@ -112,22 +116,24 @@ Optionally, daily snapshots can add guardrails:
 - Daily data = used for **flags** and confidence, not to “average away” today’s reality.
 
 ### B) Risk Score integration (multi-timescale by design)
+
 Risk benefits from multiple horizons:
 
-1) **Execution risk (spread + fill time)**  
+1. **Execution risk (spread + fill time)**  
    Computed from the **latest snapshot** (what you face when you execute).
 
-2) **Micro price risk (1 minute)**  
+2. **Micro price risk (1 minute)**  
    Computed from the **5s window** as `sigma_1m` and `r_1m`:
 - If sigma_1m is high, short-term price movement is violent → higher risk.
 - If the engine is intended for very fast flips, weight this more.
 
-3) **Macro price risk (daily)**  
+3. **Macro price risk (daily)**  
    Computed from daily snapshots:
 - `sigma_1d(7)` or `sigma_1d(30)` for longer-term instability
 - large `|r_1d|` as momentum/regime shift proxy
 
 ### Recommended risk aggregation
+
 Compute separate risk components, then combine with fixed weights:
 
 - `R_exec`   from latest snapshot
@@ -149,7 +155,8 @@ The key principle:
 > **Snapshots are samples of a time series, not independent observations to be summed.**  
 > Every score component must be derived into a single estimate per horizon window.
 
-### 1) Never sum/average “scores per snapshot”
+### 1. Never sum/average “scores per snapshot”
+
 Bad pattern:
 - compute liquidity/risk score for every 5s snapshot
 - average them
@@ -163,23 +170,27 @@ Good pattern:
 - compute **one** latest spread/fill-time from the latest snapshot
   Then feed these single numbers into the score.
 
-### 2) Use time-based weighting (not count-based)
+### 2. Use time-based weighting (not count-based)
+
 If you do any averaging over snapshots, weight by **time delta**, not number of points:
 - for uniform 5s sampling it’s equivalent, but time-weighting remains correct if sampling jitter occurs.
 
-### 3) Robust estimators to resist spikes
+### 3. Robust estimators to resist spikes
+
 Micro windows can contain outliers. Use robust options:
 - winsorize returns at percentile caps
 - median absolute deviation (MAD) fallback when data is noisy
 - clamp fill-time and spread to reasonable caps for normalization
 
-### 4) Confidence metadata (prevents fake precision)
+### 4. Confidence metadata (prevents fake precision)
+
 Expose confidence flags:
 - `microConfidence = HIGH` only if enough 5s points exist (e.g. >= 10 points over last minute)
 - `macroConfidence = HIGH` only if enough daily points exist (e.g. >= 7 days)
   When confidence is low, reduce the weight or fall back to proxy metrics.
 
-### 5) Separate “feature computation” from “score aggregation”
+### 5. Separate “feature computation” from “score aggregation”
+
 Architecture rule:
 - `SnapshotStore` produces **features** (spreadRel, fillTime, sigma_1m, sigma_1d, returns)
 - `ScoreEngine` consumes features and applies weights
@@ -190,10 +201,12 @@ Architecture rule:
 ## Practical Data Structures
 
 ### Snapshot stores
+
 - `Store5s`: ring buffer / deque, prune entries older than `windowMs` (e.g. 60s or 300s)
 - `Store1d`: map keyed by `epochDay` storing the first 5s snapshot in each UTC day bucket
 
 ### Feature extraction API
+
 At scoring time, produce:
 
 **From latest snapshot (execution-time):**
@@ -230,15 +243,15 @@ They also allow:
 
 ## Summary of Integration Rules (Non-Negotiable)
 
-1) **Liquidity**: computed from **latest** snapshot (execution reality).
-2) **Risk**: combination of:
+1. **Liquidity**: computed from **latest** snapshot (execution reality).
+2. **Risk**: combination of:
   - latest (execution risk),
   - 1m micro-volatility (from 5s series),
   - daily macro-volatility (from daily anchors).
-3) **No snapshot-count bias**:
+3. **No snapshot-count bias**:
   - never average “scores per snapshot”
   - derive **one metric per horizon**, then score once.
-4) **Always expose confidence** and degrade gracefully when history is insufficient.
+4. **Always expose confidence** and degrade gracefully when history is insufficient.
 
 ---
 
@@ -251,8 +264,8 @@ They also allow:
 - risk weights: (exec=0.45, micro=0.35, macro=0.20) configurable
 - caps:
   - spreadCap = 5%
-  - timeCap = 6h
-  - fillTime max clamp = 24h
+  - timeCap = 6h (per-order/per-quote execution window used when scoring short-horizon execution quality).
+  - fillTime max clamp = 24h (post-observation cap applied before storing/aggregating historical fill-time metrics).
 
 ---
 

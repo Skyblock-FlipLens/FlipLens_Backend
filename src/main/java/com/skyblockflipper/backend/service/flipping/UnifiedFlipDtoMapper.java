@@ -27,24 +27,18 @@ public class UnifiedFlipDtoMapper {
     private static final double LIQUIDITY_SPREAD_SCALE = 0.02D;
     private static final double EXECUTION_SPREAD_CAP = 0.05D;
     private static final double EXECUTION_TIME_CAP_HOURS = 6.0D;
-    private static final double EXPOSURE_TIME_CAP_HOURS = 6.0D;
     private static final double MAX_TIME_FOR_SCORING_HOURS = 24.0D;
     private static final double EXECUTION_SPREAD_WEIGHT = 0.5D;
     private static final double EXECUTION_TIME_WEIGHT = 0.5D;
     private static final double STRUCTURAL_ILLIQUIDITY_PENALTY = 10D;
-    private static final double MICRO_VOLATILITY_CAP = 0.03D;
-    private static final double MICRO_RETURN_CAP = 0.05D;
-    private static final double MACRO_VOLATILITY_CAP = 0.12D;
-    private static final double MACRO_RETURN_CAP = 0.20D;
-    private static final double TOTAL_RISK_EXECUTION_WEIGHT = 0.45D;
-    private static final double TOTAL_RISK_MICRO_WEIGHT = 0.35D;
-    private static final double TOTAL_RISK_MACRO_WEIGHT = 0.20D;
 
     private static final Logger log = LoggerFactory.getLogger(UnifiedFlipDtoMapper.class);
     private final ObjectMapper objectMapper;
+    private final FlipRiskScorer flipRiskScorer;
 
-    public UnifiedFlipDtoMapper(ObjectMapper objectMapper) {
+    public UnifiedFlipDtoMapper(ObjectMapper objectMapper, FlipRiskScorer flipRiskScorer) {
         this.objectMapper = objectMapper;
+        this.flipRiskScorer = flipRiskScorer;
     }
 
     public UnifiedFlipDto toDto(Flip flip) {
@@ -254,6 +248,7 @@ public class UnifiedFlipDtoMapper {
                         quote,
                         parsed.amount(),
                         TradeSide.BUY,
+                        resolveStepDurationHours(step),
                         safeContextFeatures(context),
                         legLiquidityScores,
                         legExecutionRiskScores,
@@ -288,6 +283,7 @@ public class UnifiedFlipDtoMapper {
                         sellComputation.quote(),
                         parsed.amount(),
                         TradeSide.SELL,
+                        sellComputation.executionFillHours(),
                         safeContextFeatures(context),
                         legLiquidityScores,
                         legExecutionRiskScores,
@@ -321,6 +317,7 @@ public class UnifiedFlipDtoMapper {
                         sellComputation.quote(),
                         implicitSell.amount(),
                         TradeSide.SELL,
+                        sellComputation.executionFillHours(),
                         safeContextFeatures(context),
                         legLiquidityScores,
                         legExecutionRiskScores,
@@ -336,7 +333,7 @@ public class UnifiedFlipDtoMapper {
         }
 
         Double liquidityScore = minValue(legLiquidityScores);
-        Double riskScore = computeTotalRiskScore(
+        Double riskScore = flipRiskScorer.computeTotalRiskScore(
                 legExecutionRiskScores,
                 inputFillHours,
                 outputFillHours,
@@ -369,6 +366,7 @@ public class UnifiedFlipDtoMapper {
         long grossRevenue = floorToLong(quote.unitPrice() * parsed.amount());
         long upfrontFees = 0L;
         long totalFees = 0L;
+        Double executionFillHours = null;
 
         if (quote.source() == MarketSource.BAZAAR) {
             totalFees = ceilToLong(grossRevenue * context.bazaarTaxRate());
@@ -377,10 +375,11 @@ public class UnifiedFlipDtoMapper {
             AuctionFees auctionFees = computeAuctionFees(grossRevenue, durationHours, context.auctionTaxMultiplier());
             upfrontFees = auctionFees.listingFee() + auctionFees.durationFee();
             totalFees = auctionFees.totalFee();
+            executionFillHours = (double) durationHours;
         }
 
         long netProceeds = Math.max(0L, grossRevenue - totalFees);
-        return new SellComputation(quote, grossRevenue, upfrontFees, totalFees, netProceeds);
+        return new SellComputation(quote, grossRevenue, upfrontFees, totalFees, netProceeds, executionFillHours);
     }
 
     private int parseAuctionDurationHours(String paramsJson, LinkedHashSet<String> partialReasons) {
@@ -556,6 +555,7 @@ public class UnifiedFlipDtoMapper {
     private Double updateSignals(PriceQuote quote,
                                  int amount,
                                  TradeSide tradeSide,
+                                 Double auctionFillHours,
                                  FlipScoreFeatureSet featureSet,
                                  List<Double> legLiquidityScores,
                                  List<Double> legExecutionRiskScores,
@@ -593,7 +593,9 @@ public class UnifiedFlipDtoMapper {
             double sampleLiquidity = clamp((double) auction.sampleSize() / 20D, 0D, 1D);
             legLiquidityScores.add(sampleLiquidity * 100D);
             legExecutionRiskScores.add((1D - sampleLiquidity) * 100D);
-            return null;
+            return auctionFillHours == null || auctionFillHours <= 0D
+                    ? null
+                    : clamp(auctionFillHours, 0D, MAX_TIME_FOR_SCORING_HOURS);
         }
 
         return null;
@@ -606,124 +608,18 @@ public class UnifiedFlipDtoMapper {
         return context.scoreFeatureSet();
     }
 
+    private Double resolveStepDurationHours(Step step) {
+        if (step == null || step.getBaseDurationSeconds() == null || step.getBaseDurationSeconds() <= 0L) {
+            return null;
+        }
+        return Math.max(0D, step.getBaseDurationSeconds() / 3600D);
+    }
+
     private Double minValue(List<Double> values) {
         if (values == null || values.isEmpty()) {
             return null;
         }
         return values.stream().filter(Objects::nonNull).min(Double::compareTo).orElse(null);
-    }
-
-    private Double computeTotalRiskScore(List<Double> legExecutionRiskScores,
-                                         double inputFillHours,
-                                         double outputFillHours,
-                                         double craftDelayHours,
-                                         FlipScoreFeatureSet featureSet,
-                                         List<String> bazaarSignalItemIds) {
-        Double executionRisk = maxValue(legExecutionRiskScores);
-        if (executionRisk == null) {
-            return null;
-        }
-
-        double exposureHours = inputFillHours + outputFillHours + craftDelayHours;
-        double exposureRisk = clamp01(exposureHours / EXPOSURE_TIME_CAP_HOURS) * 100D;
-        double executionComposite = clamp((0.7D * executionRisk) + (0.3D * exposureRisk), 0D, 100D);
-
-        RiskAggregation microAggregation = aggregateTimescaleRisk(featureSet, bazaarSignalItemIds, true);
-        RiskAggregation macroAggregation = aggregateTimescaleRisk(featureSet, bazaarSignalItemIds, false);
-
-        double microWeight = TOTAL_RISK_MICRO_WEIGHT * microAggregation.confidenceFactor();
-        double macroWeight = TOTAL_RISK_MACRO_WEIGHT * macroAggregation.confidenceFactor();
-        double executionWeight = TOTAL_RISK_EXECUTION_WEIGHT
-                + (TOTAL_RISK_MICRO_WEIGHT - microWeight)
-                + (TOTAL_RISK_MACRO_WEIGHT - macroWeight);
-
-        double microRisk = microAggregation.riskScore() == null ? executionComposite : microAggregation.riskScore();
-        double macroRisk = macroAggregation.riskScore() == null ? executionComposite : macroAggregation.riskScore();
-
-        return clamp(
-                (executionWeight * executionComposite) + (microWeight * microRisk) + (macroWeight * macroRisk),
-                0D,
-                100D
-        );
-    }
-
-    private RiskAggregation aggregateTimescaleRisk(FlipScoreFeatureSet featureSet,
-                                                   List<String> bazaarSignalItemIds,
-                                                   boolean micro) {
-        if (featureSet == null || bazaarSignalItemIds == null || bazaarSignalItemIds.isEmpty()) {
-            return RiskAggregation.empty();
-        }
-
-        Set<String> uniqueItemIds = new LinkedHashSet<>(bazaarSignalItemIds);
-        List<Double> risks = new ArrayList<>();
-        double minConfidenceFactor = 1D;
-        boolean hasConfidence = false;
-
-        for (String itemId : uniqueItemIds) {
-            FlipScoreFeatureSet.ItemTimescaleFeatures itemFeatures = featureSet.get(itemId);
-            if (itemFeatures == null) {
-                continue;
-            }
-            Double risk = micro ? computeMicroRisk(itemFeatures) : computeMacroRisk(itemFeatures);
-            if (risk == null) {
-                continue;
-            }
-            risks.add(risk);
-            double confidence = micro
-                    ? itemFeatures.microConfidence().weightFactor()
-                    : itemFeatures.macroConfidence().weightFactor();
-            minConfidenceFactor = Math.min(minConfidenceFactor, confidence);
-            hasConfidence = true;
-        }
-
-        if (risks.isEmpty()) {
-            return RiskAggregation.empty();
-        }
-        double confidenceFactor = hasConfidence ? minConfidenceFactor : 0D;
-        return new RiskAggregation(maxValue(risks), confidenceFactor);
-    }
-
-    private Double computeMicroRisk(FlipScoreFeatureSet.ItemTimescaleFeatures features) {
-        if (features == null) {
-            return null;
-        }
-        Double volatility = features.microVolatility1m();
-        Double ret = features.microReturn1m();
-        return combineVolAndReturnRisk(volatility, ret, MICRO_VOLATILITY_CAP, MICRO_RETURN_CAP);
-    }
-
-    private Double computeMacroRisk(FlipScoreFeatureSet.ItemTimescaleFeatures features) {
-        if (features == null) {
-            return null;
-        }
-        Double volatility = features.macroVolatility1d();
-        Double ret = features.macroReturn1d();
-        return combineVolAndReturnRisk(volatility, ret, MACRO_VOLATILITY_CAP, MACRO_RETURN_CAP);
-    }
-
-    private Double combineVolAndReturnRisk(Double volatility,
-                                           Double ret,
-                                           double volatilityCap,
-                                           double returnCap) {
-        if (volatility == null && ret == null) {
-            return null;
-        }
-        if (volatility != null && ret != null) {
-            double volRisk = clamp01(volatility / volatilityCap) * 100D;
-            double returnRisk = clamp01(Math.abs(ret) / returnCap) * 100D;
-            return clamp((0.7D * volRisk) + (0.3D * returnRisk), 0D, 100D);
-        }
-        if (volatility != null) {
-            return clamp01(volatility / volatilityCap) * 100D;
-        }
-        return clamp01(Math.abs(ret) / returnCap) * 100D;
-    }
-
-    private Double maxValue(List<Double> values) {
-        if (values == null || values.isEmpty()) {
-            return null;
-        }
-        return values.stream().filter(Objects::nonNull).max(Double::compareTo).orElse(null);
     }
 
     private double computeRelativeSpread(UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote) {
@@ -760,12 +656,12 @@ public class UnifiedFlipDtoMapper {
             if (bazaarQuote.sellMovingWeek() > 0) {
                 return bazaarQuote.sellMovingWeek() / 168D;
             }
-            return bazaarQuote.sellVolume();
+            return bazaarQuote.sellVolume() / 168D;
         }
         if (bazaarQuote.buyMovingWeek() > 0) {
             return bazaarQuote.buyMovingWeek() / 168D;
         }
-        return bazaarQuote.buyVolume();
+        return bazaarQuote.buyVolume() / 168D;
     }
 
     private double clamp01(double value) {
@@ -928,15 +824,6 @@ public class UnifiedFlipDtoMapper {
     ) {
     }
 
-    private record RiskAggregation(
-            Double riskScore,
-            double confidenceFactor
-    ) {
-        private static RiskAggregation empty() {
-            return new RiskAggregation(null, 0D);
-        }
-    }
-
     private record PriceQuote(
             String itemId,
             double unitPrice,
@@ -959,7 +846,8 @@ public class UnifiedFlipDtoMapper {
             long grossRevenue,
             long upfrontFees,
             long totalFees,
-            long netProceeds
+            long netProceeds,
+            Double executionFillHours
     ) {
     }
 

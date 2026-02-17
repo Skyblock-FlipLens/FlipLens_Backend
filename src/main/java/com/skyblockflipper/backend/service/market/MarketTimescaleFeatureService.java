@@ -325,8 +325,8 @@ public class MarketTimescaleFeatureService {
         if (record == null) {
             return 0D;
         }
-        double buyTurnover = record.buyMovingWeek() > 0 ? record.buyMovingWeek() / 168D : record.buyVolume();
-        double sellTurnover = record.sellMovingWeek() > 0 ? record.sellMovingWeek() / 168D : record.sellVolume();
+        double buyTurnover = record.buyMovingWeek() > 0 ? record.buyMovingWeek() / 168D : record.buyVolume() / 168D;
+        double sellTurnover = record.sellMovingWeek() > 0 ? record.sellMovingWeek() / 168D : record.sellVolume() / 168D;
         return Math.max(0D, Math.min(buyTurnover, sellTurnover));
     }
 
