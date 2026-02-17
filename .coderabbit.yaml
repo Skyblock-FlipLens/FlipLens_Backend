@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "MarkdownFiles/**/*.md"
+reviews:
+  path_instructions:
+    - path: "**/*"
+      instructions: >
+        Nutze die Markdown-Dokumentation unter MarkdownFiles/ als primären Kontext
+        für Architektur-/Domain-Regeln und komponentenspezifische Entscheidungen.
+        Wenn Review-Fragen auftreten, zuerst in MarkdownFiles/ nachsehen.
