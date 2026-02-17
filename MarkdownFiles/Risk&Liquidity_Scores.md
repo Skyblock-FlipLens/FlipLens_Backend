@@ -1,230 +1,230 @@
-# Hypixel SkyBlock Flip Scoring Engine (Liquidity + Risk) — Codex Prompt
+# Multi-Timescale Snapshotting for Hypixel SkyBlock Bazaar Scoring (5s / 1m / daily)
 
-You are to implement a **Liquidity Score** and **Risk Score** system for Hypixel SkyBlock flips using **only public API data** (primarily Bazaar). The code should be clean, testable, and modular.
+This repo implements a flip scoring engine (Liquidity + Risk) for Hypixel SkyBlock Bazaar flips using public API data.  
+To make scoring stable and resistant to micro-noise, the system stores **multiple snapshot layers** and derives metrics per layer.
 
-## 0) Target Use Case
+---
 
-A “flip” can be:
-- **Simple Bazaar flip** (buy item A, sell item A)
-- **Crafting/Conversion flip** (buy inputs, craft/convert, sell outputs)
+## Snapshot Layers
 
-Example crafting flip:
-- `2.5 stacks IRON_INGOT (160) => 1 ENCHANTED_IRON`
+### 1) Current / Micro Snapshots (every 5 seconds)
+**Purpose:** near-real-time monitoring, microstructure signals, fast detection of regime changes.
 
-Scores must be **position-size aware**: liquidity/risk depend on the quantities in the flip.
+- Every 5 seconds we fetch Bazaar quick_status data and write a `Snapshot5s`.
+- Each snapshot contains:
+  - `timestamp`
+  - per-item `buyPrice`, `sellPrice`, `buyMovingWeek`, `sellMovingWeek`, `buyVolume`, `sellVolume`, `buyOrders`, `sellOrders`, etc.
+- Retention:
+  - keep a rolling window (e.g. **last 60–300 seconds**) using prune-by-age.
 
-## 1) Data Source & Assumptions
+**Important:** 5s snapshots are *not* used as independent “votes” in scoring. They are used as a **time series** to compute *one* estimate per metric (e.g. rolling volatility). This prevents “many snapshots” from artificially amplifying any score component.
 
-### Bazaar endpoint
-Use:
-- `GET https://api.hypixel.net/skyblock/bazaar`
+---
 
-The response contains:
-- `products.<PRODUCT_ID>.quick_status` with fields like:
-  - `buyPrice`, `sellPrice`
-  - `buyVolume`, `sellVolume`
-  - `buyMovingWeek`, `sellMovingWeek`  (7-day traded volume)  [oai_citation:0‡Hypixel Forums](https://hypixel.net/threads/bazaar-api-what-is-buymovingweek-and-sellmovingweek.3795521/?utm_source=chatgpt.com)
-  - `buyOrders`, `sellOrders`
+### 2) Minute Snapshot View (derived from 5s)
+**Purpose:** stable short-horizon returns/volatility and fill-time stability without separate polling.
 
-Notes:
-- `buyMovingWeek`/`sellMovingWeek` represent volume over the last 7 days; convert to per-hour by dividing by 168.  [oai_citation:1‡Hypixel Forums](https://hypixel.net/threads/bazaar-api-what-is-buymovingweek-and-sellmovingweek.3795521/?utm_source=chatgpt.com)
-- Use the all-products endpoint `/skyblock/bazaar` (not deprecated per-product endpoints).  [oai_citation:2‡Hypixel Forums](https://hypixel.net/threads/bazaar-api.4989082/?utm_source=chatgpt.com)
-- Price access path examples: `products.ITEM_ID.quick_status.sellPrice` etc.  [oai_citation:3‡Hypixel Forums](https://hypixel.net/threads/how-i-gonna-get-bazaar-item-sell-price-using-hypixels-api.4617428/?utm_source=chatgpt.com)
+We do NOT poll separately every minute. We derive minute-level metrics from the 5s window:
 
-### Execution model
-Each leg of a flip is executed in one of these modes:
-- `INSTANT_BUY`  -> pay `sellPrice`
-- `BUY_ORDER`    -> pay `buyPrice` (approx; optionally + tick)
-- `INSTANT_SELL` -> receive `buyPrice`
-- `SELL_OFFER`   -> receive `sellPrice` (approx; optionally - tick)
+- Define `mid = (buyPrice + sellPrice)/2`
+- Use the 5s snapshots covering the last 60 seconds to compute:
+  - **1m return**: `r_1m = ln(mid_now / mid_1m_ago)` (using a selected 1m-ago point)
+  - **1m micro-volatility**: `sigma_1m = stdev( ln(mid_t / mid_{t-1}) )` across the 5s series in the window
+  - Optional: min/max mid over the minute, spread statistics
 
-The scoring engine must accept an `ExecutionMode` per leg.
+**Boundary rule (recommended):**
+- `mid_1m_ago` is the snapshot with timestamp **closest to (now - 60s)** (tie-breaker: earlier).
+- If not available (startup), volatility confidence is downgraded.
 
-## 2) Core Definitions
+---
 
-For an item i:
+### 3) Daily Snapshots (one chosen 5s snapshot per day)
+**Purpose:** long-horizon baseline, drift detection, and “macro” risk that cannot be inferred from a short 5s/1m window.
 
-### Mid price
-mid_i = (buyPrice_i + sellPrice_i) / 2
+Daily snapshots are stored as:
+- A deterministic daily anchor such as:
+  - the snapshot closest to **00:00 UTC** (or a fixed local time), OR
+  - the first snapshot after a fixed daily timestamp.
+- Store as `Snapshot1d` (essentially a selected `Snapshot5s` with a day key).
 
-### Relative spread (microstructure risk proxy)
-spreadRel_i = (sellPrice_i - buyPrice_i) / mid_i
+From daily snapshots you can compute long-horizon features:
+- **1d return**: `r_1d = ln(mid_today / mid_yesterday)`
+- **rolling daily volatility** over N days: `sigma_1d(N)` using daily log returns
+- **trend / regime**: moving averages, z-scores, anomaly flags
 
-### Turnover (per hour) from moving week
-turnoverBuy_i  = buyMovingWeek_i  / 168
-turnoverSell_i = sellMovingWeek_i / 168
+These features are designed to be robust against short-term manipulation/noise.
 
-Interpretation:
-- If you want to **buy instantly**, your fill is limited by sell-side turnover: use `turnoverSell`
-- If you want to **sell instantly**, your fill is limited by buy-side turnover: use `turnoverBuy`
+---
 
-### Fill time approximation (hours)
-Given desired quantity Q:
-- fillTimeBuyHours  ≈ Q / turnoverSell_i   (for INSTANT_BUY)
-- fillTimeSellHours ≈ Q / turnoverBuy_i    (for INSTANT_SELL)
+## How to Integrate Snapshots into the Score Calculations
 
-For order-based execution (BUY_ORDER / SELL_OFFER), use the same turnover approximation but mark the result as **optimistic** (actual fill may be slower).
+The scoring model should treat each snapshot layer as producing **one estimate** per metric at evaluation time:
 
-If turnover is 0, treat fill time as infinite (or a very large cap).
+### A) Liquidity Score integration (mostly “current” + optionally “macro guardrails”)
+Liquidity is primarily a function of:
+- spread
+- fill-time (position-size aware)
+- bottleneck legs
 
-## 3) Flip Modeling
+These are computed using the **latest snapshot** (current market state), because liquidity is an execution-time property.
 
-A flip is a set of legs:
+Optionally, daily snapshots can add guardrails:
+- If daily spread/turnover indicates chronic illiquidity (e.g., persistent near-zero movingWeek or extreme spread),
+  you can apply a small penalty or flag as “structurally illiquid”.
 
-- Inputs: list of `Leg(itemId, qty, side=BUY, executionMode)`
-- Outputs: list of `Leg(itemId, qty, side=SELL, executionMode)`
+**Rule of thumb:**
+- Liquidity score = based on **latest** prices/spreads/turnover.
+- Daily data = used for **flags** and confidence, not to “average away” today’s reality.
 
-For crafting flips, represent a recipe/conversion as:
-- A mapping of input quantities -> output quantities.
-- The scoring engine does NOT need to simulate crafting; assume instantaneous craft for now,
-  but include a configurable `craftDelaySeconds` and a `craftOverheadRisk` component.
+### B) Risk Score integration (multi-timescale by design)
+Risk benefits from multiple horizons:
 
-## 4) Liquidity Score (0..100)
+1) **Execution risk (spread + fill time)**  
+   Computed from the **latest snapshot** (what you face when you execute).
 
-Liquidity should reflect:
-- low spread (better)
-- low fill time for the desired position size (better)
-- bottleneck behavior: the flip is only as liquid as its worst leg
+2) **Micro price risk (1 minute)**  
+   Computed from the **5s window** as `sigma_1m` and `r_1m`:
+- If sigma_1m is high, short-term price movement is violent → higher risk.
+- If the engine is intended for very fast flips, weight this more.
 
-### Per-leg liquidity component
-Let t = fillTimeHours for that leg (computed based on side+executionMode)
-Let s = spreadRel
+3) **Macro price risk (daily)**  
+   Computed from daily snapshots:
+- `sigma_1d(7)` or `sigma_1d(30)` for longer-term instability
+- large `|r_1d|` as momentum/regime shift proxy
 
-Use smooth decreasing functions:
-f_time(t)   = 1 / (1 + t / T)
-f_spread(s) = 1 / (1 + s / S)
+### Recommended risk aggregation
+Compute separate risk components, then combine with fixed weights:
 
-Recommended defaults:
-- T = 1.0 hour  (time scale)
-- S = 0.02      (2% spread scale)
+- `R_exec`   from latest snapshot
+- `R_micro`  from 1m window (5s series)
+- `R_macro`  from daily series (N days)
 
-Then:
-L_leg = 100 * f_time(t) * f_spread(s)
+Example:
+- `R_total = 0.45*R_exec + 0.35*R_micro + 0.20*R_macro`
 
-### Flip liquidity
-L_flip = min(L_leg over all legs)
+Weights should be configurable per strategy (fast flipping vs longer holds).
 
-Rationale: a crafting flip bottlenecks on the least-liquid leg (often the output).
+---
 
-## 5) Risk Score (0..100)
+## Preventing Manipulation / Bias from “Many Current Snapshots”
 
-Risk aggregates:
-1) **Execution risk** (spread + fill time)
-2) **Volatility risk** (optional if you store history)
-3) **Crafting/exposure risk** (time exposed in inventory + low liquidity)
+Storing lots of 5s snapshots must not “overweight the present” or allow the scoring to be manipulated by the *count* of snapshots.  
+The key principle:
 
-### 5.1 Execution risk
-Normalize spread and fill time:
-g_spread(s) = clamp01(s / spreadCap) * 100
-g_time(t)   = clamp01(t / timeCap)   * 100
+> **Snapshots are samples of a time series, not independent observations to be summed.**  
+> Every score component must be derived into a single estimate per horizon window.
 
-Suggested caps:
-- spreadCap = 0.05  (5% spread -> 100)
-- timeCap   = 6.0   (6 hours fill -> 100)
+### 1) Never sum/average “scores per snapshot”
+Bad pattern:
+- compute liquidity/risk score for every 5s snapshot
+- average them
+  This creates two problems:
+- **window-length dependence** (more snapshots = more weight)
+- **double-counting** micro-noise
 
-For each leg:
-R_exec_leg = wS*g_spread(s) + wT*g_time(t)
-Defaults: wS=0.5, wT=0.5
+Good pattern:
+- compute **one** sigma_1m from the window
+- compute **one** r_1m from the window boundary
+- compute **one** latest spread/fill-time from the latest snapshot
+  Then feed these single numbers into the score.
 
-Flip-level execution risk:
-R_exec = max(R_exec_leg over all legs)   (worst leg dominates)
+### 2) Use time-based weighting (not count-based)
+If you do any averaging over snapshots, weight by **time delta**, not number of points:
+- for uniform 5s sampling it’s equivalent, but time-weighting remains correct if sampling jitter occurs.
 
-### 5.2 Volatility risk (optional; if you have local time series)
-If you store mid prices by polling:
-- r_t = ln(mid_t / mid_{t-1})
-- sigma = stdev(r_t) over window (e.g., last 24h or 7d)
+### 3) Robust estimators to resist spikes
+Micro windows can contain outliers. Use robust options:
+- winsorize returns at percentile caps
+- median absolute deviation (MAD) fallback when data is noisy
+- clamp fill-time and spread to reasonable caps for normalization
 
-Normalize:
-R_vol = clamp01(sigma / sigmaCap) * 100
-Choose sigmaCap empirically (configurable).
+### 4) Confidence metadata (prevents fake precision)
+Expose confidence flags:
+- `microConfidence = HIGH` only if enough 5s points exist (e.g. >= 10 points over last minute)
+- `macroConfidence = HIGH` only if enough daily points exist (e.g. >= 7 days)
+  When confidence is low, reduce the weight or fall back to proxy metrics.
 
-If no history is available:
-- Provide a proxy: R_vol_proxy = 0.5*g_spread + 0.5*g_time using worst leg
-- Mark output field `volatilityConfidence = "LOW"`
+### 5) Separate “feature computation” from “score aggregation”
+Architecture rule:
+- `SnapshotStore` produces **features** (spreadRel, fillTime, sigma_1m, sigma_1d, returns)
+- `ScoreEngine` consumes features and applies weights
+  This prevents accidental mixing of raw snapshots into scoring.
 
-### 5.3 Crafting/exposure risk
-Exposure increases with time you must wait to fill inputs and outputs.
-Approx:
-exposureHours ≈ sum(fillTimeBuyInputs) + craftDelayHours + sum(fillTimeSellOutputs)
+---
 
-Normalize:
-R_craft = clamp01(exposureHours / exposureCap) * 100
-Default exposureCap = 6.0 hours.
+## Practical Data Structures
 
-### 5.4 Total risk
-R_flip = 0.45*R_exec + 0.35*R_vol + 0.20*R_craft
-If using proxy volatility, still compute with it, but include confidence metadata.
+### Snapshot stores
+- `Store5s`: ring buffer / deque, prune entries older than `windowMs` (e.g. 60s or 300s)
+- `Store1d`: map keyed by `YYYY-MM-DD` (or epoch day) storing one anchor snapshot per day
 
-## 6) Profit Calculation (for reporting, not part of scoring)
+### Feature extraction API
+At scoring time, produce:
 
-Compute expected cost/revenue based on execution modes:
+**From latest snapshot (execution-time):**
+- `spreadRel_latest(item)`
+- `turnoverBuy_latest(item)`, `turnoverSell_latest(item)`
+- fill-time estimates for desired quantities
 
-BUY leg:
-- INSTANT_BUY  -> unitCost = sellPrice
-- BUY_ORDER    -> unitCost = buyPrice  (optionally + tick)
-SELL leg:
-- INSTANT_SELL -> unitRev = buyPrice
-- SELL_OFFER   -> unitRev = sellPrice (optionally - tick)
+**From 5s window (micro):**
+- `sigma_1m(item)`
+- `r_1m(item)`
+- micro max drawdown proxy (optional)
 
-profit = sum(outputs.qty * unitRev) - sum(inputs.qty * unitCost)
+**From daily series (macro):**
+- `sigma_1d(item, N)`
+- `r_1d(item)`
+- trend z-score (optional)
 
-Support optional fees/taxes as configurable multipliers.
+These features are computed per item and then combined across legs using bottleneck (min/max) logic.
 
-## 7) Implementation Requirements
+---
 
-Implement in (choose one):
-- TypeScript (Node 18+) OR Python 3.11+
+## How Daily Snapshots Improve the Flip Engine
 
-Must include:
-- Data models: `BazaarProduct`, `QuickStatus`, `Leg`, `Flip`, `ScoreConfig`, `ScoreResult`
-- Fetcher: `fetchBazaar(): Map<itemId, QuickStatus>`
-- Scoring: `scoreFlip(flip, bazaarData, config) -> ScoreResult`
+Daily snapshots help answer questions that 5s data cannot:
+- Is an item “structurally thin” even if it looks fine right now?
+- Are we trading during a regime shift where yesterday-to-today moved violently?
+- Is micro-volatility high because of a transient spike, or because the item is generally unstable?
 
-### Output fields
-Return:
-- `liquidityScore` (0..100)
-- `riskScore` (0..100)
-- `expectedProfit`
-- `perLeg`: array with itemId, qty, side, executionMode, spreadRel, fillTimeHours, L_leg, R_exec_leg
-- `bottleneckLeg` (itemId)
-- `volatilityConfidence`: "HIGH" if real history used else "LOW"
-- `notes`: warnings like turnover=0, missing item, etc.
+They also allow:
+- long-term monitoring dashboards
+- anomaly detection (e.g., “today’s mid is 5σ away from 30d mean”)
 
-### Edge cases
-- Missing itemId in Bazaar data => mark flip unscorable or set severe penalties + note
-- turnoverBuy or turnoverSell = 0 => fillTime = INF (cap to maxTimeForScoring, default 24h)
-- mid=0 => guard division
-- Quantities can be non-integers? (usually ints, but accept float and treat as units)
+---
 
-## 8) Example: Iron -> Enchanted Iron
+## Summary of Integration Rules (Non-Negotiable)
 
-Flip definition example:
-Inputs:
-- IRON_INGOT qty=160 side=BUY executionMode=BUY_ORDER
-Outputs:
-- ENCHANTED_IRON qty=1 side=SELL executionMode=SELL_OFFER
-craftDelaySeconds=10
+1) **Liquidity**: computed from **latest** snapshot (execution reality).
+2) **Risk**: combination of:
+  - latest (execution risk),
+  - 1m micro-volatility (from 5s series),
+  - daily macro-volatility (from daily anchors).
+3) **No snapshot-count bias**:
+  - never average “scores per snapshot”
+  - derive **one metric per horizon**, then score once.
+4) **Always expose confidence** and degrade gracefully when history is insufficient.
 
-Run scoring with default config and print JSON.
+---
 
-## 9) Testing
+## Suggested Configuration Defaults
 
-Include unit tests:
-- Spread computation
-- Fill time computation with known turnover
-- Liquidity min(bottleneck)
-- Risk max(worst leg) for execution
-- Handling turnover=0 and missing item
+- 5s retention window: 60–300 seconds
+- daily anchor time: fixed (00:00 UTC recommended)
+- micro volatility window: last 60 seconds (5s steps)
+- macro volatility window: last 7 / 30 days
+- risk weights: (exec=0.45, micro=0.35, macro=0.20) configurable
+- caps:
+  - spreadCap = 5%
+  - timeCap = 6h
+  - fillTime max clamp = 24h
 
-## 10) Deliverables
+---
 
-Produce:
-- Source code
-- A runnable CLI:
-  - accepts a flip JSON file
-  - fetches bazaar live
-  - prints ScoreResult as JSON
+## Intended Consumers
 
-Be careful with naming:
-- `buyPrice` is the price you receive for instant selling (i.e., top buy order price).
-- `sellPrice` is the price you pay for instant buying (i.e., top sell offer price).
+- Repo README / specification for contributors
+- Input description for Convex/Codex to implement:
+  - snapshot storage
+  - feature extraction
+  - score engine with multi-timescale risk control
