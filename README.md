@@ -1,6 +1,6 @@
 # SkyblockFlipperBackend
 
-[Language: Deutsch | [English](README.en.md)]
+[Language: [English](README.en.md) | Deutsch]
 
 > **API-First Engine für Hypixel SkyBlock Flips** – einheitliches Datenmodell, reproduzierbare Snapshots und erweiterbare Flip-Analytik.
 
@@ -19,6 +19,11 @@ Zielbild:
 Aktueller Stand (im Repository vorhanden):
 - Spring Boot 4 Backend mit Java 21.
 - Persistenz mit Spring Data JPA.
+- Öffentliche Read-API für Flips:
+  - `GET /api/v1/flips` (Paging + optionaler `flipType`-Filter)
+  - `GET /api/v1/flips/{id}`
+- Öffentliche Read-API für NPC-Shop-Offers:
+  - `GET /api/v1/items/npc-buyable` (Paging + optionaler `itemId`-Filter)
 - Datenquellen-Clients für:
   - Hypixel Auction API (einzelne Seite + Multi-Page Fetch).
   - Hypixel Bazaar API (`/skyblock/bazaar`) inkl. `quick_status` und Summary-Strukturen.
@@ -75,6 +80,7 @@ Aktueller Stand (im Repository vorhanden):
 ## Unterstützte Flip-Typen
 
 ### Bereits im Domain-Modell als `FlipType` vorhanden
+- **Auction** (`AUCTION`)
 - **Bazaar** (`BAZAAR`)
 - **Crafting** (`CRAFTING`)
 - **Forge** (`FORGE`)
@@ -118,11 +124,13 @@ Beispiel (gekürzt):
 
 ### Bereits vorhanden
 - `GET /api/status` – einfacher Health-/Connectivity-Check (triggert aktuell einen Auction-Fetch).
+- `GET /api/v1/flips` – paginierte Liste auf Unified-Flip-Basis, optional filterbar über `flipType`.
+- `GET /api/v1/flips/{id}` – Detailansicht eines Flips per UUID.
+- `GET /api/v1/items/npc-buyable` – paginierte NPC-Shop-Offerdaten, optional mit `itemId`.
 
 Aktuell noch nicht als öffentliche Endpunkte verfügbar:
 - Bazaar-Daten (liegen über `HypixelClient#fetchBazaar()` intern vor).
-- Vollständige Flip-Read-API (`/api/v1/flips`, `/api/v1/items`, `/api/v1/recipes`, ...).
-- NPC-Shop-Offerdaten (`type: npc_shop`) für "von NPC kaufbar"-Sichten.
+- Vollständige Item/Recipe-Read-API (`/api/v1/items`, `/api/v1/recipes`, ...).
 
 ### Geplante v1-Endpunkte
 
