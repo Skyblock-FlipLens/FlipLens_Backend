@@ -105,7 +105,7 @@ Currently implemented in this repository:
 
 ## Coverage Snapshot (As-Is)
 
-Status legend: `Done` = implemented in production code path, `Partial` = available but not fully wired, `Missing` = not yet implemented.
+Status legend: `Done` = implemented in production code path, `Partial` = available but not fully wired, `Missing` = not yet implemented, `TBD` = intentionally deferred pending a licensed shard-fusion recipe source.
 
 | Flip Type | Ingestion | Computation | Persistence | API | Status |
 |-----------|-----------|-------------|-------------|-----|--------|
@@ -113,8 +113,8 @@ Status legend: `Done` = implemented in production code path, `Partial` = availab
 | Bazaar    | Done (Hypixel bazaar -> snapshots) | Partial (works if flips exist) | Missing (no flip writer job/service) | Partial (`/api/v1/flips` read-only) | In progress |
 | Craft     | Partial (NEU recipes parsed/stored with items) | Partial (step-based mapping exists) | Missing (no recipe->flip persistence flow) | Missing (`/api/v1/recipes` not exposed) | In progress |
 | Forge     | Partial (NEU forge recipes parsed/stored with items) | Partial (duration/resource model exists) | Missing (no recipe->flip persistence flow) | Missing (`/api/v1/recipes` not exposed) | In progress |
-| Shard     | Missing | Missing | Missing | Missing | Not started |
-| Fusion    | Missing (enum only) | Partial (generic DTO supports it) | Missing | Partial (`/api/v1/flips` can read if rows exist) | Not started |
+| Shard     | TBD (blocked: shard-fusion recipe source pending) | TBD | TBD | TBD | TBD |
+| Fusion    | TBD (blocked: shard-fusion recipe source pending; enum exists) | Partial (generic DTO supports it) | TBD | Partial (`/api/v1/flips` can read if rows exist) | TBD |
 
 Additional note:
 - `KATGRADE` is implemented as a first-class type in code, but it is not listed in the original target table.
@@ -186,10 +186,9 @@ Not exposed publicly yet:
 - Add `src/main/java/com/skyblockflipper/backend/api/SnapshotController.java` (`GET /api/v1/snapshots`, `GET /api/v1/snapshots/{timestamp}/flips`).
 - Extend `src/main/java/com/skyblockflipper/backend/api/ItemController.java` with `GET /api/v1/items`.
 
-4. Close target flip-type gap for shard flips.
-- Add `SHARD` to `src/main/java/com/skyblockflipper/backend/model/Flipping/Enums/FlipType.java`.
-- Add ingestion/mapping rules from NEU/Hypixel where relevant.
-- Add type-specific tests in `src/test/java/com/skyblockflipper/backend/service/flipping`.
+4. Shard-fusion coverage is currently `TBD`.
+- Blocked until a reliable, permissively licensed shard-fusion recipe source is selected.
+- No shard-fusion ingestion/computation implementation is planned until that source decision is resolved.
 
 ### P1 - Important
 1. Support explicit as-of context in flip calculation.
@@ -203,6 +202,16 @@ Not exposed publicly yet:
 3. Strengthen contract tests for deterministic API output.
 - Add endpoint tests for snapshot-specific reads in `src/test/java/com/skyblockflipper/backend/api`.
 - Add integration tests for end-to-end generation flow in `src/test/java/com/skyblockflipper/backend/service/flipping`.
+
+## Final Validation Gate
+
+Before considering implementation complete, run a live end-to-end smoke test against real upstream data.
+- Execute a full refresh cycle (Hypixel + NEU), generation cycle, and read API verification on a clean DB.
+- Verify snapshot determinism (`/api/v1/snapshots/{timestamp}/flips` equals expected snapshot-bound results).
+- Verify no-op/regen behavior is correct across consecutive cycles and after NEU refresh.
+- Verify recommendation economics: flips presented as recommendations must be net-profitable at the tested snapshot (`expectedProfit > 0` after fees/taxes), and not just mathematically valid.
+- Spot-check a sample of top-ranked flips against the same snapshot inputs to confirm profit direction and order are plausible.
+- Record the run timestamp, environment, and key metrics in release notes.
 
 ## Run (Local & Docker)
 
@@ -250,6 +259,7 @@ Service will then be available via `docker-compose.yml` on port `8080`.
 - End-to-end pipeline per flip type (ingest -> compute -> persist -> serve)
 - Snapshot-bound deterministic reads
 - Missing core read endpoints (`/api/v1/items`, `/api/v1/recipes`, `/api/v1/snapshots`)
+- Shard-fusion recipes remain `TBD` pending licensed source availability
 
 ### P1 - Important
 - Explicit as-of/snapshot selectors in public API

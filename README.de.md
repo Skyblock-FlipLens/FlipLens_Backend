@@ -105,7 +105,7 @@ Aktueller Stand (im Repository vorhanden):
 
 ## Coverage-Snapshot (Ist-Zustand)
 
-Status-Legende: `Done` = produktiver Codepfad vorhanden, `Partial` = teilweise vorhanden aber nicht vollständig verdrahtet, `Missing` = noch nicht implementiert.
+Status-Legende: `Done` = produktiver Codepfad vorhanden, `Partial` = teilweise vorhanden aber nicht vollständig verdrahtet, `Missing` = noch nicht implementiert, `TBD` = bewusst zurückgestellt, bis eine lizenzierte Datenquelle für Shard-Fusion-Rezepte vorliegt.
 
 | Flip-Typ | Ingestion | Berechnung | Persistenz | API | Status |
 |----------|-----------|------------|------------|-----|--------|
@@ -113,8 +113,8 @@ Status-Legende: `Done` = produktiver Codepfad vorhanden, `Partial` = teilweise v
 | Bazaar   | Done (Hypixel Bazaar -> Snapshots) | Partial (funktioniert, wenn Flips existieren) | Missing (kein Flip-Writer-Job/Service) | Partial (`/api/v1/flips` read-only) | In Arbeit |
 | Craft    | Partial (NEU-Rezepte werden geparst/gespeichert) | Partial (Step-basiertes Mapping vorhanden) | Missing (kein Recipe->Flip-Persistenzfluss) | Missing (`/api/v1/recipes` fehlt) | In Arbeit |
 | Forge    | Partial (NEU-Forge-Rezepte werden geparst/gespeichert) | Partial (Duration-/Resource-Modell vorhanden) | Missing (kein Recipe->Flip-Persistenzfluss) | Missing (`/api/v1/recipes` fehlt) | In Arbeit |
-| Shard    | Missing | Missing | Missing | Missing | Nicht gestartet |
-| Fusion   | Missing (nur Enum) | Partial (generisches DTO unterstützt Typ) | Missing | Partial (`/api/v1/flips` liest, falls Rows existieren) | Nicht gestartet |
+| Shard    | TBD (blockiert: Datenquelle für Shard-Fusion-Rezepte ausstehend) | TBD | TBD | TBD | TBD |
+| Fusion   | TBD (blockiert: Datenquelle für Shard-Fusion-Rezepte ausstehend; Enum vorhanden) | Partial (generisches DTO unterstützt Typ) | TBD | Partial (`/api/v1/flips` liest, falls Rows existieren) | TBD |
 
 Zusätzlicher Hinweis:
 - `KATGRADE` ist im Code als eigener Typ implementiert, steht aber nicht in der ursprünglichen Ziel-Tabelle.
@@ -187,10 +187,9 @@ Aktuell noch nicht als öffentliche Endpunkte verfügbar:
 - `src/main/java/com/skyblockflipper/backend/api/SnapshotController.java` ergänzen (`GET /api/v1/snapshots`, `GET /api/v1/snapshots/{timestamp}/flips`).
 - `src/main/java/com/skyblockflipper/backend/api/ItemController.java` um `GET /api/v1/items` erweitern.
 
-4. Ziellücke bei Shard-Flips schließen.
-- `SHARD` in `src/main/java/com/skyblockflipper/backend/model/Flipping/Enums/FlipType.java` ergänzen.
-- Ingestion-/Mapping-Regeln aus NEU/Hypixel ergänzen.
-- Typspezifische Tests in `src/test/java/com/skyblockflipper/backend/service/flipping` ergänzen.
+4. Shard-Fusion-Abdeckung ist aktuell `TBD`.
+- Blockiert, bis eine verlässliche und permissiv lizenzierte Datenquelle für Shard-Fusion-Rezepte festgelegt ist.
+- Vor dieser Entscheidung ist keine Implementierung für Ingestion/Berechnung von Shard-Fusion-Flips geplant.
 
 ### P1 – Wichtig
 1. Expliziten As-Of-Kontext in der Flip-Berechnung unterstützen.
@@ -204,6 +203,16 @@ Aktuell noch nicht als öffentliche Endpunkte verfügbar:
 3. Contract-Tests für deterministische API-Ausgabe ausbauen.
 - Endpoint-Tests für snapshot-spezifische Reads in `src/test/java/com/skyblockflipper/backend/api` ergänzen.
 - Integrations-Tests für den End-to-End-Generate-Flow in `src/test/java/com/skyblockflipper/backend/service/flipping` ergänzen.
+
+## Finales Validierungs-Gate
+
+Bevor die Implementierung als abgeschlossen gilt, muss ein Live-End-to-End-Smoke-Test mit echten Upstream-Daten laufen.
+- Vollen Refresh-Zyklus ausführen (Hypixel + NEU), danach Generate-Zyklus und Read-API-Verifikation auf sauberer DB.
+- Snapshot-Determinismus prüfen (`/api/v1/snapshots/{timestamp}/flips` muss snapshot-gebundene Ergebnisse liefern).
+- Korrektes No-Op-/Regenerate-Verhalten über mehrere Zyklen und nach NEU-Refresh prüfen.
+- Empfehlungs-Ökonomie prüfen: als Empfehlung ausgegebene Flips müssen im getesteten Snapshot netto profitabel sein (`expectedProfit > 0` nach Fees/Taxes), nicht nur formal berechenbar.
+- Stichprobe der Top-Flips gegen dieselben Snapshot-Inputs gegenprüfen, damit Profit-Richtung und Ranking plausibel sind.
+- Run-Zeitpunkt, Umgebung und Kernmetriken in den Release-Notizen dokumentieren.
 
 ## Starten (Lokal & Docker)
 
@@ -251,6 +260,7 @@ Danach läuft der Service via `docker-compose.yml` auf Port `8080`.
 - End-to-End Pipeline je Flip-Typ (Ingestion → Compute → Persist → Serve)
 - Snapshot-gebundene deterministische Reads
 - Fehlende Kern-Read-Endpunkte (`/api/v1/items`, `/api/v1/recipes`, `/api/v1/snapshots`)
+- Shard-Fusion-Rezepte bleiben `TBD`, bis eine lizenzierte Datenquelle verfügbar ist
 
 ### P1 – Wichtig
 - Explizite As-Of-/Snapshot-Selektoren in der Public API
