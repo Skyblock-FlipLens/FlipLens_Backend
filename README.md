@@ -1,44 +1,44 @@
 # SkyblockFlipperBackend
 
-[Language: [English](README.en.md) | Deutsch]
+[Language: English | [Deutsch](README.de.md)]
 
-> **API-First Engine für Hypixel SkyBlock Flips** – einheitliches Datenmodell, reproduzierbare Snapshots und erweiterbare Flip-Analytik.
+> **API-first engine for Hypixel SkyBlock flips** with a unified data model, reproducible snapshots, and extensible flip analytics.
 
 ## Vision
 
-**SkyblockFlipperBackend** soll die technische Grundlage für eine stabile, versionierbare Flip-API im Hypixel-SkyBlock-Ökosystem werden.
+**SkyblockFlipperBackend** aims to provide a stable, versioned, API-first foundation for flip data in the Hypixel SkyBlock ecosystem.
 
-Zielbild:
-- Ein **Unified Flip Model** über alle Flip-Arten hinweg.
-- Eine klare Pipeline von **Ingestion → Normalisierung → Berechnung → Persistenz → API-Auslieferung**.
-- Fokus auf **deterministische Berechnungen**, **ROI/ROI-h**, **Kapitalbindung** und später **Risk/Liquidity-Scoring**.
-- API-First statt UI-First: Das Backend ist als Plattform gedacht, auf der Dashboards, Bots oder Research-Tools aufsetzen können.
+Target state:
+- A **unified flip model** across flip categories.
+- A clear pipeline: **ingestion -> normalization -> computation -> persistence -> API delivery**.
+- Deterministic calculations with a focus on **ROI/ROI-h**, **capital lock-up**, and later **risk/liquidity scoring**.
+- Platform-first backend for dashboards, bots, and research tooling.
 
-## Funktionen (Ist-Stand)
+## Features (Current State)
 
-Aktueller Stand (im Repository vorhanden):
-- Spring Boot 4 Backend mit Java 21.
-- Persistenz mit Spring Data JPA.
-- Öffentliche Read-API für Flips:
-  - `GET /api/v1/flips` (Paging + optionaler `flipType`-Filter)
+Currently implemented in this repository:
+- Spring Boot 4 backend with Java 21.
+- Persistence via Spring Data JPA.
+- Public read API for flips:
+  - `GET /api/v1/flips` (paging + optional `flipType` filter)
   - `GET /api/v1/flips/{id}`
-- Öffentliche Read-API für NPC-Shop-Offers:
-  - `GET /api/v1/items/npc-buyable` (Paging + optionaler `itemId`-Filter)
-- Datenquellen-Clients für:
-  - Hypixel Auction API (einzelne Seite + Multi-Page Fetch).
-  - Hypixel Bazaar API (`/skyblock/bazaar`) inkl. `quick_status` und Summary-Strukturen.
-  - NEU-Item-Daten (Download/Refresh aus dem NotEnoughUpdates-Repo).
-- Geplante/angelegte Domain-Struktur für Flips mit:
+- Public read API for NPC-shop offers:
+  - `GET /api/v1/items/npc-buyable` (paging + optional `itemId` filter)
+- Source clients for:
+  - Hypixel Auction API (single page and multi-page fetch).
+  - Hypixel Bazaar API (`/skyblock/bazaar`) including `quick_status` and summary structures.
+  - NEU item data ingestion (download/refresh from the NotEnoughUpdates repo).
+- Flip domain structure with:
   - `Flip`, `Step`, `Constraint`, `Recipe`.
-  - Berechnung von Gesamt-/Aktiv-/Passivdauer pro Flip.
-- Scheduling-Infrastruktur (ThreadPool + geplante Jobs).
-- Robuste Fehlerbehandlung im Hypixel-Client (HTTP/Netzwerkfehler werden geloggt).
-- `fetchAllAuctions()` arbeitet fail-fast bei unvollständigen Seitenabrufen, um keine leeren Marktzustände zu persistieren.
-- Dockerfile + docker-compose für Container-Betrieb.
+  - total/active/passive duration calculation per flip.
+- Scheduling infrastructure (thread pool + scheduled jobs).
+- Resilient Hypixel client behavior (HTTP/network failures are logged).
+- `fetchAllAuctions()` is fail-fast on incomplete page fetches to avoid persisting false empty market states.
+- Dockerfile + docker-compose for containerized runtime.
 
-## Architektur
+## Architecture
 
-### Überblick
+### Overview
 
 ```text
 [Hypixel API]        [NEU Repo / Items]
@@ -46,7 +46,7 @@ Aktueller Stand (im Repository vorhanden):
       v                     v
  HypixelClient         NEUClient + Filter/Mapper
       |                     |
-      +--------- Ingestion & Normalisierung --------+
+      +--------- Ingestion & Normalization --------+
                                                     v
                                           Domain Model (Flip/Step/Recipe)
                                                     |
@@ -57,29 +57,29 @@ Aktueller Stand (im Repository vorhanden):
                                                 REST API
 ```
 
-### Technologie-Stack
+### Tech Stack
 
 - **Runtime:** Java 21
 - **Framework:** Spring Boot 4 (`web`, `validation`, `actuator`)
-- **Persistenz:** Spring Data JPA
-- **Datenbanken:** PostgreSQL (Betrieb), H2 (Tests)
+- **Persistence:** Spring Data JPA
+- **Databases:** PostgreSQL (runtime), H2 (tests)
 - **Scheduling:** `@EnableScheduling`, `@Scheduled`, `ThreadPoolTaskScheduler`
-- **Externe Clients:**
+- **External clients:**
   - Hypixel REST via `RestClient`
-  - NEU-Repo Download/Refresh via `HttpClient` + ZIP-Extraktion
+  - NEU repo download/refresh via `HttpClient` + ZIP extraction
 - **Build/Test:** Maven Wrapper, Surefire, JaCoCo
-- **Container:** Multi-stage Docker Build + Distroless Runtime Image
+- **Container:** Multi-stage Docker build + Distroless runtime image
 
-### Komponenten (vereinfacht)
+### Components (Simplified)
 
-- **API Layer:** `StatusController`
-- **Source Jobs:** periodische Refresh-/Ingestion-Jobs (`SourceJobs`)
-- **Domain/Model:** Flips, Steps, Constraints, Recipes
+- **API layer:** `StatusController`
+- **Source jobs:** scheduled refresh/ingestion jobs (`SourceJobs`)
+- **Domain/model:** flips, steps, constraints, recipes
 - **Repositories:** `FlipRepository`, `RecipeRepository`, `ItemRepository`, etc.
 
-## Unterstützte Flip-Typen
+## Supported Flip Types
 
-### Bereits im Domain-Modell als `FlipType` vorhanden
+### Already present in `FlipType`
 - **Auction** (`AUCTION`)
 - **Bazaar** (`BAZAAR`)
 - **Crafting** (`CRAFTING`)
@@ -87,27 +87,27 @@ Aktueller Stand (im Repository vorhanden):
 - **Katgrade** (`KATGRADE`)
 - **Fusion** (`FUSION`)
 
-### Zielbild (Roadmap)
-- Auction Flips
-- Bazaar Flips
-- Craft Flips
-- Forge Flips
-- Katgrade Flips
-- Shard Flips
-- Fusion Flips
+### Target Coverage (Roadmap)
+- Auction flips
+- Bazaar flips
+- Craft flips
+- Forge flips
+- Katgrade flips
+- Shard flips
+- Fusion flips
 
-> Hinweis: Aktuell sind im Code bereits die grundlegenden Flip-Domainobjekte vorhanden; die vollständige End-to-End-Abdeckung aller Ziel-Fliptypen ist als nächster Ausbauschritt zu sehen.
+> Note: Core domain objects are already present; full end-to-end coverage for all target flip types is still in progress.
 
-## Unified Flip Schema (Kurzfassung)
+## Unified Flip Schema (Short)
 
-Geplante Kernfelder:
+Planned core fields:
 - `id`, `flipType`, `snapshotTimestamp`
 - `inputItems`, `outputItems`, `steps`, `constraints`
 - `requiredCapital`, `expectedProfit`, `fees`
 - `roi`, `roiPerHour`, `durationSeconds`
 - `liquidityScore`, `riskScore`
 
-Beispiel (gekürzt):
+Short example:
 ```json
 {
   "id": "uuid",
@@ -120,57 +120,56 @@ Beispiel (gekürzt):
 }
 ```
 
-## API-Endpunkte (Ist + Planung)
+## API Endpoints (Current + Planned)
 
-### Bereits vorhanden
-- `GET /api/status` – einfacher Health-/Connectivity-Check (triggert aktuell einen Auction-Fetch).
-- `GET /api/v1/flips` – paginierte Liste auf Unified-Flip-Basis, optional filterbar über `flipType`.
-- `GET /api/v1/flips/{id}` – Detailansicht eines Flips per UUID.
-- `GET /api/v1/items/npc-buyable` – paginierte NPC-Shop-Offerdaten, optional mit `itemId`.
+### Available now
+- `GET /api/status` - basic health/connectivity check (currently triggers an auction fetch).
+- `GET /api/v1/flips` - paged unified flip list with optional `flipType` filter.
+- `GET /api/v1/flips/{id}` - detail view for a flip by UUID.
+- `GET /api/v1/items/npc-buyable` - paged NPC-shop offer data with optional `itemId`.
 
-Aktuell noch nicht als öffentliche Endpunkte verfügbar:
-- Bazaar-Daten (liegen über `HypixelClient#fetchBazaar()` intern vor).
-- Vollständige Item/Recipe-Read-API (`/api/v1/items`, `/api/v1/recipes`, ...).
+Not exposed publicly yet:
+- Bazaar data (currently available internally via `HypixelClient#fetchBazaar()`).
+- Full item/recipe read API (`/api/v1/items`, `/api/v1/recipes`, ...).
 
-### Geplante v1-Endpunkte
-
-- `GET /api/v1/flips` (Filter/Sortierung/Pagination)
-- `GET /api/v1/flips/{id}` (Detailansicht)
-- `GET /api/v1/items` (NEU-basierte Item-Metadaten)
-- `GET /api/v1/items/npc-buyable` (NPC-kaufbare Offers, optionaler `itemId`-Filter)
-- `GET /api/v1/recipes` (Craft/Forge-Rezepte)
+### Planned v1 endpoints
+- `GET /api/v1/flips` (filtering/sorting/pagination)
+- `GET /api/v1/flips/{id}` (detail view)
+- `GET /api/v1/items` (NEU-backed item metadata)
+- `GET /api/v1/items/npc-buyable` (NPC-buyable offers, optional `itemId` filter)
+- `GET /api/v1/recipes` (craft/forge recipes)
 - `GET /api/v1/snapshots`
 - `GET /api/v1/snapshots/{timestamp}/flips`
 
-### API-Design-Prinzipien
-- Versionierung über `/api/v1/...`
-- Konsistente DTOs über alle Flip-Typen
-- Deterministische Antworten pro Snapshot
-- Erweiterbar ohne Breaking Changes (deprecate-first)
+### API Design Principles
+- Versioned routes via `/api/v1/...`
+- Consistent DTOs across flip types
+- Deterministic responses per snapshot
+- Extensible evolution without breaking changes (`deprecate-first`)
 
-## Starten (Lokal & Docker)
+## Run (Local & Docker)
 
-### Voraussetzungen
+### Requirements
 - Java 21
-- Docker (optional, für Containerbetrieb)
+- Docker (optional)
 
-### Lokal
+### Local
 
 ```bash
 ./mvnw clean test
 ./mvnw spring-boot:run
 ```
 
-Hinweise:
-- Das Standardprofil erwartet DB-Variablen:
+Notes:
+- Default profile expects:
   - `SPRING_DATASOURCE_URL`
   - `SPRING_DATASOURCE_USERNAME`
   - `SPRING_DATASOURCE_PASSWORD`
-- Der Server-Port ist über `SERVER_PORT` steuerbar (Default fallback im Config-File).
-- Optional kann ein Hypixel API Key gesetzt werden:
+- Server port is controlled by `SERVER_PORT` (fallback in config file).
+- Optional Hypixel API key:
   - `CONFIG_HYPIXEL_API_KEY`
 
-Beispiel:
+Example:
 
 ```bash
 export SPRING_DATASOURCE_URL='jdbc:postgresql://localhost:5432/skyblock'
@@ -186,44 +185,44 @@ export SERVER_PORT=8080
 docker compose up --build
 ```
 
-Danach läuft der Service via `docker-compose.yml` auf Port `8080`.
+Service will then be available via `docker-compose.yml` on port `8080`.
 
-## Roadmap (Kurz)
+## Roadmap (Short)
 
-### P0 – Kritisch
-- Unified Flip DTO und stabile Read-API (`/api/v1/flips`, `/api/v1/flips/{id}`)
-- End-to-End Pipeline je Flip-Typ (Ingestion → Compute → Persist → Serve)
-- Katgrade als eigener Flip-Typ (nicht mit Crafting zusammengelegt)
-- Konsistente Profit-/Fee-Berechnung
+### P0 - Critical
+- Unified flip DTO and stable read API (`/api/v1/flips`, `/api/v1/flips/{id}`)
+- End-to-end pipeline per flip type (ingest -> compute -> persist -> serve)
+- Katgrade as its own flip type (not merged into generic crafting)
+- Consistent profit/fee computation
 
-### P1 – Wichtig
-- Snapshot-System (zeitpunktgenaue Reproduzierbarkeit)
-- Zeitgewichtete ROI-Kennzahlen (`ROI/h`, aktive vs. passive Zeit)
-- Kapitalbindungslogik und Ressourcen-Constraints (z. B. Forge-Slots)
+### P1 - Important
+- Snapshot system (point-in-time reproducibility)
+- Time-weighted metrics (`ROI/h`, active vs. passive time)
+- Capital lock-up and resource constraints (e.g. forge slots)
 
-### P2 – Differenzierung
-- Liquidity Score + Risk Score
-- Risk-adjusted Ranking statt reinem Profit-Sorting
-- Slippage/Fill-Probability Modell
-- Multi-Step Flip Chains (DAG) inkl. Optimierung
-- Backtesting API für historische Snapshots
+### P2 - Differentiation
+- Liquidity and risk scoring
+- Risk-adjusted ranking vs. raw profit sorting
+- Slippage/fill-probability model
+- Multi-step flip chains (DAG)
+- Backtesting API for historical snapshots
 
-USP-Fokus:
-- Einheitlicher API-Contract für alle Flip-Typen.
-- Reproduzierbare Snapshots für Analyse und Backtesting.
-- Risiko-/Liquiditäts-normalisierte Bewertung statt reinem Profit-Ranking.
+USP focus:
+- Unified API abstraction across flip types
+- Reproducible snapshots for analytics/backtesting
+- Risk/liquidity-normalized decision support
 
-## Mitwirken
+## Contributing
 
-Beiträge sind willkommen.
+Contributions are welcome.
 
-Empfohlener Ablauf:
-1. Fork/Branch erstellen (`feature/...`, `fix/...`).
-2. Änderungen mit Tests ergänzen.
-3. Pull Request mit klarer Beschreibung (Problem, Lösung, Auswirkungen) öffnen.
-4. Auf konsistente API-Verträge und Rückwärtskompatibilität achten.
+Recommended process:
+1. Create a branch (`feature/...`, `fix/...`).
+2. Add or update tests with your changes.
+3. Open a pull request with clear scope and impact.
+4. Keep API contracts stable and backward compatible.
 
-Leitlinien:
-- Kleine, fokussierte PRs.
-- Keine Breaking Changes ohne Versionierungsstrategie.
-- Neue Flip-Typen über das Unified Model integrieren.
+Guidelines:
+- Keep PRs small and focused.
+- Avoid breaking changes without a versioning strategy.
+- Integrate new flip types through the unified model.
