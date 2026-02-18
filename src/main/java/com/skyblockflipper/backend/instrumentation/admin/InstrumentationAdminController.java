@@ -4,6 +4,7 @@ import com.skyblockflipper.backend.instrumentation.InstrumentationProperties;
 import com.skyblockflipper.backend.instrumentation.JfrBlockingReportService;
 import com.skyblockflipper.backend.instrumentation.JfrRecordingManager;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,32 +13,23 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 @RestController
 @RequestMapping("/internal/admin/instrumentation")
+@RequiredArgsConstructor
 public class InstrumentationAdminController {
 
     private final AdminAccessGuard adminAccessGuard;
     private final JfrRecordingManager jfrRecordingManager;
     private final JfrBlockingReportService jfrBlockingReportService;
     private final InstrumentationProperties properties;
-
-    public InstrumentationAdminController(AdminAccessGuard adminAccessGuard,
-                                          JfrRecordingManager jfrRecordingManager,
-                                          JfrBlockingReportService jfrBlockingReportService,
-                                          InstrumentationProperties properties) {
-        this.adminAccessGuard = adminAccessGuard;
-        this.jfrRecordingManager = jfrRecordingManager;
-        this.jfrBlockingReportService = jfrBlockingReportService;
-        this.properties = properties;
-    }
 
     @PostMapping("/jfr/snapshot")
     public Map<String, Object> dumpSnapshot(HttpServletRequest request) {
@@ -60,7 +52,7 @@ public class InstrumentationAdminController {
         }
         try {
             Files.createDirectories(properties.getAsyncProfiler().getOutputDir());
-            String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
+            String pid = Long.toString(ProcessHandle.current().pid());
             Process process = new ProcessBuilder(
                     properties.getAsyncProfiler().getScriptPath(),
                     pid,
@@ -72,10 +64,13 @@ public class InstrumentationAdminController {
             if (exit != 0) {
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, output);
             }
-            List<Path> files = Files.list(properties.getAsyncProfiler().getOutputDir())
-                    .sorted((a, b) -> Long.compare(b.toFile().lastModified(), a.toFile().lastModified()))
-                    .limit(3)
-                    .toList();
+            List<Path> files;
+            try (Stream<Path> stream = Files.list(properties.getAsyncProfiler().getOutputDir())) {
+                files = stream
+                        .sorted((a, b) -> Long.compare(b.toFile().lastModified(), a.toFile().lastModified()))
+                        .limit(3)
+                        .toList();
+            }
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("status", "completed");
             result.put("latestArtifacts", files.stream().map(Path::toString).toList());

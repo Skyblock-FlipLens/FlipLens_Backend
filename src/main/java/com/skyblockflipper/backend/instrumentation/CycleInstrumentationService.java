@@ -73,9 +73,16 @@ public class CycleInstrumentationService {
 
     private String bucketCycle(String cycleId) {
         int dash = cycleId.indexOf('-');
-        long counter = dash > 0 ? Long.parseLong(cycleId.substring(0, dash)) : 0;
-        long bucket = (counter / 100) * 100;
-        return bucket + "-" + (bucket + 99);
+        if (dash <= 0) {
+            return "0-99";
+        }
+        try {
+            long counter = Long.parseLong(cycleId.substring(0, dash));
+            long bucket = (counter / 100) * 100;
+            return bucket + "-" + (bucket + 99);
+        } catch (NumberFormatException ignored) {
+            return "0-99";
+        }
     }
 
     private String bucketPayload(long payloadBytes) {

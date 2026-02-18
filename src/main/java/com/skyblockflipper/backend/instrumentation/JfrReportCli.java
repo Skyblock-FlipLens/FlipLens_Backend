@@ -12,7 +12,7 @@ public final class JfrReportCli {
             System.err.println("Usage: JfrReportCli <recording.jfr>");
             System.exit(1);
         }
-        JfrBlockingReportService service = new JfrBlockingReportService();
+        JfrBlockingReportService service = new JfrBlockingReportService(new InstrumentationProperties());
         System.out.println(service.summarize(Path.of(args[0])));
     }
 }

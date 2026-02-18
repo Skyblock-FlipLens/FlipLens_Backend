@@ -16,10 +16,16 @@ if [[ -z "$ASYNC_PROFILER_HOME" ]]; then
   exit 1
 fi
 
+PROFILER_SCRIPT="$ASYNC_PROFILER_HOME/profiler.sh"
+if [[ ! -x "$PROFILER_SCRIPT" ]]; then
+  echo "Expected executable profiler.sh at $PROFILER_SCRIPT (check ASYNC_PROFILER_HOME)"
+  exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR"
 
-"$ASYNC_PROFILER_HOME/profiler.sh" -d 30 -e cpu -f "$OUTPUT_DIR/cpu-${STAMP}.svg" "$PID"
-"$ASYNC_PROFILER_HOME/profiler.sh" -d 30 -e lock -f "$OUTPUT_DIR/lock-${STAMP}.svg" "$PID"
-"$ASYNC_PROFILER_HOME/profiler.sh" -d 30 -e alloc -f "$OUTPUT_DIR/alloc-${STAMP}.svg" "$PID"
+"$PROFILER_SCRIPT" -d 30 -e cpu -f "$OUTPUT_DIR/cpu-${STAMP}.svg" "$PID"
+"$PROFILER_SCRIPT" -d 30 -e lock -f "$OUTPUT_DIR/lock-${STAMP}.svg" "$PID"
+"$PROFILER_SCRIPT" -d 30 -e alloc -f "$OUTPUT_DIR/alloc-${STAMP}.svg" "$PID"
 
 echo "async-profiler artifacts generated in $OUTPUT_DIR"

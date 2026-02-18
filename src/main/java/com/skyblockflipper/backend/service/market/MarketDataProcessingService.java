@@ -65,7 +65,7 @@ public class MarketDataProcessingService {
 
         long deserializeStart = cycleInstrumentationService.startPhase();
         boolean hasAnyPayload = auctionResponse != null || bazaarResponse != null;
-        cycleInstrumentationService.endPhase("deserialize", deserializeStart, hasAnyPayload, payloadBytes);
+        cycleInstrumentationService.endPhase("validate_response", deserializeStart, hasAnyPayload, payloadBytes);
 
         if (!hasAnyPayload) {
             log.warn("Both auction and bazaar responses are null, returning empty");
