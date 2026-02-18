@@ -2,20 +2,21 @@ package com.skyblockflipper.backend.instrumentation.admin;
 
 import com.skyblockflipper.backend.instrumentation.InstrumentationProperties;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Component
+@RequiredArgsConstructor
 public class AdminAccessGuard {
 
     private final InstrumentationProperties properties;
 
-    public AdminAccessGuard(InstrumentationProperties properties) {
-        this.properties = properties;
-    }
 
     public void validate(HttpServletRequest request) {
         if (properties.getAdmin().isLocalOnly() && !isLoopback(request.getRemoteAddr())) {
@@ -24,7 +25,9 @@ public class AdminAccessGuard {
         String configuredToken = properties.getAdmin().getToken();
         if (configuredToken != null && !configuredToken.isBlank()) {
             String provided = request.getHeader("X-Admin-Token");
-            if (!configuredToken.equals(provided)) {
+            byte[] configuredTokenBytes = configuredToken.getBytes(StandardCharsets.UTF_8);
+            byte[] providedBytes = provided == null ? new byte[0] : provided.getBytes(StandardCharsets.UTF_8);
+            if (!MessageDigest.isEqual(configuredTokenBytes, providedBytes)) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing or invalid admin token");
             }
         }

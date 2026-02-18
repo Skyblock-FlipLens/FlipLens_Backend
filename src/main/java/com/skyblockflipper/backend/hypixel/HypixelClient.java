@@ -130,7 +130,9 @@ public class HypixelClient {
                 request = request.header("API-Key", apiKey);
             }
             RestClient.RequestHeadersSpec<?> finalRequest = request;
-            return blockingTimeTracker.record("http.hypixel" + uri, "http", () -> finalRequest.retrieve().body(responseType));
+            int queryStart = uri.indexOf('?');
+            String sanitizedPath = queryStart >= 0 ? uri.substring(0, queryStart) : uri;
+            return blockingTimeTracker.record("http.hypixel" + sanitizedPath, "http", () -> finalRequest.retrieve().body(responseType));
         } catch (RestClientResponseException e) {
             log.warn("Hypixel request failed for {} with status {}: {}", uri, e.getStatusCode(), e.getStatusText());
             return null;

@@ -2,6 +2,8 @@ package com.skyblockflipper.backend.instrumentation;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import jakarta.annotation.PostConstruct;
+
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -18,6 +20,15 @@ public class InstrumentationProperties {
     public Admin getAdmin() { return admin; }
     public AsyncProfiler getAsyncProfiler() { return asyncProfiler; }
 
+    @PostConstruct
+    void validate() {
+        if (!admin.isLocalOnly() && (admin.getToken() == null || admin.getToken().isBlank())) {
+            throw new IllegalStateException(
+                    "instrumentation.admin.token must be set when instrumentation.admin.local-only=false"
+            );
+        }
+    }
+
     public static class Jfr {
         private boolean enabled = true;
         private Path outputDir = Path.of("var", "profiling", "jfr");
@@ -25,6 +36,7 @@ public class InstrumentationProperties {
         private long maxSizeMb = 512;
         private int stackDepth = 256;
         private Duration snapshotWindow = Duration.ofMinutes(2);
+        private Duration executionSamplePeriod = Duration.ofMillis(20);
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -38,6 +50,10 @@ public class InstrumentationProperties {
         public void setStackDepth(int stackDepth) { this.stackDepth = stackDepth; }
         public Duration getSnapshotWindow() { return snapshotWindow; }
         public void setSnapshotWindow(Duration snapshotWindow) { this.snapshotWindow = snapshotWindow; }
+        public Duration getExecutionSamplePeriod() { return executionSamplePeriod; }
+        public void setExecutionSamplePeriod(Duration executionSamplePeriod) {
+            this.executionSamplePeriod = executionSamplePeriod;
+        }
     }
 
     public static class Blocking {

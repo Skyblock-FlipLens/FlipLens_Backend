@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.instrumentation;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import jdk.jfr.consumer.RecordedEvent;
@@ -14,9 +15,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 public class JfrBlockingReportService {
 
     private static final int STACK_DEPTH = 12;
+
+    private final InstrumentationProperties properties;
+
 
     public Map<String, Object> summarize(Path recordingFile) {
         if (recordingFile == null) {
@@ -25,7 +30,7 @@ public class JfrBlockingReportService {
         Map<String, Long> blockingStacks = new LinkedHashMap<>();
         Map<String, Long> ioStacks = new LinkedHashMap<>();
         long blockedNanos = 0L;
-        long cpuNanos = 0L;
+        long executionSampleCount = 0L;
 
         try (RecordingFile file = new RecordingFile(recordingFile)) {
             while (file.hasMoreEvents()) {
@@ -39,7 +44,7 @@ public class JfrBlockingReportService {
                     }
                     case "jdk.SocketRead", "jdk.SocketWrite", "jdk.FileRead", "jdk.FileWrite" ->
                             ioStacks.merge(stackKey(event.getStackTrace()), durationNanos, Long::sum);
-                    case "jdk.ExecutionSample" -> cpuNanos += durationNanos;
+                    case "jdk.ExecutionSample" -> executionSampleCount++;
                     default -> {
                     }
                 }
@@ -47,6 +52,9 @@ public class JfrBlockingReportService {
         } catch (IOException exception) {
             return Map.of("error", "Failed to parse JFR: " + exception.getMessage());
         }
+
+        long samplingPeriodNanos = properties.getJfr().getExecutionSamplePeriod().toNanos();
+        long cpuNanos = executionSampleCount * samplingPeriodNanos;
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("recordingFile", recordingFile.toString());
@@ -76,7 +84,7 @@ public class JfrBlockingReportService {
 
     private Map<String, Long> topN(Map<String, Long> source, int n) {
         return source.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue(Comparator.reverseOrder()))
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
                 .limit(n)
                 .collect(LinkedHashMap::new, (map, entry) -> map.put(entry.getKey(), entry.getValue() / 1_000_000L), Map::putAll);
     }
