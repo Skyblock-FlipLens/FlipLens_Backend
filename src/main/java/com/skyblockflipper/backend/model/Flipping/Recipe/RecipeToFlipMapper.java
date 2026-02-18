@@ -4,11 +4,13 @@ import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Constraint;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.Flipping.Step;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+@Component
 public class RecipeToFlipMapper {
 
     private static final long DEFAULT_BUY_SECONDS = 30L;

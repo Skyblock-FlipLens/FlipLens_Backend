@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
@@ -64,7 +65,7 @@ class FlipControllerWebMvcTest {
 
         PageRequest expectedRequest = PageRequest.of(1, 2, Sort.by("id").ascending());
         Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(dto), expectedRequest, 1);
-        when(flipReadService.listFlips(eq(FlipType.FORGE), any(Pageable.class))).thenReturn(resultPage);
+        when(flipReadService.listFlips(eq(FlipType.FORGE), any(), any(Pageable.class))).thenReturn(resultPage);
 
         mockMvc.perform(get("/api/v1/flips")
                         .param("flipType", "FORGE")
@@ -84,9 +85,12 @@ class FlipControllerWebMvcTest {
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         ArgumentCaptor<FlipType> flipTypeCaptor = ArgumentCaptor.forClass(FlipType.class);
-        verify(flipReadService, times(1)).listFlips(flipTypeCaptor.capture(), pageableCaptor.capture());
+        ArgumentCaptor<Instant> snapshotTimestampCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(flipReadService, times(1))
+                .listFlips(flipTypeCaptor.capture(), snapshotTimestampCaptor.capture(), pageableCaptor.capture());
 
         assertEquals(FlipType.FORGE, flipTypeCaptor.getValue());
+        assertNull(snapshotTimestampCaptor.getValue());
         Pageable pageable = pageableCaptor.getValue();
         assertEquals(1, pageable.getPageNumber());
         assertEquals(2, pageable.getPageSize());

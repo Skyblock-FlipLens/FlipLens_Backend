@@ -33,7 +33,7 @@ public class FlipRiskScorer {
 
         double exposureHours = inputFillHours + outputFillHours + craftDelayHours;
         double exposureRisk = clamp01(exposureHours / EXPOSURE_TIME_CAP_HOURS) * 100D;
-        double executionComposite = clamp((0.7D * executionRisk) + (0.3D * exposureRisk), 0D, 100D);
+        double executionComposite = clamp((0.7D * executionRisk) + (0.3D * exposureRisk), 100D);
 
         RiskAggregation microAggregation = aggregateTimescaleRisk(featureSet, bazaarSignalItemIds, true);
         RiskAggregation macroAggregation = aggregateTimescaleRisk(featureSet, bazaarSignalItemIds, false);
@@ -49,7 +49,6 @@ public class FlipRiskScorer {
 
         return clamp(
                 (executionWeight * executionComposite) + (microWeight * microRisk) + (macroWeight * macroRisk),
-                0D,
                 100D
         );
     }
@@ -64,7 +63,6 @@ public class FlipRiskScorer {
         Set<String> uniqueItemIds = new LinkedHashSet<>(bazaarSignalItemIds);
         List<Double> risks = new ArrayList<>();
         double minConfidenceFactor = 1D;
-        boolean hasConfidence = false;
 
         for (String itemId : uniqueItemIds) {
             FlipScoreFeatureSet.ItemTimescaleFeatures itemFeatures = featureSet.get(itemId);
@@ -80,13 +78,12 @@ public class FlipRiskScorer {
                     ? itemFeatures.microConfidence().weightFactor()
                     : itemFeatures.macroConfidence().weightFactor();
             minConfidenceFactor = Math.min(minConfidenceFactor, confidence);
-            hasConfidence = true;
         }
 
         if (risks.isEmpty()) {
             return RiskAggregation.empty();
         }
-        double confidenceFactor = hasConfidence ? minConfidenceFactor : 0D;
+        double confidenceFactor = minConfidenceFactor;
         return new RiskAggregation(maxValue(risks), confidenceFactor);
     }
 
@@ -124,7 +121,7 @@ public class FlipRiskScorer {
         if (volatility != null && ret != null) {
             double volRisk = clamp01(volatility / volatilityCap) * 100D;
             double returnRisk = clamp01(Math.abs(ret) / returnCap) * 100D;
-            return clamp((0.7D * volRisk) + (0.3D * returnRisk), 0D, 100D);
+            return clamp((0.7D * volRisk) + (0.3D * returnRisk), 100D);
         }
         if (volatility != null) {
             return clamp01(volatility / volatilityCap) * 100D;
@@ -140,11 +137,11 @@ public class FlipRiskScorer {
     }
 
     private double clamp01(double value) {
-        return clamp(value, 0D, 1D);
+        return clamp(value, 1D);
     }
 
-    private double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
+    private double clamp(double value, double max) {
+        return Math.max(0.0, Math.min(max, value));
     }
 
     private record RiskAggregation(

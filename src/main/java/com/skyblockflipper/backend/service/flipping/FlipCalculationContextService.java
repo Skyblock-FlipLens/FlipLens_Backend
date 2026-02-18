@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.Objects;
 
 @Service
 public class FlipCalculationContextService {
@@ -34,12 +35,34 @@ public class FlipCalculationContextService {
 
     public FlipCalculationContext loadCurrentContext() {
         MarketSnapshot latestMarketSnapshot = marketSnapshotPersistenceService.latest().orElse(null);
-        UnifiedFlipInputSnapshot marketSnapshot = latestMarketSnapshot == null
-                ? new UnifiedFlipInputSnapshot(Instant.now(), null, null)
-                : unifiedFlipInputMapper.map(latestMarketSnapshot);
-        FlipScoreFeatureSet scoreFeatures = latestMarketSnapshot == null
+        return buildContext(latestMarketSnapshot, Instant.now(), true);
+    }
+
+    public FlipCalculationContext loadContextAsOf(Instant asOfTimestamp) {
+        Instant requiredAsOfTimestamp = Objects.requireNonNull(asOfTimestamp, "asOfTimestamp must not be null");
+        MarketSnapshot marketSnapshotAsOf = marketSnapshotPersistenceService.asOf(requiredAsOfTimestamp).orElse(null);
+        return buildContext(marketSnapshotAsOf, requiredAsOfTimestamp, false);
+    }
+
+    private FlipCalculationContext buildContext(MarketSnapshot marketSnapshotDomain,
+                                                Instant snapshotTimestamp,
+                                                boolean includeLiveElection) {
+        UnifiedFlipInputSnapshot marketSnapshot = marketSnapshotDomain == null
+                ? new UnifiedFlipInputSnapshot(snapshotTimestamp, null, null)
+                : unifiedFlipInputMapper.map(marketSnapshotDomain);
+        FlipScoreFeatureSet scoreFeatures = marketSnapshotDomain == null
                 ? FlipScoreFeatureSet.empty()
-                : marketTimescaleFeatureService.computeFor(latestMarketSnapshot);
+                : marketTimescaleFeatureService.computeFor(marketSnapshotDomain);
+
+        if (!includeLiveElection) {
+            return new FlipCalculationContext(
+                    marketSnapshot,
+                    STANDARD_BAZAAR_TAX,
+                    STANDARD_AUCTION_TAX_MULTIPLIER,
+                    true,
+                    scoreFeatures
+            );
+        }
 
         JsonNode election = hypixelClient.fetchElection();
         if (election == null) {

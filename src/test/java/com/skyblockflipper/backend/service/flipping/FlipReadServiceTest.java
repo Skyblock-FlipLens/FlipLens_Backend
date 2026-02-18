@@ -85,6 +85,7 @@ class FlipReadServiceTest {
         Flip flip = mock(Flip.class);
         UnifiedFlipDto dto = sampleDto();
         when(flipRepository.findById(id)).thenReturn(Optional.of(flip));
+        when(flip.getSnapshotTimestampEpochMillis()).thenReturn(null);
         when(contextService.loadCurrentContext()).thenReturn(context);
         when(mapper.toDto(flip, context)).thenReturn(dto);
 
@@ -113,6 +114,31 @@ class FlipReadServiceTest {
         verify(flipRepository).findById(id);
         verify(contextService, never()).loadCurrentContext();
         verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void findFlipByIdUsesSnapshotBoundContextWhenSnapshotTimestampExists() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        UUID id = UUID.randomUUID();
+        Flip flip = mock(Flip.class);
+        Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
+        UnifiedFlipDto dto = sampleDto();
+        when(flipRepository.findById(id)).thenReturn(Optional.of(flip));
+        when(flip.getSnapshotTimestampEpochMillis()).thenReturn(snapshotTimestamp.toEpochMilli());
+        when(contextService.loadContextAsOf(snapshotTimestamp)).thenReturn(context);
+        when(mapper.toDto(flip, context)).thenReturn(dto);
+
+        Optional<UnifiedFlipDto> result = service.findFlipById(id);
+
+        assertTrue(result.isPresent());
+        assertEquals(dto, result.get());
+        verify(contextService).loadContextAsOf(snapshotTimestamp);
+        verify(mapper).toDto(flip, context);
     }
 
     private UnifiedFlipDto sampleDto() {

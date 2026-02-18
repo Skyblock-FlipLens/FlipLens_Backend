@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.api;
 
+import com.skyblockflipper.backend.service.item.ItemReadService;
 import com.skyblockflipper.backend.service.item.NpcShopReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
@@ -17,9 +18,27 @@ import static org.mockito.Mockito.when;
 class ItemControllerTest {
 
     @Test
+    void listItemsDelegatesToService() {
+        ItemReadService itemReadService = mock(ItemReadService.class);
+        NpcShopReadService npcShopReadService = mock(NpcShopReadService.class);
+        ItemController controller = new ItemController(itemReadService, npcShopReadService);
+        Pageable pageable = PageRequest.of(0, 100);
+        ItemDto dto = new ItemDto("WHEAT", "Wheat", "minecraft:wheat", "COMMON", "FARMING", List.of());
+        Page<ItemDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
+
+        when(itemReadService.listItems("WHEAT", pageable)).thenReturn(expected);
+
+        Page<ItemDto> response = controller.listItems("WHEAT", pageable);
+
+        assertEquals(expected, response);
+        verify(itemReadService).listItems("WHEAT", pageable);
+    }
+
+    @Test
     void listNpcBuyableItemsDelegatesToService() {
+        ItemReadService itemReadService = mock(ItemReadService.class);
         NpcShopReadService service = mock(NpcShopReadService.class);
-        ItemController controller = new ItemController(service);
+        ItemController controller = new ItemController(itemReadService, service);
         Pageable pageable = PageRequest.of(0, 100);
         NpcShopOfferDto dto = new NpcShopOfferDto(
                 "FARM_MERCHANT_NPC",

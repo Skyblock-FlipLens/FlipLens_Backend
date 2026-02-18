@@ -26,7 +26,7 @@ public class NEUItemMapper {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
         }
-        String id = firstNonBlank(node, "id", "internalname");
+        String id = canonicalizeItemId(firstNonBlank(node, "id", "internalname"));
         if (id.isEmpty()) {
             return null;
         }
@@ -208,7 +208,7 @@ public class NEUItemMapper {
             return null;
         }
         int amount = readInt(node, "count", "amount", "qty");
-        return new ParsedIngredient(itemId, amount);
+        return new ParsedIngredient(canonicalizeItemId(itemId), amount);
     }
 
     private ParsedIngredient parseIngredientString(String value) {
@@ -220,7 +220,7 @@ public class NEUItemMapper {
             return null;
         }
         String[] parts = trimmed.split(":");
-        String itemId = parts[0].trim();
+        String itemId = canonicalizeItemId(parts[0]);
         if (itemId.isEmpty()) {
             return null;
         }
@@ -323,6 +323,10 @@ public class NEUItemMapper {
         }
         String value = node.asString();
         return value == null ? "" : value;
+    }
+
+    private String canonicalizeItemId(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private int readInt(JsonNode node, String... fieldNames) {
