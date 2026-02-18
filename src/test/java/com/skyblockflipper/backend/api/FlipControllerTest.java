@@ -30,12 +30,29 @@ class FlipControllerTest {
         UnifiedFlipDto dto = sampleDto();
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
 
-        when(service.listFlips(FlipType.FORGE, pageable)).thenReturn(expected);
+        when(service.listFlips(FlipType.FORGE, null, pageable)).thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, pageable);
+        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, null, pageable);
 
         assertEquals(expected, response);
-        verify(service).listFlips(FlipType.FORGE, pageable);
+        verify(service).listFlips(FlipType.FORGE, null, pageable);
+    }
+
+    @Test
+    void listFlipsWithSnapshotDelegatesToService() {
+        FlipReadService service = mock(FlipReadService.class);
+        FlipController controller = new FlipController(service);
+        Pageable pageable = PageRequest.of(0, 50);
+        Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
+        UnifiedFlipDto dto = sampleDto();
+        Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
+
+        when(service.listFlips(FlipType.FORGE, snapshotTimestamp, pageable)).thenReturn(expected);
+
+        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, snapshotTimestamp, pageable);
+
+        assertEquals(expected, response);
+        verify(service).listFlips(FlipType.FORGE, snapshotTimestamp, pageable);
     }
 
     @Test

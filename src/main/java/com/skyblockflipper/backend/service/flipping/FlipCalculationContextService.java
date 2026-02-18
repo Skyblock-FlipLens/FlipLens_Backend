@@ -34,12 +34,31 @@ public class FlipCalculationContextService {
 
     public FlipCalculationContext loadCurrentContext() {
         MarketSnapshot latestMarketSnapshot = marketSnapshotPersistenceService.latest().orElse(null);
-        UnifiedFlipInputSnapshot marketSnapshot = latestMarketSnapshot == null
+        return buildContext(latestMarketSnapshot, true);
+    }
+
+    public FlipCalculationContext loadContextAsOf(Instant asOfTimestamp) {
+        MarketSnapshot marketSnapshotAsOf = marketSnapshotPersistenceService.asOf(asOfTimestamp).orElse(null);
+        return buildContext(marketSnapshotAsOf, false);
+    }
+
+    private FlipCalculationContext buildContext(MarketSnapshot marketSnapshotDomain, boolean includeLiveElection) {
+        UnifiedFlipInputSnapshot marketSnapshot = marketSnapshotDomain == null
                 ? new UnifiedFlipInputSnapshot(Instant.now(), null, null)
-                : unifiedFlipInputMapper.map(latestMarketSnapshot);
-        FlipScoreFeatureSet scoreFeatures = latestMarketSnapshot == null
+                : unifiedFlipInputMapper.map(marketSnapshotDomain);
+        FlipScoreFeatureSet scoreFeatures = marketSnapshotDomain == null
                 ? FlipScoreFeatureSet.empty()
-                : marketTimescaleFeatureService.computeFor(latestMarketSnapshot);
+                : marketTimescaleFeatureService.computeFor(marketSnapshotDomain);
+
+        if (!includeLiveElection) {
+            return new FlipCalculationContext(
+                    marketSnapshot,
+                    STANDARD_BAZAAR_TAX,
+                    STANDARD_AUCTION_TAX_MULTIPLIER,
+                    true,
+                    scoreFeatures
+            );
+        }
 
         JsonNode election = hypixelClient.fetchElection();
         if (election == null) {

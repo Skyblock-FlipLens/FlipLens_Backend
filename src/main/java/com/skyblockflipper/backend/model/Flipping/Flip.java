@@ -11,6 +11,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderColumn;
@@ -26,7 +27,10 @@ import java.util.UUID;
 
 @Getter
 @Entity
-@Table(name = "flip")
+@Table(
+        name = "flip",
+        indexes = @Index(name = "idx_flip_snapshot_ts_epoch_millis", columnList = "snapshot_timestamp_epoch_millis")
+)
 public class Flip {
 
     @Id
@@ -45,6 +49,10 @@ public class Flip {
     @Setter
     @Column(nullable = false)
     private String resultItemId;
+
+    @Setter
+    @Column(name = "snapshot_timestamp_epoch_millis")
+    private Long snapshotTimestampEpochMillis;
 
     @ElementCollection
     private List<Constraint> constraints = new ArrayList<>();

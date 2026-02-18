@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.NEU.NEUItemMapper;
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
 import com.skyblockflipper.backend.instrumentation.CycleContext;
 import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
+import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -25,18 +26,21 @@ public class SourceJobs {
     private final ItemRepository itemRepository;
     private final MarketDataProcessingService marketDataProcessingService;
     private final CycleInstrumentationService cycleInstrumentationService;
+    private final FlipGenerationService flipGenerationService;
 
     @Autowired
     public SourceJobs(NEUClient neuClient,
                       NEUItemMapper neuItemMapper,
                       ItemRepository itemRepository,
                       MarketDataProcessingService marketDataProcessingService,
-                      CycleInstrumentationService cycleInstrumentationService){
+                      CycleInstrumentationService cycleInstrumentationService,
+                      FlipGenerationService flipGenerationService){
         this.neuClient = neuClient;
         this.neuItemMapper = neuItemMapper;
         this.itemRepository = itemRepository;
         this.marketDataProcessingService = marketDataProcessingService;
         this.cycleInstrumentationService = cycleInstrumentationService;
+        this.flipGenerationService = flipGenerationService;
     }
 
     @Scheduled(fixedDelayString = "5000")
@@ -45,7 +49,16 @@ public class SourceJobs {
         boolean success = false;
         long totalStart = cycleInstrumentationService.startPhase();
         try {
-            marketDataProcessingService.captureCurrentSnapshotAndPrepareInput(context.getCycleId());
+            marketDataProcessingService.captureCurrentSnapshotAndPrepareInput(context.getCycleId())
+                    .ifPresent(snapshot -> {
+                        var result = flipGenerationService.generateIfMissingForSnapshot(snapshot.snapshotTimestamp());
+                        if (!result.noOp()) {
+                            log.info("Generated flips for snapshot {}: generated={}, skipped={}",
+                                    snapshot.snapshotTimestamp(),
+                                    result.generatedCount(),
+                                    result.skippedCount());
+                        }
+                    });
             success = true;
         } catch (Exception e) {
             log.warn("Failed to poll and persist market snapshot: {}", ExceptionUtils.getStackTrace(e));
@@ -79,6 +92,14 @@ public class SourceJobs {
             for(var x : nodes){
                 itemRepository.save(neuItemMapper.fromJson(x));
             }
+            marketDataProcessingService.latestMarketSnapshot()
+                    .ifPresent(snapshot -> {
+                        var result = flipGenerationService.regenerateForSnapshot(snapshot.snapshotTimestamp());
+                        log.info("Regenerated flips for latest snapshot {} after NEU refresh: generated={}, skipped={}",
+                                snapshot.snapshotTimestamp(),
+                                result.generatedCount(),
+                                result.skippedCount());
+                    });
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
