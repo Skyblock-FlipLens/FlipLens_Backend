@@ -1,6 +1,6 @@
 # SkyblockFlipperBackend
 
-[Language: [Deutsch](README.md) | English]
+[Language: English | [Deutsch](README.md)]
 
 > **API-first engine for Hypixel SkyBlock flips** with a unified data model, reproducible snapshots, and extensible flip analytics.
 
