@@ -40,8 +40,8 @@ public class InstrumentationProperties {
 
     }
 
-    @Setter
     @Getter
+    @Setter
     public static class Blocking {
         private long slowThresholdMillis = 100;
         private double stackSampleRate = 0.01;
@@ -49,15 +49,15 @@ public class InstrumentationProperties {
 
     }
 
-    @Setter
     @Getter
+    @Setter
     public static class Admin {
         private boolean localOnly = true;
         private String token = "";
     }
 
-    @Setter
     @Getter
+    @Setter
     public static class AsyncProfiler {
         private boolean enabled = false;
         private Path outputDir = Path.of("var", "profiling", "async-profiler");

@@ -13,6 +13,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -109,5 +110,21 @@ class FlipCalculationContextServiceTest {
         assertEquals(asOfTimestamp, context.marketSnapshot().snapshotTimestamp());
         assertTrue(context.electionPartial());
         assertEquals(1.0D, context.auctionTaxMultiplier());
+    }
+
+    @Test
+    void loadContextAsOfRejectsNullTimestamp() {
+        MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
+        HypixelClient hypixelClient = mock(HypixelClient.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
+        FlipCalculationContextService service = new FlipCalculationContextService(
+                marketSnapshotService,
+                inputMapper,
+                featureService,
+                hypixelClient
+        );
+
+        assertThrows(NullPointerException.class, () -> service.loadContextAsOf(null));
     }
 }

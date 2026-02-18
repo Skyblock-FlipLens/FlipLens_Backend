@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.Objects;
 
 @Service
 public class FlipCalculationContextService {
@@ -38,9 +39,9 @@ public class FlipCalculationContextService {
     }
 
     public FlipCalculationContext loadContextAsOf(Instant asOfTimestamp) {
-        MarketSnapshot marketSnapshotAsOf = marketSnapshotPersistenceService.asOf(asOfTimestamp).orElse(null);
-        Instant requestedSnapshotTimestamp = asOfTimestamp == null ? Instant.now() : asOfTimestamp;
-        return buildContext(marketSnapshotAsOf, requestedSnapshotTimestamp, false);
+        Instant requiredAsOfTimestamp = Objects.requireNonNull(asOfTimestamp, "asOfTimestamp must not be null");
+        MarketSnapshot marketSnapshotAsOf = marketSnapshotPersistenceService.asOf(requiredAsOfTimestamp).orElse(null);
+        return buildContext(marketSnapshotAsOf, requiredAsOfTimestamp, false);
     }
 
     private FlipCalculationContext buildContext(MarketSnapshot marketSnapshotDomain,

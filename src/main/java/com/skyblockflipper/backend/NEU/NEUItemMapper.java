@@ -286,11 +286,10 @@ public class NEUItemMapper {
     }
 
     private void mergeIngredient(Map<String, Integer> counts, String itemId, int amount) {
-        String normalizedItemId = canonicalizeItemId(itemId);
-        if (normalizedItemId.isEmpty() || amount <= 0) {
+        if (itemId == null || itemId.isEmpty() || amount <= 0) {
             return;
         }
-        counts.merge(normalizedItemId, amount, Integer::sum);
+        counts.merge(itemId, amount, Integer::sum);
     }
 
     private List<RecipeIngredient> toIngredients(Map<String, Integer> counts) {
