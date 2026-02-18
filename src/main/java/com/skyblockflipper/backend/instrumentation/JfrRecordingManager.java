@@ -39,22 +39,11 @@ public class JfrRecordingManager {
             Path outputDir = ensureOutputDir();
             Configuration profile = Configuration.getConfiguration("profile");
 
-            Recording initializedContinuousRecording = new Recording(profile);
-            initializedContinuousRecording.setName("skyblock-blocking-continuous");
-            initializedContinuousRecording.setToDisk(true);
-            initializedContinuousRecording.setDumpOnExit(true);
-            initializedContinuousRecording.setDestination(outputDir.resolve("continuous.jfr"));
-            initializedContinuousRecording.setMaxAge(properties.getJfr().getRetention());
-            initializedContinuousRecording.setMaxSize(properties.getJfr().getMaxSizeMb() * 1024L * 1024L);
+            Recording initializedContinuousRecording = getRecording(profile, outputDir);
             configureBlockingEvents(initializedContinuousRecording);
             initializedContinuousRecording.start();
 
-            Recording initializedSnapshotRingRecording = new Recording(profile);
-            initializedSnapshotRingRecording.setName("skyblock-blocking-snapshot-ring");
-            initializedSnapshotRingRecording.setToDisk(true);
-            initializedSnapshotRingRecording.setDumpOnExit(false);
-            initializedSnapshotRingRecording.setMaxAge(properties.getJfr().getSnapshotWindow());
-            initializedSnapshotRingRecording.setMaxSize(Math.max(32L, properties.getJfr().getMaxSizeMb() / 4) * 1024L * 1024L);
+            Recording initializedSnapshotRingRecording = getRecording(profile);
             configureBlockingEvents(initializedSnapshotRingRecording);
             initializedSnapshotRingRecording.start();
 
@@ -70,16 +59,37 @@ public class JfrRecordingManager {
         }
     }
 
+    private Recording getRecording(Configuration profile) {
+        Recording initializedSnapshotRingRecording = new Recording(profile);
+        initializedSnapshotRingRecording.setName("skyblock-blocking-snapshot-ring");
+        initializedSnapshotRingRecording.setToDisk(true);
+        initializedSnapshotRingRecording.setDumpOnExit(false);
+        initializedSnapshotRingRecording.setMaxAge(properties.getJfr().getSnapshotWindow());
+        initializedSnapshotRingRecording.setMaxSize(Math.max(32L, properties.getJfr().getMaxSizeMb() / 4) * 1024L * 1024L);
+        return initializedSnapshotRingRecording;
+    }
+
+    private Recording getRecording(Configuration profile, Path outputDir) throws IOException {
+        Recording initializedContinuousRecording = new Recording(profile);
+        initializedContinuousRecording.setName("skyblock-blocking-continuous");
+        initializedContinuousRecording.setToDisk(true);
+        initializedContinuousRecording.setDumpOnExit(true);
+        initializedContinuousRecording.setDestination(outputDir.resolve("continuous.jfr"));
+        initializedContinuousRecording.setMaxAge(properties.getJfr().getRetention());
+        initializedContinuousRecording.setMaxSize(properties.getJfr().getMaxSizeMb() * 1024L * 1024L);
+        return initializedContinuousRecording;
+    }
+
     public synchronized Path dumpSnapshot() {
         if (snapshotRingRecording == null) {
             throw new IllegalStateException("JFR snapshot recording is not running");
         }
         try {
             Path outputDir = ensureOutputDir();
-            Recording copy = snapshotRingRecording.copy(true);
             Path output = outputDir.resolve("snapshot-" + Instant.now().toEpochMilli() + ".jfr");
-            copy.dump(output);
-            copy.close();
+            try (Recording copy = snapshotRingRecording.copy(true)) {
+                copy.dump(output);
+            }
             return output;
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to dump JFR snapshot", exception);
