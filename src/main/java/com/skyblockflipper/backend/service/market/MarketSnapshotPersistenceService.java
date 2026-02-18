@@ -1,10 +1,12 @@
 package com.skyblockflipper.backend.service.market;
 
+import com.skyblockflipper.backend.instrumentation.BlockingTimeTracker;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -33,10 +35,22 @@ public class MarketSnapshotPersistenceService {
 
     private final MarketSnapshotRepository marketSnapshotRepository;
     private final ObjectMapper objectMapper;
+    private final BlockingTimeTracker blockingTimeTracker;
 
-    public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository, ObjectMapper objectMapper) {
+    public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
+                                            ObjectMapper objectMapper) {
+        this(marketSnapshotRepository,
+                objectMapper,
+                new BlockingTimeTracker(new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()));
+    }
+
+    @Autowired
+    public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
+                                            ObjectMapper objectMapper,
+                                            BlockingTimeTracker blockingTimeTracker) {
         this.marketSnapshotRepository = marketSnapshotRepository;
         this.objectMapper = objectMapper;
+        this.blockingTimeTracker = blockingTimeTracker;
     }
 
     public MarketSnapshot save(MarketSnapshot snapshot) {
@@ -48,7 +62,7 @@ public class MarketSnapshotPersistenceService {
                     objectMapper.writeValueAsString(snapshot.auctions()),
                     objectMapper.writeValueAsString(snapshot.bazaarProducts())
             );
-            MarketSnapshotEntity saved = marketSnapshotRepository.save(entity);
+            MarketSnapshotEntity saved = blockingTimeTracker.record("db.marketSnapshot.save", "db", () -> marketSnapshotRepository.save(entity));
             return toDomain(saved);
         } catch (JacksonException e) {
             throw new IllegalStateException("Failed to serialize market snapshot for persistence.", e);
@@ -56,30 +70,30 @@ public class MarketSnapshotPersistenceService {
     }
 
     public Optional<MarketSnapshot> latest() {
-        return marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc().map(this::toDomain);
+        return blockingTimeTracker.record("db.marketSnapshot.latest", "db", () -> marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc().map(this::toDomain));
     }
 
     public Optional<MarketSnapshot> asOf(Instant asOfTimestamp) {
         if (asOfTimestamp == null) {
             return latest();
         }
-        return marketSnapshotRepository
+        return blockingTimeTracker.record("db.marketSnapshot.asOf", "db", () -> marketSnapshotRepository
                 .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfTimestamp.toEpochMilli())
-                .map(this::toDomain);
+                .map(this::toDomain));
     }
 
     public List<MarketSnapshot> between(Instant fromInclusive, Instant toInclusive) {
         if (fromInclusive == null || toInclusive == null || fromInclusive.isAfter(toInclusive)) {
             return List.of();
         }
-        return marketSnapshotRepository
+        return blockingTimeTracker.record("db.marketSnapshot.between", "db", () -> marketSnapshotRepository
                 .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
                         fromInclusive.toEpochMilli(),
                         toInclusive.toEpochMilli()
                 )
                 .stream()
                 .map(this::toDomain)
-                .toList();
+                .toList());
     }
 
     public SnapshotCompactionResult compactSnapshots() {
@@ -91,8 +105,8 @@ public class MarketSnapshotPersistenceService {
         long nowMillis = safeNow.toEpochMilli();
         long compactionCandidateUpperBound = nowMillis - (RAW_WINDOW_SECONDS * 1_000L);
 
-        List<MarketSnapshotEntity> candidates = marketSnapshotRepository
-                .findBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisAsc(compactionCandidateUpperBound);
+        List<MarketSnapshotEntity> candidates = blockingTimeTracker.record("db.marketSnapshot.compactionCandidates", "db", () -> marketSnapshotRepository
+                .findBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisAsc(compactionCandidateUpperBound));
         if (candidates.isEmpty()) {
             return new SnapshotCompactionResult(0, 0, 0);
         }
@@ -129,7 +143,7 @@ public class MarketSnapshotPersistenceService {
         }
 
         if (!toDelete.isEmpty()) {
-            marketSnapshotRepository.deleteAllByIdInBatch(toDelete);
+            blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(toDelete));
         }
 
         int keptCount = candidates.size() - toDelete.size();

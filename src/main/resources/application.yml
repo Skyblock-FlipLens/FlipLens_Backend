@@ -17,3 +17,23 @@ config:
   NEU:
     repo-url: ${CONFIG_NEU_REPO_URL:https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO}
     refresh-days: ${CONFIG_NEU_REFRESH_DAYS:1}
+
+instrumentation:
+  jfr:
+    enabled: ${INSTRUMENTATION_JFR_ENABLED:true}
+    output-dir: ${INSTRUMENTATION_JFR_OUTPUT_DIR:var/profiling/jfr}
+    retention: ${INSTRUMENTATION_JFR_RETENTION:PT2H}
+    max-size-mb: ${INSTRUMENTATION_JFR_MAX_SIZE_MB:512}
+    stack-depth: ${INSTRUMENTATION_JFR_STACK_DEPTH:256}
+    snapshot-window: ${INSTRUMENTATION_JFR_SNAPSHOT_WINDOW:PT2M}
+  blocking:
+    slow-threshold-millis: ${INSTRUMENTATION_BLOCKING_SLOW_THRESHOLD_MILLIS:100}
+    stack-sample-rate: ${INSTRUMENTATION_BLOCKING_STACK_SAMPLE_RATE:0.01}
+    stack-log-rate-limit: ${INSTRUMENTATION_BLOCKING_STACK_LOG_RATE_LIMIT:PT30S}
+  admin:
+    local-only: ${INSTRUMENTATION_ADMIN_LOCAL_ONLY:true}
+    token: ${INSTRUMENTATION_ADMIN_TOKEN:}
+  async-profiler:
+    enabled: ${INSTRUMENTATION_ASYNC_PROFILER_ENABLED:false}
+    output-dir: ${INSTRUMENTATION_ASYNC_PROFILER_OUTPUT_DIR:var/profiling/async-profiler}
+    script-path: ${INSTRUMENTATION_ASYNC_PROFILER_SCRIPT_PATH:scripts/run_async_profiler.sh}

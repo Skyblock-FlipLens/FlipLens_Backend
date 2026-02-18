@@ -3,9 +3,11 @@ package com.skyblockflipper.backend.hypixel;
 import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
+import com.skyblockflipper.backend.instrumentation.BlockingTimeTracker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
@@ -24,13 +26,22 @@ public class HypixelClient {
 
     private final RestClient restClient;
     private final String apiKey;
+    private final BlockingTimeTracker blockingTimeTracker;
 
+
+    public HypixelClient(String apiUrl, String apiKey) {
+        this(apiUrl, apiKey, new BlockingTimeTracker(new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()));
+    }
+
+    @Autowired
     public HypixelClient(
             @Value("${config.hypixel.api-url}") String apiUrl,
-            @Value("${config.hypixel.api-key:}") String apiKey
+            @Value("${config.hypixel.api-key:}") String apiKey,
+            BlockingTimeTracker blockingTimeTracker
     ) {
         this.restClient = RestClient.builder().baseUrl(apiUrl).build();
         this.apiKey = apiKey;
+        this.blockingTimeTracker = blockingTimeTracker;
     }
 
     public AuctionResponse fetchAuctionPage(int page) {
@@ -118,7 +129,10 @@ public class HypixelClient {
             if (!apiKey.isBlank()) {
                 request = request.header("API-Key", apiKey);
             }
-            return request.retrieve().body(responseType);
+            RestClient.RequestHeadersSpec<?> finalRequest = request;
+            int queryStart = uri.indexOf('?');
+            String sanitizedPath = queryStart >= 0 ? uri.substring(0, queryStart) : uri;
+            return blockingTimeTracker.record("http.hypixel" + sanitizedPath, "http", () -> finalRequest.retrieve().body(responseType));
         } catch (RestClientResponseException e) {
             log.warn("Hypixel request failed for {} with status {}: {}", uri, e.getStatusCode(), e.getStatusText());
             return null;
