@@ -79,4 +79,21 @@ class FlipGenerationServiceTest {
         assertEquals(1, savedFlipsCaptor.getValue().size());
         assertEquals(snapshot.toEpochMilli(), savedFlipsCaptor.getValue().getFirst().getSnapshotTimestampEpochMillis());
     }
+
+    @Test
+    void regenerateForSnapshotDoesNotDeleteWhenRecipesAreEmpty() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        RecipeRepository recipeRepository = mock(RecipeRepository.class);
+        RecipeToFlipMapper mapper = mock(RecipeToFlipMapper.class);
+        FlipGenerationService service = new FlipGenerationService(flipRepository, recipeRepository, mapper);
+        Instant snapshot = Instant.parse("2026-02-18T21:30:00Z");
+
+        when(recipeRepository.findAll(any(Sort.class))).thenReturn(List.of());
+
+        FlipGenerationService.GenerationResult result = service.regenerateForSnapshot(snapshot);
+
+        assertTrue(result.noOp());
+        verify(flipRepository, never()).deleteBySnapshotTimestampEpochMillis(anyLong());
+        verify(flipRepository, never()).saveAll(any());
+    }
 }

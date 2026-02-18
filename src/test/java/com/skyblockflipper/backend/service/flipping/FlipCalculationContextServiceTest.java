@@ -86,4 +86,28 @@ class FlipCalculationContextServiceTest {
         assertNotNull(context.marketSnapshot());
         assertNotNull(context.scoreFeatureSet());
     }
+
+    @Test
+    void loadContextAsOfUsesRequestedTimestampWhenSnapshotMissing() {
+        MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
+        HypixelClient hypixelClient = mock(HypixelClient.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
+        Instant asOfTimestamp = Instant.parse("2026-02-10T12:00:00Z");
+
+        when(marketSnapshotService.asOf(asOfTimestamp)).thenReturn(Optional.empty());
+
+        FlipCalculationContextService service = new FlipCalculationContextService(
+                marketSnapshotService,
+                inputMapper,
+                featureService,
+                hypixelClient
+        );
+
+        FlipCalculationContext context = service.loadContextAsOf(asOfTimestamp);
+
+        assertEquals(asOfTimestamp, context.marketSnapshot().snapshotTimestamp());
+        assertTrue(context.electionPartial());
+        assertEquals(1.0D, context.auctionTaxMultiplier());
+    }
 }

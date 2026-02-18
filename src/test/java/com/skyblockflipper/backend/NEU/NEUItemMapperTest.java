@@ -182,6 +182,28 @@ class NEUItemMapperTest {
         assertNull(item);
     }
 
+    @Test
+    void canonicalizesItemAndIngredientIdsToUppercase() {
+        JsonNode node = readInline("""
+                {
+                  "id": "  mixed_case_item  ",
+                  "recipes": [
+                    {
+                      "type": "crafting",
+                      "slots": { "A1": "  coal :2" }
+                    }
+                  ]
+                }
+                """);
+
+        Item item = mapper.fromJson(node);
+
+        assertNotNull(item);
+        assertEquals("MIXED_CASE_ITEM", item.getId());
+        assertEquals(1, item.getRecipes().size());
+        assertEquals(Map.of("COAL", 2), toCounts(item.getRecipes().getFirst()));
+    }
+
     private Item mapResource(String resourcePath) throws IOException {
         JsonNode node = readResource(resourcePath);
         return mapper.fromJson(node);

@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
@@ -18,6 +19,7 @@ public class MarketSnapshotReadService {
         this.marketSnapshotRepository = marketSnapshotRepository;
     }
 
+    @Transactional(readOnly = true)
     public Page<MarketSnapshotDto> listSnapshots(Pageable pageable) {
         return marketSnapshotRepository.findAll(pageable).map(this::toDto);
     }

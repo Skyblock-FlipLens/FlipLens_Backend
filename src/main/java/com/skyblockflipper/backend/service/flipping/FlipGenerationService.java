@@ -47,12 +47,11 @@ public class FlipGenerationService {
         }
 
         long snapshotEpochMillis = snapshotTimestamp.toEpochMilli();
-        flipRepository.deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
-
         List<Recipe> recipes = recipeRepository.findAll(Sort.by("recipeId").ascending());
         if (recipes.isEmpty()) {
             return new GenerationResult(0, 0, true);
         }
+        flipRepository.deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
 
         List<Flip> generatedFlips = new ArrayList<>(recipes.size());
         int skipped = 0;

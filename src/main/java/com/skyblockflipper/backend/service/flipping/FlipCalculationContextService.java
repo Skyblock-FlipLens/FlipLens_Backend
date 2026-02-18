@@ -34,17 +34,20 @@ public class FlipCalculationContextService {
 
     public FlipCalculationContext loadCurrentContext() {
         MarketSnapshot latestMarketSnapshot = marketSnapshotPersistenceService.latest().orElse(null);
-        return buildContext(latestMarketSnapshot, true);
+        return buildContext(latestMarketSnapshot, Instant.now(), true);
     }
 
     public FlipCalculationContext loadContextAsOf(Instant asOfTimestamp) {
         MarketSnapshot marketSnapshotAsOf = marketSnapshotPersistenceService.asOf(asOfTimestamp).orElse(null);
-        return buildContext(marketSnapshotAsOf, false);
+        Instant requestedSnapshotTimestamp = asOfTimestamp == null ? Instant.now() : asOfTimestamp;
+        return buildContext(marketSnapshotAsOf, requestedSnapshotTimestamp, false);
     }
 
-    private FlipCalculationContext buildContext(MarketSnapshot marketSnapshotDomain, boolean includeLiveElection) {
+    private FlipCalculationContext buildContext(MarketSnapshot marketSnapshotDomain,
+                                                Instant snapshotTimestamp,
+                                                boolean includeLiveElection) {
         UnifiedFlipInputSnapshot marketSnapshot = marketSnapshotDomain == null
-                ? new UnifiedFlipInputSnapshot(Instant.now(), null, null)
+                ? new UnifiedFlipInputSnapshot(snapshotTimestamp, null, null)
                 : unifiedFlipInputMapper.map(marketSnapshotDomain);
         FlipScoreFeatureSet scoreFeatures = marketSnapshotDomain == null
                 ? FlipScoreFeatureSet.empty()

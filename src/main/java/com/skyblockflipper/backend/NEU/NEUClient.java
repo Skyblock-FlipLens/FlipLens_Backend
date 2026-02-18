@@ -208,7 +208,9 @@ public class NEUClient {
 
     private void downloadAndExtractItems(String repoUrl, String branch, Path targetDir) throws IOException, InterruptedException {
         String zipUrl = resolveZipUrl(repoUrl, branch);
-        try (TemporaryFile tempZip = TemporaryFile.create("neu-repo-", ".zip")) {
+        Path normalizedTargetDir = targetDir.toAbsolutePath().normalize();
+        int extracted = 0;
+        try (TemporaryFile tempZip = TemporaryFile.create()) {
             Path tempZipPath = tempZip.path();
             HttpClient client = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.NORMAL)
@@ -222,8 +224,6 @@ public class NEUClient {
                 throw new IOException("Failed to download NEU repo zip: HTTP " + response.statusCode());
             }
 
-            Path normalizedTargetDir = targetDir.toAbsolutePath().normalize();
-            int extracted = 0;
             try (ZipInputStream zipStream = new ZipInputStream(Files.newInputStream(tempZipPath))) {
                 ZipEntry entry;
                 while ((entry = zipStream.getNextEntry()) != null) {
@@ -245,10 +245,10 @@ public class NEUClient {
                     extracted++;
                 }
             }
+        }
 
-            if (extracted == 0) {
-                throw new IOException("No item JSONs found in NEU repo zip.");
-            }
+        if (extracted == 0) {
+            throw new IOException("No item JSONs found in NEU repo zip.");
         }
     }
 
@@ -271,25 +271,16 @@ public class NEUClient {
         throw new IllegalArgumentException("Unsupported NEU repo URL, provide a direct .zip URL: " + repoUrl);
     }
 
-    private static final class TemporaryFile implements AutoCloseable {
-        private final Path path;
+    private record TemporaryFile(Path path) implements AutoCloseable {
 
-        private TemporaryFile(Path path) {
-            this.path = path;
-        }
+        private static TemporaryFile create() throws IOException {
+                return new TemporaryFile(Files.createTempFile("neu-repo-", ".zip"));
+            }
 
-        private static TemporaryFile create(String prefix, String suffix) throws IOException {
-            return new TemporaryFile(Files.createTempFile(prefix, suffix));
+            @Override
+            public void close() throws IOException {
+                Files.deleteIfExists(path);
+            }
         }
-
-        private Path path() {
-            return path;
-        }
-
-        @Override
-        public void close() throws IOException {
-            Files.deleteIfExists(path);
-        }
-    }
 
 }
