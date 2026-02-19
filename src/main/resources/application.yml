@@ -30,6 +30,13 @@ config:
   NEU:
     repo-url: ${CONFIG_NEU_REPO_URL:https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO}
     refresh-days: ${CONFIG_NEU_REFRESH_DAYS:1}
+  snapshot:
+    retention:
+      raw-window-seconds: ${CONFIG_SNAPSHOT_RETENTION_RAW_WINDOW_SECONDS:90}
+      minute-tier-upper-seconds: ${CONFIG_SNAPSHOT_RETENTION_MINUTE_TIER_UPPER_SECONDS:1800}
+      two-hour-tier-upper-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_TIER_UPPER_SECONDS:43200}
+      minute-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_MINUTE_INTERVAL_SECONDS:60}
+      two-hour-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_INTERVAL_SECONDS:7200}
 
 instrumentation:
   jfr:

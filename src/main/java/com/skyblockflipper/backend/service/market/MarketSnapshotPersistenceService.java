@@ -6,7 +6,6 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -17,17 +16,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class MarketSnapshotPersistenceService {
 
-    private static final long RAW_WINDOW_SECONDS = 90L;
-    private static final long MINUTE_TIER_UPPER_SECONDS = 30L * 60L;
-    private static final long TWO_HOUR_TIER_UPPER_SECONDS = 12L * 60L * 60L;
-    private static final long MINUTE_INTERVAL_MILLIS = 60_000L;
-    private static final long TWO_HOUR_INTERVAL_MILLIS = 2L * 60L * 60L * 1000L;
     private static final long SECONDS_PER_DAY = 86_400L;
 
     private static final TypeReference<List<AuctionMarketRecord>> AUCTIONS_TYPE = new TypeReference<>() {};
@@ -36,21 +31,37 @@ public class MarketSnapshotPersistenceService {
     private final MarketSnapshotRepository marketSnapshotRepository;
     private final ObjectMapper objectMapper;
     private final BlockingTimeTracker blockingTimeTracker;
+    private final long rawWindowSeconds;
+    private final long minuteTierUpperSeconds;
+    private final long twoHourTierUpperSeconds;
+    private final long minuteIntervalMillis;
+    private final long twoHourIntervalMillis;
 
-    public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
-                                            ObjectMapper objectMapper) {
-        this(marketSnapshotRepository,
-                objectMapper,
-                new BlockingTimeTracker(new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()));
-    }
-
-    @Autowired
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
                                             ObjectMapper objectMapper,
-                                            BlockingTimeTracker blockingTimeTracker) {
+                                            BlockingTimeTracker blockingTimeTracker,
+                                            SnapshotRetentionProperties retentionProperties) {
         this.marketSnapshotRepository = marketSnapshotRepository;
         this.objectMapper = objectMapper;
         this.blockingTimeTracker = blockingTimeTracker;
+        SnapshotRetentionProperties configuredRetention = Objects.requireNonNull(
+                retentionProperties,
+                "SnapshotRetentionProperties must be injected"
+        );
+        this.rawWindowSeconds = sanitizeSeconds(configuredRetention.getRawWindowSeconds(), 90L);
+        this.minuteTierUpperSeconds = sanitizeSeconds(configuredRetention.getMinuteTierUpperSeconds(), 30L * 60L);
+        this.twoHourTierUpperSeconds = sanitizeSeconds(configuredRetention.getTwoHourTierUpperSeconds(), 12L * 60L * 60L);
+        long minuteIntervalSeconds = sanitizeSeconds(configuredRetention.getMinuteIntervalSeconds(), 60L);
+        long twoHourIntervalSeconds = sanitizeSeconds(configuredRetention.getTwoHourIntervalSeconds(), 2L * 60L * 60L);
+        this.minuteIntervalMillis = minuteIntervalSeconds * 1_000L;
+        this.twoHourIntervalMillis = twoHourIntervalSeconds * 1_000L;
+    }
+
+    private long sanitizeSeconds(long configured, long fallback) {
+        if (configured <= 0L) {
+            return fallback;
+        }
+        return configured;
     }
 
     public MarketSnapshot save(MarketSnapshot snapshot) {
@@ -103,7 +114,7 @@ public class MarketSnapshotPersistenceService {
     public SnapshotCompactionResult compactSnapshots(Instant now) {
         Instant safeNow = now == null ? Instant.now() : now;
         long nowMillis = safeNow.toEpochMilli();
-        long compactionCandidateUpperBound = nowMillis - (RAW_WINDOW_SECONDS * 1_000L);
+        long compactionCandidateUpperBound = nowMillis - (rawWindowSeconds * 1_000L);
 
         List<MarketSnapshotEntity> candidates = blockingTimeTracker.record("db.marketSnapshot.compactionCandidates", "db", () -> marketSnapshotRepository
                 .findBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisAsc(compactionCandidateUpperBound));
@@ -120,16 +131,16 @@ public class MarketSnapshotPersistenceService {
             long snapshotMillis = entity.getSnapshotTimestampEpochMillis();
             long ageSeconds = Math.max(0L, (nowMillis - snapshotMillis) / 1_000L);
 
-            if (ageSeconds <= MINUTE_TIER_UPPER_SECONDS) {
-                long slot = Math.floorDiv(snapshotMillis, MINUTE_INTERVAL_MILLIS);
+            if (ageSeconds <= minuteTierUpperSeconds) {
+                long slot = Math.floorDiv(snapshotMillis, minuteIntervalMillis);
                 if (minuteKeepers.putIfAbsent(slot, entity.getId()) != null) {
                     toDelete.add(entity.getId());
                 }
                 continue;
             }
 
-            if (ageSeconds <= TWO_HOUR_TIER_UPPER_SECONDS) {
-                long slot = Math.floorDiv(snapshotMillis, TWO_HOUR_INTERVAL_MILLIS);
+            if (ageSeconds <= twoHourTierUpperSeconds) {
+                long slot = Math.floorDiv(snapshotMillis, twoHourIntervalMillis);
                 if (twoHourKeepers.putIfAbsent(slot, entity.getId()) != null) {
                     toDelete.add(entity.getId());
                 }
