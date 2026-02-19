@@ -56,6 +56,34 @@ class FlipControllerTest {
     }
 
     @Test
+    void flipTypeCoverageDelegatesToService() {
+        FlipReadService service = mock(FlipReadService.class);
+        FlipController controller = new FlipController(service);
+        FlipCoverageDto expected = new FlipCoverageDto(
+                Instant.parse("2026-02-19T20:00:00Z"),
+                List.of("SHARD", "FUSION"),
+                List.of(
+                        new FlipCoverageDto.FlipTypeCoverageDto(
+                                FlipType.AUCTION,
+                                FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                2L,
+                                "Generated from Hypixel market snapshots via MarketFlipMapper."
+                        )
+                )
+        );
+
+        when(service.flipTypeCoverage()).thenReturn(expected);
+
+        FlipCoverageDto response = controller.flipTypeCoverage();
+
+        assertEquals(expected, response);
+        verify(service).flipTypeCoverage();
+    }
+
+    @Test
     void listFlipTypesDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
