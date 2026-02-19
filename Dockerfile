@@ -12,5 +12,6 @@ RUN cd -
 FROM gcr.io/distroless/java21-debian12
 ARG JAR_FILE=/usr/app/target/*.jar
 COPY --from=build $JAR_FILE /app/runner.jar
+ENV SERVER_PORT=8080
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/runner.jar"]

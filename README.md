@@ -251,7 +251,14 @@ export SERVER_PORT=8080
 docker compose up --build
 ```
 
-Service will then be available via `docker-compose.yml` on port `8080`.
+Service will then be available via `docker-compose.yml` on port `1880` by default.
+You can override this by setting `SERVER_PORT`, for example:
+
+```bash
+SERVER_PORT=8080 docker compose up --build
+```
+
+For direct image runs (`docker run`), the `Dockerfile` sets a default `SERVER_PORT=8080`.
 
 ## Roadmap (Short)
 

@@ -252,7 +252,14 @@ export SERVER_PORT=8080
 docker compose up --build
 ```
 
-Danach läuft der Service via `docker-compose.yml` auf Port `8080`.
+Danach läuft der Service via `docker-compose.yml` standardmäßig auf Port `1880`.
+Du kannst das mit `SERVER_PORT` überschreiben, zum Beispiel:
+
+```bash
+SERVER_PORT=8080 docker compose up --build
+```
+
+Beim direkten Start des Images (`docker run`) setzt das `Dockerfile` standardmäßig `SERVER_PORT=8080`.
 
 ## Roadmap (Kurz)
 
