@@ -7,14 +7,18 @@ import com.skyblockflipper.backend.model.Flipping.Recipe.Recipe;
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeIngredient;
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeProcessType;
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeToFlipMapper;
+import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.RecipeRepository;
+import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -95,5 +99,40 @@ class FlipGenerationServiceTest {
         assertTrue(result.noOp());
         verify(flipRepository, never()).deleteBySnapshotTimestampEpochMillis(anyLong());
         verify(flipRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void regenerateForSnapshotIncludesMarketGeneratedFlips() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        RecipeRepository recipeRepository = mock(RecipeRepository.class);
+        RecipeToFlipMapper recipeMapper = mock(RecipeToFlipMapper.class);
+        MarketSnapshotPersistenceService snapshotPersistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = mock(UnifiedFlipInputMapper.class);
+        MarketFlipMapper marketFlipMapper = mock(MarketFlipMapper.class);
+
+        FlipGenerationService service = new FlipGenerationService(
+                flipRepository,
+                recipeRepository,
+                recipeMapper,
+                snapshotPersistenceService,
+                inputMapper,
+                marketFlipMapper
+        );
+        Instant snapshotTimestamp = Instant.parse("2026-02-18T21:30:00Z");
+        MarketSnapshot marketSnapshot = new MarketSnapshot(snapshotTimestamp, List.of(), Map.of());
+        UnifiedFlipInputSnapshot inputSnapshot = new UnifiedFlipInputSnapshot(snapshotTimestamp, Map.of(), Map.of());
+        Flip marketFlip = new Flip(null, FlipType.BAZAAR, List.of(), "ENCHANTED_SUGAR", List.of());
+
+        when(recipeRepository.findAll(any(Sort.class))).thenReturn(List.of());
+        when(snapshotPersistenceService.asOf(snapshotTimestamp)).thenReturn(java.util.Optional.of(marketSnapshot));
+        when(inputMapper.map(marketSnapshot)).thenReturn(inputSnapshot);
+        when(marketFlipMapper.fromMarketSnapshot(inputSnapshot)).thenReturn(List.of(marketFlip));
+
+        FlipGenerationService.GenerationResult result = service.regenerateForSnapshot(snapshotTimestamp);
+
+        assertEquals(1, result.generatedCount());
+        assertEquals(snapshotTimestamp.toEpochMilli(), marketFlip.getSnapshotTimestampEpochMillis());
+        verify(flipRepository).deleteBySnapshotTimestampEpochMillis(snapshotTimestamp.toEpochMilli());
+        verify(flipRepository).saveAll(List.of(marketFlip));
     }
 }
