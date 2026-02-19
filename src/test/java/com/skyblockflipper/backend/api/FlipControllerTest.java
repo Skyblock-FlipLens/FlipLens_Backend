@@ -56,6 +56,39 @@ class FlipControllerTest {
     }
 
     @Test
+    void listFlipTypesDelegatesToService() {
+        FlipReadService service = mock(FlipReadService.class);
+        FlipController controller = new FlipController(service);
+        FlipTypesDto expected = new FlipTypesDto(List.of(FlipType.AUCTION, FlipType.BAZAAR));
+
+        when(service.listSupportedFlipTypes()).thenReturn(expected);
+
+        FlipTypesDto response = controller.listFlipTypes();
+
+        assertEquals(expected, response);
+        verify(service).listSupportedFlipTypes();
+    }
+
+    @Test
+    void snapshotStatsDelegatesToService() {
+        FlipReadService service = mock(FlipReadService.class);
+        FlipController controller = new FlipController(service);
+        Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
+        FlipSnapshotStatsDto expected = new FlipSnapshotStatsDto(
+                snapshotTimestamp,
+                10L,
+                List.of(new FlipSnapshotStatsDto.FlipTypeCountDto(FlipType.AUCTION, 4L))
+        );
+
+        when(service.snapshotStats(snapshotTimestamp)).thenReturn(expected);
+
+        FlipSnapshotStatsDto response = controller.snapshotStats(snapshotTimestamp);
+
+        assertEquals(expected, response);
+        verify(service).snapshotStats(snapshotTimestamp);
+    }
+
+    @Test
     void getFlipByIdReturnsOkWhenFound() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);

@@ -96,4 +96,48 @@ class FlipControllerWebMvcTest {
         assertEquals(2, pageable.getPageSize());
         assertEquals(Sort.by("id").ascending(), pageable.getSort());
     }
+
+    @Test
+    void listFlipTypesReturnsEnumList() throws Exception {
+        when(flipReadService.listSupportedFlipTypes())
+                .thenReturn(new FlipTypesDto(List.of(FlipType.AUCTION, FlipType.BAZAAR, FlipType.CRAFTING)));
+
+        mockMvc.perform(get("/api/v1/flips/types"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.flipTypes.length()").value(3))
+                .andExpect(jsonPath("$.flipTypes[0]").value("AUCTION"))
+                .andExpect(jsonPath("$.flipTypes[1]").value("BAZAAR"))
+                .andExpect(jsonPath("$.flipTypes[2]").value("CRAFTING"));
+
+        verify(flipReadService, times(1)).listSupportedFlipTypes();
+    }
+
+    @Test
+    void snapshotStatsReturnsCountsForRequestedSnapshot() throws Exception {
+        Instant snapshotTimestamp = Instant.parse("2026-02-19T20:00:00Z");
+        when(flipReadService.snapshotStats(snapshotTimestamp))
+                .thenReturn(new FlipSnapshotStatsDto(
+                        snapshotTimestamp,
+                        5L,
+                        List.of(
+                                new FlipSnapshotStatsDto.FlipTypeCountDto(FlipType.AUCTION, 2L),
+                                new FlipSnapshotStatsDto.FlipTypeCountDto(FlipType.BAZAAR, 3L)
+                        )
+                ));
+
+        mockMvc.perform(get("/api/v1/flips/stats")
+                        .param("snapshotTimestamp", "2026-02-19T20:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.snapshotTimestamp").value("2026-02-19T20:00:00Z"))
+                .andExpect(jsonPath("$.totalFlips").value(5))
+                .andExpect(jsonPath("$.byType.length()").value(2))
+                .andExpect(jsonPath("$.byType[0].flipType").value("AUCTION"))
+                .andExpect(jsonPath("$.byType[0].count").value(2))
+                .andExpect(jsonPath("$.byType[1].flipType").value("BAZAAR"))
+                .andExpect(jsonPath("$.byType[1].count").value(3));
+
+        verify(flipReadService, times(1)).snapshotStats(snapshotTimestamp);
+    }
 }

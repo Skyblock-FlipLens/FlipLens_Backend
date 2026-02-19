@@ -11,6 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -139,6 +140,57 @@ class FlipReadServiceTest {
         assertEquals(dto, result.get());
         verify(contextService).loadContextAsOf(snapshotTimestamp);
         verify(mapper).toDto(flip, context);
+    }
+
+    @Test
+    void listSupportedFlipTypesReturnsSortedEnumValues() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+
+        List<FlipType> expected = Arrays.stream(FlipType.values())
+                .sorted((a, b) -> a.name().compareTo(b.name()))
+                .toList();
+
+        assertEquals(expected, service.listSupportedFlipTypes().flipTypes());
+    }
+
+    @Test
+    void snapshotStatsUsesLatestSnapshotWhenNoTimestampProvided() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        long snapshotEpochMillis = Instant.parse("2026-02-19T20:00:00Z").toEpochMilli();
+
+        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
+        when(flipRepository.countByFlipTypeForSnapshot(snapshotEpochMillis))
+                .thenReturn(List.of(new Object[]{FlipType.AUCTION, 2L}, new Object[]{FlipType.BAZAAR, 3L}));
+
+        var stats = service.snapshotStats(null);
+
+        assertEquals(Instant.ofEpochMilli(snapshotEpochMillis), stats.snapshotTimestamp());
+        assertEquals(5L, stats.totalFlips());
+        assertEquals(2L, stats.byType().stream().filter(item -> item.flipType() == FlipType.AUCTION).findFirst().orElseThrow().count());
+        assertEquals(3L, stats.byType().stream().filter(item -> item.flipType() == FlipType.BAZAAR).findFirst().orElseThrow().count());
+    }
+
+    @Test
+    void snapshotStatsReturnsEmptyCountsWhenNoSnapshotsExist() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+
+        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.empty());
+
+        var stats = service.snapshotStats(null);
+
+        assertEquals(null, stats.snapshotTimestamp());
+        assertEquals(0L, stats.totalFlips());
+        assertEquals(FlipType.values().length, stats.byType().size());
+        assertTrue(stats.byType().stream().allMatch(item -> item.count() == 0L));
     }
 
     private UnifiedFlipDto sampleDto() {

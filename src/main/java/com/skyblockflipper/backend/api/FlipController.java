@@ -24,6 +24,20 @@ public class FlipController {
 
     private final FlipReadService flipReadService;
 
+    @GetMapping("/types")
+    public FlipTypesDto listFlipTypes() {
+        return flipReadService.listSupportedFlipTypes();
+    }
+
+    @GetMapping("/stats")
+    public FlipSnapshotStatsDto snapshotStats(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant snapshotTimestamp
+    ) {
+        return flipReadService.snapshotStats(snapshotTimestamp);
+    }
+
     @GetMapping
     public Page<UnifiedFlipDto> listFlips(
             @RequestParam(required = false) FlipType flipType,
