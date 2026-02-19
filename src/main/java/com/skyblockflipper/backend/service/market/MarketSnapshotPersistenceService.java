@@ -6,7 +6,6 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -17,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,29 +38,21 @@ public class MarketSnapshotPersistenceService {
     private final long twoHourIntervalMillis;
 
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
-                                            ObjectMapper objectMapper) {
-        this(marketSnapshotRepository,
-                objectMapper,
-                new BlockingTimeTracker(new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()),
-                new SnapshotRetentionProperties());
-    }
-
-    @Autowired
-    public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
                                             ObjectMapper objectMapper,
                                             BlockingTimeTracker blockingTimeTracker,
                                             SnapshotRetentionProperties retentionProperties) {
-        SnapshotRetentionProperties safeRetention = retentionProperties == null
-                ? new SnapshotRetentionProperties()
-                : retentionProperties;
         this.marketSnapshotRepository = marketSnapshotRepository;
         this.objectMapper = objectMapper;
         this.blockingTimeTracker = blockingTimeTracker;
-        this.rawWindowSeconds = sanitizeSeconds(safeRetention.getRawWindowSeconds(), 90L);
-        this.minuteTierUpperSeconds = sanitizeSeconds(safeRetention.getMinuteTierUpperSeconds(), 30L * 60L);
-        this.twoHourTierUpperSeconds = sanitizeSeconds(safeRetention.getTwoHourTierUpperSeconds(), 12L * 60L * 60L);
-        long minuteIntervalSeconds = sanitizeSeconds(safeRetention.getMinuteIntervalSeconds(), 60L);
-        long twoHourIntervalSeconds = sanitizeSeconds(safeRetention.getTwoHourIntervalSeconds(), 2L * 60L * 60L);
+        SnapshotRetentionProperties configuredRetention = Objects.requireNonNull(
+                retentionProperties,
+                "SnapshotRetentionProperties must be injected"
+        );
+        this.rawWindowSeconds = sanitizeSeconds(configuredRetention.getRawWindowSeconds(), 90L);
+        this.minuteTierUpperSeconds = sanitizeSeconds(configuredRetention.getMinuteTierUpperSeconds(), 30L * 60L);
+        this.twoHourTierUpperSeconds = sanitizeSeconds(configuredRetention.getTwoHourTierUpperSeconds(), 12L * 60L * 60L);
+        long minuteIntervalSeconds = sanitizeSeconds(configuredRetention.getMinuteIntervalSeconds(), 60L);
+        long twoHourIntervalSeconds = sanitizeSeconds(configuredRetention.getTwoHourIntervalSeconds(), 2L * 60L * 60L);
         this.minuteIntervalMillis = minuteIntervalSeconds * 1_000L;
         this.twoHourIntervalMillis = twoHourIntervalSeconds * 1_000L;
     }
