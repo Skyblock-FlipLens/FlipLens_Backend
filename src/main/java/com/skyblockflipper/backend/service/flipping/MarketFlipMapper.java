@@ -12,7 +12,6 @@ import tools.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Component
 public class MarketFlipMapper {
@@ -65,7 +64,7 @@ public class MarketFlipMapper {
         String buyParams = buildParamsJson(itemId, "BAZAAR", DEFAULT_STACK_AMOUNT, null);
         String sellParams = buildParamsJson(itemId, "BAZAAR", DEFAULT_STACK_AMOUNT, null);
         return new Flip(
-                UUID.randomUUID(),
+                null,
                 FlipType.BAZAAR,
                 List.of(
                         Step.forBuyMarketBased(DEFAULT_MARKET_STEP_SECONDS, buyParams),
@@ -93,7 +92,7 @@ public class MarketFlipMapper {
         String buyParams = buildParamsJson(itemId, "AUCTION", DEFAULT_STACK_AMOUNT, null);
         String sellParams = buildParamsJson(itemId, "AUCTION", DEFAULT_STACK_AMOUNT, DEFAULT_AUCTION_DURATION_HOURS);
         return new Flip(
-                UUID.randomUUID(),
+                null,
                 FlipType.AUCTION,
                 List.of(
                         Step.forBuyMarketBased(DEFAULT_MARKET_STEP_SECONDS, buyParams),

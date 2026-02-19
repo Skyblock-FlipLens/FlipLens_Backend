@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 @Component
 public class RecipeToFlipMapper {
@@ -24,7 +23,7 @@ public class RecipeToFlipMapper {
         steps.add(buildProcessStep(recipe));
 
         return new Flip(
-                UUID.randomUUID(),
+                null,
                 mapFlipType(recipe.getProcessType()),
                 steps,
                 recipe.getOutputItem().getId(),
