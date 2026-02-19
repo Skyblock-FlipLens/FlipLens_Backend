@@ -1,19 +1,22 @@
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://db:5432/skyblock}
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
+
   jpa:
     hibernate:
       ddl-auto: validate
     show-sql: false
+
   flyway:
     enabled: true
     locations: classpath:db/migration
-    baseline-on-migrate: true
     validate-on-migrate: true
+    baseline-on-migrate: true
+
 server:
-  port: ${SERVER_PORT:0}
+  port: ${SERVER_PORT:1880}
 
 config:
   hypixel:
