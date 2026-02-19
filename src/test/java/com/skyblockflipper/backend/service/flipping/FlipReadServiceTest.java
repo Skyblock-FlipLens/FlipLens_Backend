@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.service.flipping;
 
+import com.skyblockflipper.backend.api.FlipCoverageDto;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
@@ -12,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -191,6 +193,61 @@ class FlipReadServiceTest {
         assertEquals(0L, stats.totalFlips());
         assertEquals(FlipType.values().length, stats.byType().size());
         assertTrue(stats.byType().stream().allMatch(item -> item.count() == 0L));
+    }
+
+    @Test
+    void flipTypeCoverageUsesLatestSnapshotCounts() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+
+        long snapshotEpochMillis = Instant.parse("2026-02-19T20:00:00Z").toEpochMilli();
+        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
+        when(flipRepository.countByFlipTypeForSnapshot(snapshotEpochMillis)).thenReturn(List.of(
+                new Object[]{FlipType.AUCTION, 3L},
+                new Object[]{FlipType.BAZAAR, 5L},
+                new Object[]{FlipType.CRAFTING, 7L},
+                new Object[]{FlipType.FORGE, 11L},
+                new Object[]{FlipType.FUSION, 13L}
+        ));
+
+        FlipCoverageDto result = service.flipTypeCoverage();
+
+        assertEquals(Instant.ofEpochMilli(snapshotEpochMillis), result.snapshotTimestamp());
+        assertEquals(List.of("SHARD", "FUSION"), result.excludedFlipTypes());
+        assertEquals(4, result.flipTypes().size());
+
+        EnumMap<FlipType, Long> counts = new EnumMap<>(FlipType.class);
+        for (FlipCoverageDto.FlipTypeCoverageDto typeCoverageDto : result.flipTypes()) {
+            counts.put(typeCoverageDto.flipType(), typeCoverageDto.latestSnapshotCount());
+            assertEquals(FlipCoverageDto.CoverageStatus.SUPPORTED, typeCoverageDto.ingestion());
+            assertEquals(FlipCoverageDto.CoverageStatus.SUPPORTED, typeCoverageDto.calculation());
+            assertEquals(FlipCoverageDto.CoverageStatus.SUPPORTED, typeCoverageDto.persistence());
+            assertEquals(FlipCoverageDto.CoverageStatus.SUPPORTED, typeCoverageDto.api());
+        }
+
+        assertEquals(3L, counts.get(FlipType.AUCTION));
+        assertEquals(5L, counts.get(FlipType.BAZAAR));
+        assertEquals(7L, counts.get(FlipType.CRAFTING));
+        assertEquals(11L, counts.get(FlipType.FORGE));
+    }
+
+    @Test
+    void flipTypeCoverageReturnsZeroCountsWhenSnapshotMissing() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+
+        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.empty());
+
+        FlipCoverageDto result = service.flipTypeCoverage();
+
+        assertEquals(null, result.snapshotTimestamp());
+        assertEquals(List.of("SHARD", "FUSION"), result.excludedFlipTypes());
+        assertEquals(4, result.flipTypes().size());
+        assertTrue(result.flipTypes().stream().allMatch(type -> type.latestSnapshotCount() == 0L));
     }
 
     private UnifiedFlipDto sampleDto() {

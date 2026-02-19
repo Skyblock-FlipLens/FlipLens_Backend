@@ -140,4 +140,50 @@ class FlipControllerWebMvcTest {
 
         verify(flipReadService, times(1)).snapshotStats(snapshotTimestamp);
     }
+
+    @Test
+    void flipTypeCoverageReturnsMatrix() throws Exception {
+        Instant snapshotTimestamp = Instant.parse("2026-02-19T20:00:00Z");
+        when(flipReadService.flipTypeCoverage())
+                .thenReturn(new FlipCoverageDto(
+                        snapshotTimestamp,
+                        List.of("SHARD", "FUSION"),
+                        List.of(
+                                new FlipCoverageDto.FlipTypeCoverageDto(
+                                        FlipType.AUCTION,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        7L,
+                                        "Generated from Hypixel market snapshots via MarketFlipMapper."
+                                ),
+                                new FlipCoverageDto.FlipTypeCoverageDto(
+                                        FlipType.CRAFTING,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        FlipCoverageDto.CoverageStatus.SUPPORTED,
+                                        11L,
+                                        "Generated from NEU recipes via RecipeToFlipMapper."
+                                )
+                        )
+                ));
+
+        mockMvc.perform(get("/api/v1/flips/coverage"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.snapshotTimestamp").value("2026-02-19T20:00:00Z"))
+                .andExpect(jsonPath("$.excludedFlipTypes.length()").value(2))
+                .andExpect(jsonPath("$.excludedFlipTypes[0]").value("SHARD"))
+                .andExpect(jsonPath("$.excludedFlipTypes[1]").value("FUSION"))
+                .andExpect(jsonPath("$.flipTypes.length()").value(2))
+                .andExpect(jsonPath("$.flipTypes[0].flipType").value("AUCTION"))
+                .andExpect(jsonPath("$.flipTypes[0].ingestion").value("SUPPORTED"))
+                .andExpect(jsonPath("$.flipTypes[0].latestSnapshotCount").value(7))
+                .andExpect(jsonPath("$.flipTypes[1].flipType").value("CRAFTING"))
+                .andExpect(jsonPath("$.flipTypes[1].latestSnapshotCount").value(11));
+
+        verify(flipReadService, times(1)).flipTypeCoverage();
+    }
 }
