@@ -259,6 +259,22 @@ Du kannst das mit `SERVER_PORT` überschreiben, zum Beispiel:
 SERVER_PORT=8080 docker compose up --build
 ```
 
+
+Um direkt aus diesem Git-Repository zu starten (ohne lokalen Checkout), nutze `docker-compose.repo.yml`:
+
+```bash
+REPO_GIT_URL='https://github.com/crafter32/SkyblockFlipperBackend.git' \
+REPO_GIT_REF='main' \
+SERVER_PORT=8080 \
+SPRING_DATASOURCE_USERNAME=postgres \
+SPRING_DATASOURCE_PASSWORD=postgres \
+POSTGRES_USER=postgres \
+POSTGRES_PASSWORD=postgres \
+docker compose -f docker-compose.repo.yml up --build
+```
+
+Mit `REPO_GIT_URL`/`REPO_GIT_REF` kannst du auch einen Fork oder einen anderen Branch/Tag verwenden.
+
 Beim direkten Start des Images (`docker run`) setzt das `Dockerfile` standardmäßig `SERVER_PORT=8080`.
 
 ## Roadmap (Kurz)

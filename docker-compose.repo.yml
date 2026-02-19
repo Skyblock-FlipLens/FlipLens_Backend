@@ -1,0 +1,50 @@
+services:
+  api:
+    build:
+      context: ${REPO_GIT_URL:-https://github.com/crafter32/SkyblockFlipperBackend.git}#${REPO_GIT_REF:-main}
+      dockerfile: Dockerfile
+    container_name: skyblockflipper-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://db:5432/skyblock}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+      SERVER_PORT: ${SERVER_PORT:-1880}
+    ports:
+      - "${SERVER_PORT:-1880}:${SERVER_PORT:-1880}"
+    mem_limit: 8g
+    memswap_limit: 10g
+    networks:
+      - app_net
+      - db_net
+
+  db:
+    image: postgres:16-alpine
+    container_name: skyblockflipper-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-skyblock}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - db_net
+
+volumes:
+  postgres_data:
+
+networks:
+  app_net:
+    driver: bridge
+  db_net:
+    driver: bridge
+    internal: true

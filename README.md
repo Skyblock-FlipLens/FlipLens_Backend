@@ -258,6 +258,21 @@ You can override this by setting `SERVER_PORT`, for example:
 SERVER_PORT=8080 docker compose up --build
 ```
 
+To run directly from this Git repository (without cloning locally), use `docker-compose.repo.yml`:
+
+```bash
+REPO_GIT_URL='https://github.com/crafter32/SkyblockFlipperBackend.git' \
+REPO_GIT_REF='main' \
+SERVER_PORT=8080 \
+SPRING_DATASOURCE_USERNAME=postgres \
+SPRING_DATASOURCE_PASSWORD=postgres \
+POSTGRES_USER=postgres \
+POSTGRES_PASSWORD=postgres \
+docker compose -f docker-compose.repo.yml up --build
+```
+
+Use `REPO_GIT_URL`/`REPO_GIT_REF` to point to a fork or different branch/tag.
+
 For direct image runs (`docker run`), the `Dockerfile` sets a default `SERVER_PORT=8080`.
 
 ## Roadmap (Short)
