@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS unified_flip (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CHECK (flip_type IN ('AUCTION', 'BAZAAR', 'CRAFT', 'FORGE', 'SHARD', 'FUSION'))
+    CHECK (flip_type IN ('AUCTION', 'BAZAAR', 'CRAFTING', 'FORGE', 'KATGRADE', 'FUSION'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_unified_flip_snapshot ON unified_flip (snapshot_id);
@@ -167,4 +167,18 @@ CREATE TABLE IF NOT EXISTS data_source_hash (
     source_key VARCHAR(120) NOT NULL UNIQUE,
     hash VARCHAR(128) NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 8) Flip Type Coverage Audit
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS flip_type_audit (
+    flip_type VARCHAR(32) PRIMARY KEY,
+    ingestion_status VARCHAR(32) NOT NULL,
+    calculation_status VARCHAR(32) NOT NULL,
+    persistence_status VARCHAR(32) NOT NULL,
+    api_exposure_status VARCHAR(32) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CHECK (flip_type IN ('AUCTION', 'BAZAAR', 'CRAFTING', 'FORGE', 'KATGRADE', 'FUSION'))
 );
