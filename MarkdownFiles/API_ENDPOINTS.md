@@ -190,7 +190,7 @@ Response:
 
 ---
 
-### `GET /api/v1/flips/top/goodness`
+### `GET /api/v1/flips/top/best`
 
 Convenience endpoint: flips ranked by combined "goodness" score.
 
