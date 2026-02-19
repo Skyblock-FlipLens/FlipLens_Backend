@@ -232,6 +232,7 @@ Notes:
   - `SPRING_DATASOURCE_USERNAME`
   - `SPRING_DATASOURCE_PASSWORD`
 - Server port is controlled by `SERVER_PORT` (fallback in config file).
+- Flyway baselining is opt-in via `FLYWAY_BASELINE_ON_MIGRATE` (default: `false`).
 - Optional Hypixel API key:
   - `CONFIG_HYPIXEL_API_KEY`
 
@@ -242,6 +243,7 @@ export SPRING_DATASOURCE_URL='jdbc:postgresql://localhost:5432/skyblock'
 export SPRING_DATASOURCE_USERNAME='postgres'
 export SPRING_DATASOURCE_PASSWORD='postgres'
 export SERVER_PORT=8080
+export FLYWAY_BASELINE_ON_MIGRATE=false
 ./mvnw spring-boot:run
 ```
 
@@ -266,6 +268,7 @@ REPO_GIT_REF='main' \
 SERVER_PORT=8080 \
 SPRING_DATASOURCE_USERNAME=postgres \
 SPRING_DATASOURCE_PASSWORD=postgres \
+FLYWAY_BASELINE_ON_MIGRATE=false \
 POSTGRES_USER=postgres \
 POSTGRES_PASSWORD=postgres \
 docker compose -f docker-compose.repo.yml up --build
