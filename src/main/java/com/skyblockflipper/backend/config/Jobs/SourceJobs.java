@@ -85,7 +85,7 @@ public class SourceJobs {
         }
     }
 
-    @Scheduled(cron = "0 0 2 * * *", zone = "UTC")
+    @Scheduled(cron = "0 0 23 * * *", zone = "UTC")
     public void copyRepoDaily() {
         try {
             List<JsonNode> nodes = neuClient.loadItemJsons();
