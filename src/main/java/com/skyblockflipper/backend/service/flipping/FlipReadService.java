@@ -141,7 +141,7 @@ public class FlipReadService {
             return snapshotTimestamp.toEpochMilli();
         }
         Optional<Long> latestSnapshot = flipRepository.findMaxSnapshotTimestampEpochMillis();
-        return latestSnapshot.isEmpty() ? null : latestSnapshot.orElse(null);
+        return latestSnapshot.orElse(null);
     }
 
     private FlipCoverageDto.FlipTypeCoverageDto coverageEntry(FlipType flipType, long latestSnapshotCount) {
