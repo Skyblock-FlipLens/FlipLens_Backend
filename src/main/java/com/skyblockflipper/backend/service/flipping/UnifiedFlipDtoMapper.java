@@ -9,6 +9,7 @@ import com.skyblockflipper.backend.model.Flipping.Step;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -21,7 +22,6 @@ public class UnifiedFlipDtoMapper {
 
     private static final int DEFAULT_AUCTION_DURATION_HOURS = 12;
     private static final Set<Integer> AUCTION_DURATION_PRESETS_HOURS = Set.of(1, 6, 12, 24, 48);
-    private static final long CLAIM_TAX_MIN_REMAINING_COINS = 1_000_000L;
 
     private static final double LIQUIDITY_TIME_SCALE_HOURS = 1.0D;
     private static final double LIQUIDITY_SPREAD_SCALE = 0.02D;
@@ -35,10 +35,19 @@ public class UnifiedFlipDtoMapper {
     private static final Logger log = LoggerFactory.getLogger(UnifiedFlipDtoMapper.class);
     private final ObjectMapper objectMapper;
     private final FlipRiskScorer flipRiskScorer;
+    private final FlipEconomicsService flipEconomicsService;
 
     public UnifiedFlipDtoMapper(ObjectMapper objectMapper, FlipRiskScorer flipRiskScorer) {
+        this(objectMapper, flipRiskScorer, new FlipEconomicsService());
+    }
+
+    @Autowired
+    public UnifiedFlipDtoMapper(ObjectMapper objectMapper,
+                                FlipRiskScorer flipRiskScorer,
+                                FlipEconomicsService flipEconomicsService) {
         this.objectMapper = objectMapper;
         this.flipRiskScorer = flipRiskScorer;
+        this.flipEconomicsService = flipEconomicsService;
     }
 
     public UnifiedFlipDto toDto(Flip flip) {
@@ -67,12 +76,20 @@ public class UnifiedFlipDtoMapper {
 
         PricingComputation pricing = computePricing(flip, snapshot, safeContext, partialReasons);
         long minCapitalConstraint = resolveMinCapitalConstraint(flip.getConstraints());
-        long requiredCapital = Math.max(minCapitalConstraint, Math.max(pricing.currentPriceBaseline(), pricing.peakExposure()));
+        long requiredCapital = flipEconomicsService.computeRequiredCapital(
+                minCapitalConstraint,
+                pricing.currentPriceBaseline(),
+                pricing.peakExposure()
+        );
 
-        long expectedProfit = pricing.grossRevenue() - pricing.totalInputCost() - pricing.totalFees();
+        long expectedProfit = flipEconomicsService.computeExpectedProfit(
+                pricing.grossRevenue(),
+                pricing.totalInputCost(),
+                pricing.totalFees()
+        );
         Long fees = pricing.totalFees();
-        Double roi = computeRoi(requiredCapital, expectedProfit);
-        Double roiPerHour = computeRoiPerHour(roi, flip.getTotalDuration().toSeconds());
+        Double roi = flipEconomicsService.computeRoi(requiredCapital, expectedProfit);
+        Double roiPerHour = flipEconomicsService.computeRoiPerHour(roi, flip.getTotalDuration().toSeconds());
 
         return new UnifiedFlipDto(
                 flip.getId(),
@@ -186,20 +203,6 @@ public class UnifiedFlipDtoMapper {
                 .filter(value -> value != null && value > 0)
                 .max(Comparator.naturalOrder())
                 .orElse(0L);
-    }
-
-    private Double computeRoi(long requiredCapital, long expectedProfit) {
-        if (requiredCapital <= 0) {
-            return null;
-        }
-        return (double) expectedProfit / requiredCapital;
-    }
-
-    private Double computeRoiPerHour(Double roi, long durationSeconds) {
-        if (roi == null || durationSeconds <= 0) {
-            return null;
-        }
-        return roi * (3600D / durationSeconds);
     }
 
     private PricingComputation computePricing(Flip flip,
@@ -369,10 +372,14 @@ public class UnifiedFlipDtoMapper {
         Double executionFillHours = null;
 
         if (quote.source() == MarketSource.BAZAAR) {
-            totalFees = ceilToLong(grossRevenue * context.bazaarTaxRate());
+            totalFees = flipEconomicsService.computeBazaarSellFees(grossRevenue, context.bazaarTaxRate());
         } else if (quote.source() == MarketSource.AUCTION) {
             int durationHours = parseAuctionDurationHours(paramsJson, partialReasons);
-            AuctionFees auctionFees = computeAuctionFees(grossRevenue, durationHours, context.auctionTaxMultiplier());
+            FlipEconomicsService.AuctionFeeBreakdown auctionFees = flipEconomicsService.computeAuctionFees(
+                    grossRevenue,
+                    durationHours,
+                    context.auctionTaxMultiplier()
+            );
             upfrontFees = auctionFees.listingFee() + auctionFees.durationFee();
             totalFees = auctionFees.totalFee();
             executionFillHours = (double) durationHours;
@@ -407,53 +414,6 @@ public class UnifiedFlipDtoMapper {
             partialReasons.add("INVALID_AUCTION_DURATION");
             return DEFAULT_AUCTION_DURATION_HOURS;
         }
-    }
-
-    private AuctionFees computeAuctionFees(long grossRevenue, int durationHours, double taxMultiplier) {
-        double listingRate = resolveAuctionListingRate(grossRevenue);
-        long baseListingFee = ceilToLong(grossRevenue * listingRate);
-        long listingFee = ceilToLong(baseListingFee * taxMultiplier);
-
-        long baseDurationFee = auctionDurationFee(durationHours);
-        long durationFee = ceilToLong(baseDurationFee * taxMultiplier);
-
-        long baseClaimTax = computeAuctionClaimTax(grossRevenue);
-        long claimTax = Math.min(
-                baseClaimTax,
-                Math.max(0L, grossRevenue - CLAIM_TAX_MIN_REMAINING_COINS)
-        );
-
-        long totalFee = listingFee + durationFee + claimTax;
-        return new AuctionFees(listingFee, durationFee, claimTax, totalFee);
-    }
-
-    private long computeAuctionClaimTax(long grossRevenue) {
-        if (grossRevenue <= CLAIM_TAX_MIN_REMAINING_COINS) {
-            return 0L;
-        }
-        long onePercent = ceilToLong(grossRevenue * 0.01D);
-        long cap = Math.max(0L, grossRevenue - CLAIM_TAX_MIN_REMAINING_COINS);
-        return Math.min(onePercent, cap);
-    }
-
-    private double resolveAuctionListingRate(long grossRevenue) {
-        if (grossRevenue < 10_000_000L) {
-            return 0.01D;
-        }
-        if (grossRevenue < 100_000_000L) {
-            return 0.02D;
-        }
-        return 0.025D;
-    }
-
-    private long auctionDurationFee(int durationHours) {
-        return switch (durationHours) {
-            case 1 -> 20L;
-            case 6 -> 45L;
-            case 24 -> 350L;
-            case 48 -> 1200L;
-            default -> 100L;
-        };
     }
 
     private PriceQuote resolveBuyPriceQuote(ParsedItemStack parsed,
@@ -830,14 +790,6 @@ public class UnifiedFlipDtoMapper {
             MarketSource source,
             UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote,
             UnifiedFlipInputSnapshot.AuctionQuote auctionQuote
-    ) {
-    }
-
-    private record AuctionFees(
-            long listingFee,
-            long durationFee,
-            long claimTax,
-            long totalFee
     ) {
     }
 
