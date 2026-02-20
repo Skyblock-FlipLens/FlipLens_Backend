@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -48,10 +49,11 @@ public class MarketOverviewService {
         String normalizedProductId = normalizeProductId(productId);
         BazaarMarketRecord currentRecord = resolveCurrentRecord(latestSnapshot.bazaarProducts(), normalizedProductId);
 
-        List<MarketSnapshot> weeklySnapshots = marketSnapshotPersistenceService.between(
-                Instant.now().minusSeconds(SEVEN_DAYS_SECONDS),
-                Instant.now()
-        );
+        Instant now = Instant.now();
+        Instant rangeEnd = latestSnapshot.snapshotTimestamp() != null ? latestSnapshot.snapshotTimestamp() : now;
+        Instant rangeStart = rangeEnd.minusSeconds(SEVEN_DAYS_SECONDS);
+
+        List<MarketSnapshot> weeklySnapshots = marketSnapshotPersistenceService.between(rangeStart, rangeEnd);
 
         List<BazaarMarketRecord> relevantRecords = weeklySnapshots.stream()
                 .map(MarketSnapshot::bazaarProducts)
@@ -87,10 +89,12 @@ public class MarketOverviewService {
 
         Double high = relevantRecords.stream()
                 .map(BazaarMarketRecord::buyPrice)
+                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(null);
         Double low = relevantRecords.stream()
-                .map(BazaarMarketRecord::sellPrice)
+                .map(BazaarMarketRecord::buyPrice)
+                .filter(Objects::nonNull)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
 
@@ -136,14 +140,30 @@ public class MarketOverviewService {
         if (values == null || values.isEmpty()) {
             return null;
         }
-        return values.stream().mapToDouble(Double::doubleValue).average().orElse(0D);
+
+        List<Double> nonNullValues = values.stream()
+                .filter(Objects::nonNull)
+                .toList();
+        if (nonNullValues.isEmpty()) {
+            return null;
+        }
+
+        return nonNullValues.stream().mapToDouble(Double::doubleValue).average().orElse(0D);
     }
 
     private Double averageLong(List<Long> values) {
         if (values == null || values.isEmpty()) {
             return null;
         }
-        return values.stream().mapToLong(Long::longValue).average().orElse(0D);
+
+        List<Long> nonNullValues = values.stream()
+                .filter(Objects::nonNull)
+                .toList();
+        if (nonNullValues.isEmpty()) {
+            return null;
+        }
+
+        return nonNullValues.stream().mapToLong(Long::longValue).average().orElse(0D);
     }
 
     private Double percentageDelta(Double value, Double base) {

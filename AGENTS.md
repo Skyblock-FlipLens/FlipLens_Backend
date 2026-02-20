@@ -137,7 +137,5 @@ Alle Flip-Typen sollen in dieses Schema normalisiert werden.
 
 Dieses Dokument dient als Grundlage für die systematische Analyse und Weiterentwicklung des SkyblockFlipperBackend-Projekts.
 
-## Update: Market Overview Endpoint
-
-- New endpoint available: `GET /api/v1/market/overview` (optional query param: `productId`). It returns a compact market overview with buy/sell/spread, 7-day range, volume averages, active flips, and best profit for quick dashboard usage.
+Für aktuelle Endpoint-Details siehe `MarkdownFiles/API_ENDPOINTS.md`.
 

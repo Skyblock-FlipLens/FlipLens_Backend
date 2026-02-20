@@ -104,7 +104,5 @@ If another document conflicts with this one, keep these invariants:
 3. Daily keeper is the first snapshot in each UTC day.
 4. Micro-scoring does not treat many snapshots as independent votes.
 
-## Update: Market Overview Endpoint
-
-- New endpoint available: `GET /api/v1/market/overview` (optional query param: `productId`). It returns a compact market overview with buy/sell/spread, 7-day range, volume averages, active flips, and best profit for quick dashboard usage.
+Hinweis: Endpoint-Details stehen zentral in `MarkdownFiles/API_ENDPOINTS.md` (siehe Market Overview).
 
