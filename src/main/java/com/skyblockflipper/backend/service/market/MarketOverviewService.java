@@ -79,7 +79,7 @@ public class MarketOverviewService {
 
         Double buy = currentRecord == null ? null : currentRecord.buyPrice();
         Double sell = currentRecord == null ? null : currentRecord.sellPrice();
-        Double spread = buy == null ? null : buy - sell;
+        Double spread = buy == null || sell == null ? null : buy - sell;
         Double spreadPercent = spread == null || buy <= 0D ? null : spread / buy * 100D;
 
         Double avgBuy = average(relevantRecords.stream().map(BazaarMarketRecord::buyPrice).toList());
@@ -89,10 +89,12 @@ public class MarketOverviewService {
 
         Double high = relevantRecords.stream()
                 .map(BazaarMarketRecord::buyPrice)
+                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(null);
         Double low = relevantRecords.stream()
                 .map(BazaarMarketRecord::sellPrice)
+                .filter(Objects::nonNull)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
 
