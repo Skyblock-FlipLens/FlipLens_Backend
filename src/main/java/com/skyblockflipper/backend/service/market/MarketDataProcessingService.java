@@ -109,6 +109,36 @@ public class MarketDataProcessingService {
         long payloadBytes = estimatePayload(auctionResponse, bazaarResponse);
         cycleInstrumentationService.endPhase("pull_http", pullHttpStart, hasAnyPayload, payloadBytes);
 
+        return mapAndPersistSnapshot(cycleId, auctionResponse, bazaarResponse, payloadBytes);
+    }
+
+    public Optional<UnifiedFlipInputSnapshot> ingestAuctionPayload(AuctionResponse auctionResponse, String cycleId) {
+        synchronized (pollStateLock) {
+            cachedAuctionResponse = auctionResponse;
+            if (auctionResponse != null && auctionResponse.getLastUpdated() > 0L) {
+                lastAuctionLastUpdated = Math.max(lastAuctionLastUpdated, auctionResponse.getLastUpdated());
+            }
+            long payloadBytes = estimatePayload(auctionResponse, cachedBazaarResponse);
+            return mapAndPersistSnapshot(cycleId, cachedAuctionResponse, cachedBazaarResponse, payloadBytes);
+        }
+    }
+
+    public Optional<UnifiedFlipInputSnapshot> ingestBazaarPayload(BazaarResponse bazaarResponse, String cycleId) {
+        synchronized (pollStateLock) {
+            cachedBazaarResponse = bazaarResponse;
+            if (bazaarResponse != null && bazaarResponse.getLastUpdated() > 0L) {
+                lastBazaarLastUpdated = Math.max(lastBazaarLastUpdated, bazaarResponse.getLastUpdated());
+            }
+            long payloadBytes = estimatePayload(cachedAuctionResponse, bazaarResponse);
+            return mapAndPersistSnapshot(cycleId, cachedAuctionResponse, cachedBazaarResponse, payloadBytes);
+        }
+    }
+
+    private Optional<UnifiedFlipInputSnapshot> mapAndPersistSnapshot(String cycleId,
+                                                                     AuctionResponse auctionResponse,
+                                                                     BazaarResponse bazaarResponse,
+                                                                     long payloadBytes) {
+        boolean hasAnyPayload = auctionResponse != null || bazaarResponse != null;
         if (!hasAnyPayload) {
             log.warn("Both auction and bazaar responses are null, returning empty");
             return Optional.empty();

@@ -13,6 +13,8 @@ spring:
 config:
   hypixel:
     api-url: https://api.hypixel.net/v2
+    adaptive:
+      enabled: false
     polling:
       auctions-base-interval: PT60S
       bazaar-base-interval: PT20S

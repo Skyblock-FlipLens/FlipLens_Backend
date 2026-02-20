@@ -3,8 +3,6 @@ package com.skyblockflipper.backend.config.Jobs;
 import com.skyblockflipper.backend.NEU.NEUClient;
 import com.skyblockflipper.backend.NEU.NEUItemMapper;
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.instrumentation.CycleContext;
-import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
 import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +23,6 @@ public class SourceJobs {
     private final NEUItemMapper neuItemMapper;
     private final ItemRepository itemRepository;
     private final MarketDataProcessingService marketDataProcessingService;
-    private final CycleInstrumentationService cycleInstrumentationService;
     private final FlipGenerationService flipGenerationService;
 
     @Autowired
@@ -33,39 +30,12 @@ public class SourceJobs {
                       NEUItemMapper neuItemMapper,
                       ItemRepository itemRepository,
                       MarketDataProcessingService marketDataProcessingService,
-                      CycleInstrumentationService cycleInstrumentationService,
                       FlipGenerationService flipGenerationService){
         this.neuClient = neuClient;
         this.neuItemMapper = neuItemMapper;
         this.itemRepository = itemRepository;
         this.marketDataProcessingService = marketDataProcessingService;
-        this.cycleInstrumentationService = cycleInstrumentationService;
         this.flipGenerationService = flipGenerationService;
-    }
-
-    @Scheduled(fixedDelayString = "5000")
-    public void pollApi() {
-        CycleContext context = cycleInstrumentationService.startCycle();
-        boolean success = false;
-        long totalStart = cycleInstrumentationService.startPhase();
-        try {
-            marketDataProcessingService.captureCurrentSnapshotAndPrepareInput(context.getCycleId())
-                    .ifPresent(snapshot -> {
-                        var result = flipGenerationService.generateIfMissingForSnapshot(snapshot.snapshotTimestamp());
-                        if (!result.noOp()) {
-                            log.info("Generated flips for snapshot {}: generated={}, skipped={}",
-                                    snapshot.snapshotTimestamp(),
-                                    result.generatedCount(),
-                                    result.skippedCount());
-                        }
-                    });
-            success = true;
-        } catch (Exception e) {
-            log.warn("Failed to poll and persist market snapshot: {}", ExceptionUtils.getStackTrace(e));
-        } finally {
-            cycleInstrumentationService.endPhase("total_cycle", totalStart, success, context.getPayloadBytes());
-            cycleInstrumentationService.finishCycle(success);
-        }
     }
 
     @Scheduled(fixedDelayString = "30000")
