@@ -11,7 +11,11 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.repository.RecipeRepository;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
@@ -21,31 +25,56 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class RecipeCostServiceTest {
 
-    @Test
-    void costBreakdownReturnsEmptyWhenRecipeOrSnapshotMissing() {
-        RecipeRepository recipeRepository = mock(RecipeRepository.class);
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        ItemRepository itemRepository = mock(ItemRepository.class);
-        RecipeCostService service = new RecipeCostService(recipeRepository, snapshotService, itemRepository);
+    @Mock
+    private RecipeRepository recipeRepository;
 
+    @Mock
+    private MarketSnapshotPersistenceService snapshotService;
+
+    @Mock
+    private ItemRepository itemRepository;
+
+    private RecipeCostService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new RecipeCostService(recipeRepository, snapshotService, itemRepository);
+    }
+
+    @Test
+    void costBreakdownReturnsEmptyWhenRecipeMissing() {
         when(recipeRepository.findById("missing")).thenReturn(Optional.empty());
-        when(snapshotService.latest()).thenReturn(Optional.empty());
+        when(snapshotService.latest()).thenReturn(Optional.of(new MarketSnapshot(
+                Instant.parse("2026-02-21T12:00:00Z"),
+                List.of(),
+                Map.of()
+        )));
 
         assertFalse(service.costBreakdown("missing").isPresent());
     }
 
     @Test
-    void costBreakdownUsesBazaarThenAuctionAliasesAndComputesProfit() {
-        RecipeRepository recipeRepository = mock(RecipeRepository.class);
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        ItemRepository itemRepository = mock(ItemRepository.class);
-        RecipeCostService service = new RecipeCostService(recipeRepository, snapshotService, itemRepository);
+    void costBreakdownReturnsEmptyWhenSnapshotMissing() {
+        Recipe recipe = new Recipe(
+                "missing_snapshot",
+                Item.builder().id("GOLDEN_PLATE").build(),
+                RecipeProcessType.CRAFT,
+                0L,
+                List.of(new RecipeIngredient("ENCHANTED_GOLD_BLOCK", 1))
+        );
+        when(recipeRepository.findById("missing_snapshot")).thenReturn(Optional.of(recipe));
+        when(snapshotService.latest()).thenReturn(Optional.empty());
 
+        assertFalse(service.costBreakdown("missing_snapshot").isPresent());
+    }
+
+    @Test
+    void costBreakdownUsesBazaarThenAuctionAliasesAndComputesProfit() {
         Recipe recipe = new Recipe(
                 "golden_plate_craft",
                 Item.builder().id("GOLDEN_PLATE").build(),
@@ -76,12 +105,6 @@ class RecipeCostServiceTest {
                         .displayName("Enchanted Redstone Block")
                         .minecraftId("enchanted_redstone_block")
                         .build()));
-        when(itemRepository.findById("ENCHANTED_GOLD_BLOCK"))
-                .thenReturn(Optional.of(Item.builder()
-                        .id("ENCHANTED_GOLD_BLOCK")
-                        .displayName("Enchanted Gold Block")
-                        .minecraftId("enchanted_gold_block")
-                        .build()));
 
         Optional<RecipeCostBreakdownDto> result = service.costBreakdown("golden_plate_craft");
 
@@ -96,11 +119,6 @@ class RecipeCostServiceTest {
 
     @Test
     void costBreakdownUsesAuctionAverageSellPriceWhenBazaarMissing() {
-        RecipeRepository recipeRepository = mock(RecipeRepository.class);
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        ItemRepository itemRepository = mock(ItemRepository.class);
-        RecipeCostService service = new RecipeCostService(recipeRepository, snapshotService, itemRepository);
-
         Recipe recipe = new Recipe(
                 "midas_recipe",
                 Item.builder().id("MIDAS_SWORD").build(),
@@ -130,5 +148,6 @@ class RecipeCostServiceTest {
         assertEquals(200L, dto.totalCraftCost());
         assertEquals(1_150L, dto.outputSellPrice());
         assertEquals(950L, dto.profit());
+        assertEquals(475.0D, dto.profitPct(), 0.01D);
     }
 }

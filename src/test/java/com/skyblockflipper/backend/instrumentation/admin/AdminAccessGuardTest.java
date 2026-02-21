@@ -25,6 +25,18 @@ class AdminAccessGuardTest {
     }
 
     @Test
+    void validateAllowsIpv6LoopbackWithoutToken() {
+        InstrumentationProperties properties = new InstrumentationProperties();
+        properties.getAdmin().setLocalOnly(true);
+        properties.getAdmin().setToken("");
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("::1");
+
+        assertDoesNotThrow(() -> new AdminAccessGuard(properties).validate(request));
+    }
+
+    @Test
     void validateRejectsNonLoopbackWhenLocalOnlyEnabled() {
         InstrumentationProperties properties = new InstrumentationProperties();
         properties.getAdmin().setLocalOnly(true);

@@ -149,7 +149,7 @@ class ItemControllerTest {
 
         Pageable pageable = PageRequest.of(0, 10);
         Page<UnifiedFlipDto> flips = new PageImpl<>(List.of(
-                new UnifiedFlipDto(null, null, List.of(), List.of(), null, null, null, null, null, null, null, null, Instant.parse("2026-02-21T00:00:00Z"), false, List.of(), List.of(), List.of())
+                new UnifiedFlipDto(null, null, List.of(), List.of(), null, null, null, null, null, null, 0.65D, 0.35D, Instant.parse("2026-02-21T00:00:00Z"), false, List.of(), List.of(), List.of())
         ), PageRequest.of(0, 10), 1);
         when(itemAnalyticsService.listFlipsForItem("HYPERION", pageable)).thenReturn(flips);
 
