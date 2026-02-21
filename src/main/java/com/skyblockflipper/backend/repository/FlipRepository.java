@@ -14,6 +14,7 @@ import java.util.UUID;
 
 public interface FlipRepository extends JpaRepository<Flip, UUID> {
     Page<Flip> findAllByFlipType(FlipType flipType, Pageable pageable);
+    List<Flip> findAllByFlipType(FlipType flipType);
 
     Page<Flip> findAllBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis, Pageable pageable);
 
@@ -29,6 +30,8 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
 
     @Query("select max(f.snapshotTimestampEpochMillis) from Flip f where f.snapshotTimestampEpochMillis is not null")
     Optional<Long> findMaxSnapshotTimestampEpochMillis();
+
+    List<Flip> findByFlipTypeAndSnapshotTimestampEpochMillis(FlipType flipType, long snapshotTimestampEpochMillis);
 
     @Query("select f.flipType, count(f) from Flip f where f.snapshotTimestampEpochMillis = :snapshotEpochMillis group by f.flipType")
     List<Object[]> countByFlipTypeForSnapshot(@Param("snapshotEpochMillis") long snapshotEpochMillis);

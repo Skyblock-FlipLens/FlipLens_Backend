@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.api;
 
 import com.skyblockflipper.backend.service.item.ItemReadService;
+import com.skyblockflipper.backend.service.item.ItemAnalyticsService;
 import com.skyblockflipper.backend.service.item.NpcShopReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
@@ -20,25 +21,27 @@ class ItemControllerTest {
     @Test
     void listItemsDelegatesToService() {
         ItemReadService itemReadService = mock(ItemReadService.class);
+        ItemAnalyticsService itemAnalyticsService = mock(ItemAnalyticsService.class);
         NpcShopReadService npcShopReadService = mock(NpcShopReadService.class);
-        ItemController controller = new ItemController(itemReadService, npcShopReadService);
+        ItemController controller = new ItemController(itemReadService, itemAnalyticsService, npcShopReadService);
         Pageable pageable = PageRequest.of(0, 100);
         ItemDto dto = new ItemDto("WHEAT", "Wheat", "minecraft:wheat", "COMMON", "FARMING", List.of());
         Page<ItemDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
 
-        when(itemReadService.listItems("WHEAT", pageable)).thenReturn(expected);
+        when(itemReadService.listItems("WHEAT", null, null, null, null, pageable)).thenReturn(expected);
 
-        Page<ItemDto> response = controller.listItems("WHEAT", pageable);
+        Page<ItemDto> response = controller.listItems("WHEAT", null, null, null, null, pageable);
 
         assertEquals(expected, response);
-        verify(itemReadService).listItems("WHEAT", pageable);
+        verify(itemReadService).listItems("WHEAT", null, null, null, null, pageable);
     }
 
     @Test
     void listNpcBuyableItemsDelegatesToService() {
         ItemReadService itemReadService = mock(ItemReadService.class);
+        ItemAnalyticsService itemAnalyticsService = mock(ItemAnalyticsService.class);
         NpcShopReadService service = mock(NpcShopReadService.class);
-        ItemController controller = new ItemController(itemReadService, service);
+        ItemController controller = new ItemController(itemReadService, itemAnalyticsService, service);
         Pageable pageable = PageRequest.of(0, 100);
         NpcShopOfferDto dto = new NpcShopOfferDto(
                 "FARM_MERCHANT_NPC",

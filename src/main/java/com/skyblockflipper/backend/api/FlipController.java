@@ -36,6 +36,20 @@ public class FlipController {
     }
 
     @GetMapping("/stats")
+    public Object stats(
+            @RequestParam(required = false) FlipType flipType,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant snapshotTimestamp,
+            @RequestParam(required = false, defaultValue = "false") boolean legacySnapshot
+    ) {
+        if (legacySnapshot || (snapshotTimestamp != null && flipType == null)) {
+            return flipReadService.snapshotStats(snapshotTimestamp);
+        }
+        return flipReadService.summaryStats(flipType, snapshotTimestamp);
+    }
+
+    @GetMapping("/stats/snapshot")
     public FlipSnapshotStatsDto snapshotStats(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
@@ -85,6 +99,35 @@ public class FlipController {
                 sortBy,
                 sortDirection,
                 pageable
+        );
+    }
+
+    @GetMapping("/top")
+    public java.util.List<UnifiedFlipDto> topFlips(
+            @RequestParam(required = false) FlipType flipType,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant snapshotTimestamp,
+            @RequestParam(required = false) Double minLiquidityScore,
+            @RequestParam(required = false) Double maxRiskScore,
+            @RequestParam(required = false) Long minExpectedProfit,
+            @RequestParam(required = false) Double minRoi,
+            @RequestParam(required = false) Double minRoiPerHour,
+            @RequestParam(required = false) Long maxRequiredCapital,
+            @RequestParam(required = false) Boolean partial,
+            @RequestParam(defaultValue = "6") int limit
+    ) {
+        return flipReadService.topFlips(
+                flipType,
+                snapshotTimestamp,
+                minLiquidityScore,
+                maxRiskScore,
+                minExpectedProfit,
+                minRoi,
+                minRoiPerHour,
+                maxRequiredCapital,
+                partial,
+                limit
         );
     }
 

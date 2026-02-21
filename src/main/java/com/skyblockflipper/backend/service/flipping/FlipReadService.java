@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.api.FlipGoodnessDto;
 import com.skyblockflipper.backend.api.FlipSnapshotStatsDto;
 import com.skyblockflipper.backend.api.FlipSortBy;
 import com.skyblockflipper.backend.api.FlipTypesDto;
+import com.skyblockflipper.backend.api.FlipSummaryStatsDto;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
@@ -17,13 +18,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Function;
 
 @Service
@@ -88,7 +83,53 @@ public class FlipReadService {
                                             FlipSortBy sortBy,
                                             Sort.Direction sortDirection,
                                             Pageable pageable) {
+        List<UnifiedFlipDto> mapped = filterFlipsAsList(
+                flipType,
+                snapshotTimestamp,
+                minLiquidityScore,
+                maxRiskScore,
+                minExpectedProfit,
+                minRoi,
+                minRoiPerHour,
+                maxRequiredCapital,
+                partial,
+                sortBy,
+                sortDirection
+        );
+        return paginateUnified(mapped, pageable);
+    }
+
+    public List<UnifiedFlipDto> topFlips(FlipType flipType,
+                                         Instant snapshotTimestamp,
+                                         Double minLiquidityScore,
+                                         Double maxRiskScore,
+                                         Long minExpectedProfit,
+                                         Double minRoi,
+                                         Double minRoiPerHour,
+                                         Long maxRequiredCapital,
+                                         Boolean partial,
+                                         int limit) {
+        int safeLimit = Math.max(1, limit);
+        return filterFlipsAsList(
+                flipType,
+                snapshotTimestamp,
+                minLiquidityScore,
+                maxRiskScore,
+                minExpectedProfit,
+                minRoi,
+                minRoiPerHour,
+                maxRequiredCapital,
+                partial,
+                FlipSortBy.EXPECTED_PROFIT,
+                Sort.Direction.DESC
+        ).stream().limit(safeLimit).toList();
+    }
+
+    public FlipSummaryStatsDto summaryStats(FlipType flipType, Instant snapshotTimestamp) {
         Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
+        if (snapshotEpochMillis == null) {
+            return new FlipSummaryStatsDto(0L, 0L, 0D, 0L, Map.of());
+        }
         FlipCalculationContext context = snapshotEpochMillis == null
                 ? flipCalculationContextService.loadCurrentContext()
                 : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
@@ -96,25 +137,32 @@ public class FlipReadService {
         List<UnifiedFlipDto> mapped = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
                 .stream()
                 .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
-                .filter(dto -> dto != null)
-                .filter(dto -> minLiquidityScore == null
-                        || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
-                .filter(dto -> maxRiskScore == null
-                        || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
-                .filter(dto -> minExpectedProfit == null
-                        || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
-                .filter(dto -> minRoi == null
-                        || (dto.roi() != null && dto.roi() >= minRoi))
-                .filter(dto -> minRoiPerHour == null
-                        || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
-                .filter(dto -> maxRequiredCapital == null
-                        || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
-                .filter(dto -> partial == null || dto.partial() == partial)
-                .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
-                        sortDirection == null ? Sort.Direction.DESC : sortDirection))
+                .filter(Objects::nonNull)
                 .toList();
+        long avgProfit = Math.round(mapped.stream()
+                .map(UnifiedFlipDto::expectedProfit)
+                .filter(value -> value != null && value > 0)
+                .mapToLong(Long::longValue)
+                .average().orElse(0D));
+        double avgRoi = mapped.stream()
+                .map(UnifiedFlipDto::roi)
+                .filter(value -> value != null && !Double.isNaN(value) && !Double.isInfinite(value))
+                .mapToDouble(Double::doubleValue)
+                .average().orElse(0D);
+        long bestFlipProfit = mapped.stream()
+                .map(UnifiedFlipDto::expectedProfit)
+                .filter(value -> value != null && value > 0)
+                .max(Long::compareTo)
+                .orElse(0L);
 
-        return paginateUnified(mapped, pageable);
+        Map<String, Long> byType = new LinkedHashMap<>();
+        for (FlipType type : FlipType.values()) {
+            long count = queryFlips(type, snapshotEpochMillis, Pageable.unpaged()).getTotalElements();
+            if (flipType == null || flipType == type) {
+                byType.put(type.name(), count);
+            }
+        }
+        return new FlipSummaryStatsDto(mapped.size(), avgProfit, round2(avgRoi), bestFlipProfit, byType);
     }
 
     public Page<UnifiedFlipDto> topLiquidityFlips(FlipType flipType, Instant snapshotTimestamp, Pageable pageable) {
@@ -160,7 +208,7 @@ public class FlipReadService {
         List<FlipGoodnessDto> ranked = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
                 .stream()
                 .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
-                .filter(dto -> dto != null)
+                .filter(Objects::nonNull)
                 .map(this::toGoodnessDto)
                 .sorted(Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
                         .thenComparing(entry -> {
@@ -249,6 +297,10 @@ public class FlipReadService {
         return latestSnapshot.orElse(null);
     }
 
+    public Optional<Long> latestSnapshotEpochMillis() {
+        return flipRepository.findMaxSnapshotTimestampEpochMillis();
+    }
+
     private FlipCoverageDto.FlipTypeCoverageDto coverageEntry(FlipType flipType, long latestSnapshotCount) {
         FlipCoverageDto.CoverageStatus supported = FlipCoverageDto.CoverageStatus.SUPPORTED;
         String notes = switch (flipType) {
@@ -305,6 +357,44 @@ public class FlipReadService {
             case DURATION_SECONDS -> comparableComparator(UnifiedFlipDto::durationSeconds, direction);
             case EXPECTED_PROFIT -> comparableComparator(UnifiedFlipDto::expectedProfit, direction);
         };
+    }
+
+    private List<UnifiedFlipDto> filterFlipsAsList(FlipType flipType,
+                                                   Instant snapshotTimestamp,
+                                                   Double minLiquidityScore,
+                                                   Double maxRiskScore,
+                                                   Long minExpectedProfit,
+                                                   Double minRoi,
+                                                   Double minRoiPerHour,
+                                                   Long maxRequiredCapital,
+                                                   Boolean partial,
+                                                   FlipSortBy sortBy,
+                                                   Sort.Direction sortDirection) {
+        Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
+        FlipCalculationContext context = snapshotEpochMillis == null
+                ? flipCalculationContextService.loadCurrentContext()
+                : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
+
+        return queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
+                .stream()
+                .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
+                .filter(Objects::nonNull)
+                .filter(dto -> minLiquidityScore == null
+                        || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
+                .filter(dto -> maxRiskScore == null
+                        || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
+                .filter(dto -> minExpectedProfit == null
+                        || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
+                .filter(dto -> minRoi == null
+                        || (dto.roi() != null && dto.roi() >= minRoi))
+                .filter(dto -> minRoiPerHour == null
+                        || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
+                .filter(dto -> maxRequiredCapital == null
+                        || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
+                .filter(dto -> partial == null || dto.partial() == partial)
+                .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
+                        sortDirection == null ? Sort.Direction.DESC : sortDirection))
+                .toList();
     }
 
     private <T extends Comparable<? super T>> Comparator<UnifiedFlipDto> comparableComparator(

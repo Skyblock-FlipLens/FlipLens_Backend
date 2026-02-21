@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.api;
 
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeProcessType;
+import com.skyblockflipper.backend.service.flipping.RecipeCostService;
 import com.skyblockflipper.backend.service.flipping.RecipeReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
@@ -20,7 +21,8 @@ class RecipeControllerTest {
     @Test
     void listRecipesDelegatesToService() {
         RecipeReadService recipeReadService = mock(RecipeReadService.class);
-        RecipeController controller = new RecipeController(recipeReadService);
+        RecipeCostService recipeCostService = mock(RecipeCostService.class);
+        RecipeController controller = new RecipeController(recipeReadService, recipeCostService);
         Pageable pageable = PageRequest.of(0, 100);
         RecipeDto dto = new RecipeDto(
                 "ENCHANTED_HAY_BALE:craft:0",
