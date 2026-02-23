@@ -130,27 +130,29 @@ public class FlipGenerationService {
     private boolean existsSnapshotInActiveStorage(long snapshotEpochMillis) {
         boolean dualWriteEnabled = isDualWriteEnabled();
         boolean legacyWriteEnabled = isLegacyWriteEnabled();
-        boolean unifiedAvailable = unifiedFlipStorageService != null;
+        if (!dualWriteEnabled && !legacyWriteEnabled) {
+            // No active write path means we must not suppress regeneration based on stale storage.
+            return false;
+        }
 
-        if (dualWriteEnabled && unifiedAvailable && legacyWriteEnabled) {
+        boolean unifiedActive = dualWriteEnabled && unifiedFlipStorageService != null;
+        boolean legacyActive = legacyWriteEnabled;
+
+        if (unifiedActive && legacyActive) {
             boolean unifiedExists = unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
             boolean legacyExists = flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
             return unifiedExists && legacyExists;
         }
 
-        if (dualWriteEnabled && unifiedAvailable) {
+        if (unifiedActive) {
             return unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
         }
 
-        if (legacyWriteEnabled) {
+        if (legacyActive) {
             return flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
         }
 
-        if (unifiedAvailable) {
-            return unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
-        }
-
-        return flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
+        return false;
     }
 
     private boolean isDualWriteEnabled() {
