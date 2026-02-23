@@ -37,6 +37,24 @@ public class FlipGenerationService {
         this(flipRepository, recipeRepository, recipeToFlipMapper, null, null, null, null, null);
     }
 
+    public FlipGenerationService(FlipRepository flipRepository,
+                                 RecipeRepository recipeRepository,
+                                 RecipeToFlipMapper recipeToFlipMapper,
+                                 MarketSnapshotPersistenceService marketSnapshotPersistenceService,
+                                 UnifiedFlipInputMapper unifiedFlipInputMapper,
+                                 MarketFlipMapper marketFlipMapper) {
+        this(
+                flipRepository,
+                recipeRepository,
+                recipeToFlipMapper,
+                marketSnapshotPersistenceService,
+                unifiedFlipInputMapper,
+                marketFlipMapper,
+                null,
+                null
+        );
+    }
+
     @Autowired
     public FlipGenerationService(FlipRepository flipRepository,
                                  RecipeRepository recipeRepository,
