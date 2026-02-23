@@ -426,3 +426,27 @@ Runs async-profiler integration.
 Possible status codes:
 - `404` when async-profiler is disabled
 - `500` on profiler execution errors
+
+### `GET /internal/admin/instrumentation/flip-storage/config`
+
+Returns current unified flip storage cutover flags and latest snapshot markers for legacy/new storage.
+
+### `GET /internal/admin/instrumentation/flip-storage/parity/latest`
+
+Runs an on-demand parity report comparing legacy snapshot-flip reads vs new `flip_current` reads.
+
+Report includes:
+- flag snapshot (`dualWriteEnabled`, `readFromNew`, `legacyWriteEnabled`)
+- comparison snapshot epoch millis
+- counts (`legacy`, `current`, intersection, only-legacy, only-current)
+- per-type counts
+- sampled ID diffs and sampled metric mismatches
+- `parityOk` boolean
+
+### `POST /internal/admin/instrumentation/flip-storage/backfill/latest`
+
+Backfills the latest legacy `flip` snapshot into the new unified storage tables (`flip_definition`, `flip_current`, `flip_trend_segment`).
+
+### `POST /internal/admin/instrumentation/flip-storage/backfill/{snapshotEpochMillis}`
+
+Backfills one specific legacy snapshot into unified storage.
