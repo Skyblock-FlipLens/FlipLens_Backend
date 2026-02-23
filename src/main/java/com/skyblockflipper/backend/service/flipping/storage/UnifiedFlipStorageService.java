@@ -118,6 +118,23 @@ public class UnifiedFlipStorageService {
             FlipIdentityService.Identity identity = computedFlip.identity();
             UnifiedFlipDto dto = computedFlip.dto();
             String flipKey = identity.flipKey();
+            FlipCurrentEntity current = currentByKey.get(flipKey);
+            FlipTrendSegmentEntity latestSegment = latestSegmentsByKey.get(flipKey);
+
+            if (current != null && current.getSnapshotTimestampEpochMillis() >= snapshotEpochMillis) {
+                // Monotonic write guard: ignore stale/same snapshot updates.
+                continue;
+            }
+            if (latestSegment != null) {
+                long latestKnownSnapshot = Math.max(
+                        latestSegment.getValidFromSnapshotEpochMillis(),
+                        latestSegment.getValidToSnapshotEpochMillis()
+                );
+                if (latestKnownSnapshot >= snapshotEpochMillis) {
+                    // Monotonic write guard for trend history.
+                    continue;
+                }
+            }
 
             FlipDefinitionEntity definition = definitionsByKey.get(flipKey);
             if (definition == null) {
@@ -134,7 +151,6 @@ public class UnifiedFlipStorageService {
             definition.setUpdatedAtEpochMillis(now);
             definitionsToSave.add(definition);
 
-            FlipCurrentEntity current = currentByKey.get(flipKey);
             if (current == null) {
                 current = new FlipCurrentEntity();
                 current.setFlipKey(flipKey);
@@ -155,7 +171,6 @@ public class UnifiedFlipStorageService {
             current.setUpdatedAtEpochMillis(now);
             currentToSave.add(current);
 
-            FlipTrendSegmentEntity latestSegment = latestSegmentsByKey.get(flipKey);
             if (latestSegment != null && shouldExtendSegment(latestSegment, dto)) {
                 latestSegment.setValidToSnapshotEpochMillis(snapshotEpochMillis);
                 latestSegment.setSampleCount(Math.max(1, latestSegment.getSampleCount()) + 1);

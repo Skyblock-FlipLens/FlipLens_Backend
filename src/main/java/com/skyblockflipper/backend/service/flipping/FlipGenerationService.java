@@ -118,11 +118,14 @@ public class FlipGenerationService {
             flip.setSnapshotTimestampEpochMillis(snapshotEpochMillis);
         }
 
+        if (isDualWriteEnabled() && unifiedFlipStorageService != null) {
+            unifiedFlipStorageService.clearSnapshotData(snapshotEpochMillis);
+        }
+
         if (!generatedFlips.isEmpty() && isLegacyWriteEnabled()) {
             flipRepository.saveAll(generatedFlips);
         }
         if (!generatedFlips.isEmpty() && isDualWriteEnabled() && unifiedFlipStorageService != null) {
-            unifiedFlipStorageService.clearSnapshotData(snapshotEpochMillis);
             unifiedFlipStorageService.persistSnapshotFlips(generatedFlips, snapshotTimestamp);
         }
         return new GenerationResult(generatedFlips.size(), skipped, false);
