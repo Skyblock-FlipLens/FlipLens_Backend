@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.api.FlipSnapshotStatsDto;
 import com.skyblockflipper.backend.api.FlipSortBy;
 import com.skyblockflipper.backend.api.FlipTypesDto;
 import com.skyblockflipper.backend.api.FlipSummaryStatsDto;
+import com.skyblockflipper.backend.api.OffsetLimitPageRequest;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
@@ -205,15 +206,14 @@ public class FlipReadService {
     }
 
     public Page<FlipGoodnessDto> topGoodnessFlips(FlipType flipType, Instant snapshotTimestamp, Pageable pageable) {
-        int pageNumber = 0;
         Sort sort = Sort.unsorted();
+        Pageable fixedPageable = PageRequest.of(0, GOODNESS_PAGE_SIZE, sort);
         if (pageable != null) {
             sort = pageable.getSort() == null ? Sort.unsorted() : pageable.getSort();
-            if (!pageable.isUnpaged()) {
-                pageNumber = Math.max(0, pageable.getPageNumber());
-            }
+            fixedPageable = pageable.isUnpaged()
+                    ? PageRequest.of(0, GOODNESS_PAGE_SIZE, sort)
+                    : OffsetLimitPageRequest.of(Math.max(0L, pageable.getOffset()), GOODNESS_PAGE_SIZE, sort);
         }
-        Pageable fixedPageable = PageRequest.of(pageNumber, GOODNESS_PAGE_SIZE, sort);
 
         Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
         FlipCalculationContext context = snapshotEpochMillis == null
