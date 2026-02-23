@@ -72,6 +72,7 @@ public class FlipGenerationService {
         this.marketFlipMapper = marketFlipMapper;
         this.unifiedFlipStorageService = unifiedFlipStorageService;
         this.flipStorageProperties = flipStorageProperties;
+        validateStorageConfiguration();
     }
 
     @Transactional
@@ -127,9 +128,28 @@ public class FlipGenerationService {
     }
 
     private boolean existsSnapshotInActiveStorage(long snapshotEpochMillis) {
-        if (isDualWriteEnabled() && !isLegacyWriteEnabled() && unifiedFlipStorageService != null) {
+        boolean dualWriteEnabled = isDualWriteEnabled();
+        boolean legacyWriteEnabled = isLegacyWriteEnabled();
+        boolean unifiedAvailable = unifiedFlipStorageService != null;
+
+        if (dualWriteEnabled && unifiedAvailable && legacyWriteEnabled) {
+            boolean unifiedExists = unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
+            boolean legacyExists = flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
+            return unifiedExists && legacyExists;
+        }
+
+        if (dualWriteEnabled && unifiedAvailable) {
             return unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
         }
+
+        if (legacyWriteEnabled) {
+            return flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
+        }
+
+        if (unifiedAvailable) {
+            return unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
+        }
+
         return flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
     }
 
@@ -139,6 +159,20 @@ public class FlipGenerationService {
 
     private boolean isLegacyWriteEnabled() {
         return flipStorageProperties == null || flipStorageProperties.isLegacyWriteEnabled();
+    }
+
+    private void validateStorageConfiguration() {
+        if (flipStorageProperties != null
+                && flipStorageProperties.isDualWriteEnabled()
+                && !flipStorageProperties.isLegacyWriteEnabled()
+                && unifiedFlipStorageService == null) {
+            throw new IllegalStateException(
+                    "FlipGenerationService constructor misconfiguration: "
+                            + "flipStorageProperties requires non-null unifiedFlipStorageService when "
+                            + "flipStorageProperties.isDualWriteEnabled() is true and "
+                            + "flipStorageProperties.isLegacyWriteEnabled() is false."
+            );
+        }
     }
 
     private Optional<UnifiedFlipInputSnapshot> loadMarketInputSnapshot(Instant snapshotTimestamp) {
