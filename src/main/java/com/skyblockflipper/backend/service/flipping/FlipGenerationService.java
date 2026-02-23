@@ -160,7 +160,7 @@ public class FlipGenerationService {
     }
 
     private boolean isDualWriteEnabled() {
-        return flipStorageProperties == null || flipStorageProperties.isDualWriteEnabled();
+        return flipStorageProperties != null && flipStorageProperties.isDualWriteEnabled();
     }
 
     private boolean isLegacyWriteEnabled() {

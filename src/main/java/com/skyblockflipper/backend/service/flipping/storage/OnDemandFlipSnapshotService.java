@@ -91,31 +91,9 @@ public class OnDemandFlipSnapshotService {
                     if (dto == null) {
                         return null;
                     }
-                    return withStableId(dto, flipIdentityService.derive(flip).stableFlipId());
+                    return UnifiedFlipDtoIdMapper.withId(dto, flipIdentityService.derive(flip).stableFlipId());
                 })
                 .filter(Objects::nonNull)
                 .toList();
-    }
-
-    private UnifiedFlipDto withStableId(UnifiedFlipDto dto, java.util.UUID stableId) {
-        return new UnifiedFlipDto(
-                stableId,
-                dto.flipType(),
-                dto.inputItems(),
-                dto.outputItems(),
-                dto.requiredCapital(),
-                dto.expectedProfit(),
-                dto.roi(),
-                dto.roiPerHour(),
-                dto.durationSeconds(),
-                dto.fees(),
-                dto.liquidityScore(),
-                dto.riskScore(),
-                dto.snapshotTimestamp(),
-                dto.partial(),
-                dto.partialReasons(),
-                dto.steps(),
-                dto.constraints()
-        );
     }
 }

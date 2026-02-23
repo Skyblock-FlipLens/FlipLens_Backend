@@ -6,6 +6,9 @@ import com.skyblockflipper.backend.model.flippingstorage.FlipCurrentEntity;
 import com.skyblockflipper.backend.model.flippingstorage.FlipDefinitionEntity;
 import com.skyblockflipper.backend.repository.FlipCurrentRepository;
 import com.skyblockflipper.backend.repository.FlipDefinitionRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +53,26 @@ public class UnifiedFlipCurrentReadService {
             }
         }
         return List.copyOf(dtos);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<UnifiedFlipDto> listCurrentPage(FlipType flipType, Pageable pageable) {
+        if (pageable == null || pageable.isUnpaged()) {
+            List<UnifiedFlipDto> values = listCurrent(flipType);
+            return new PageImpl<>(values);
+        }
+        Page<FlipCurrentEntity> page = flipType == null
+                ? flipCurrentRepository.findAll(pageable)
+                : flipCurrentRepository.findAllByFlipType(flipType, pageable);
+        if (page.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, page.getTotalElements());
+        }
+        Map<String, FlipDefinitionEntity> definitionsByKey = definitionsByKey(page.getContent());
+        List<UnifiedFlipDto> content = page.getContent().stream()
+                .map(current -> storedFlipDtoMapper.toDto(current, definitionsByKey.get(current.getFlipKey())))
+                .filter(dto -> dto != null)
+                .toList();
+        return new PageImpl<>(content, pageable, page.getTotalElements());
     }
 
     @Transactional(readOnly = true)

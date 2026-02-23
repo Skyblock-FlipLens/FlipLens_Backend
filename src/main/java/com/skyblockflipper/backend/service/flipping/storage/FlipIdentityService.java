@@ -19,8 +19,10 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class FlipIdentityService {
@@ -101,7 +103,9 @@ public class FlipIdentityService {
             return array;
         }
 
-        List<Constraint> sorted = new ArrayList<>(constraints);
+        List<Constraint> sorted = constraints.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(ArrayList::new));
         sorted.sort(Comparator
                 .comparing((Constraint c) -> c.getType() == null ? "" : c.getType().name())
                 .thenComparing(c -> normalizeString(c.getStringValue()))

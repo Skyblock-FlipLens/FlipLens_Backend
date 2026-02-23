@@ -61,7 +61,7 @@ public class UnifiedFlipStorageService {
     public void clearSnapshotData(long snapshotEpochMillis) {
         // Align unified storage regeneration semantics with legacy "delete snapshot then write snapshot".
         flipCurrentRepository.deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
-        flipTrendSegmentRepository.deleteByValidFromSnapshotEpochMillisAndValidToSnapshotEpochMillis(
+        flipTrendSegmentRepository.deleteByValidityWindow(
                 snapshotEpochMillis,
                 snapshotEpochMillis
         );

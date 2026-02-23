@@ -141,14 +141,18 @@ public class FlipStorageParityService {
             return List.of();
         }
         FlipCalculationContext context = flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(comparisonSnapshot));
+        Map<UUID, UUID> stableIdCache = new HashMap<>();
         return legacyFlips.stream()
                 .map(flip -> {
                     UnifiedFlipDto dto = unifiedFlipDtoMapper.toDto(flip, context);
                     if (dto == null) {
                         return null;
                     }
-                    UUID stableId = flipIdentityService.derive(flip).stableFlipId();
-                    return withStableId(dto, stableId);
+                    UUID persistedFlipId = flip.getId();
+                    UUID stableId = persistedFlipId == null
+                            ? flipIdentityService.derive(flip).stableFlipId()
+                            : stableIdCache.computeIfAbsent(persistedFlipId, ignored -> flipIdentityService.derive(flip).stableFlipId());
+                    return UnifiedFlipDtoIdMapper.withId(dto, stableId);
                 })
                 .filter(Objects::nonNull)
                 .toList();
@@ -196,28 +200,28 @@ public class FlipStorageParityService {
 
     private List<String> mismatchedFields(UnifiedFlipDto legacy, UnifiedFlipDto current) {
         List<String> mismatches = new ArrayList<>();
-        if (equalsLong(legacy.expectedProfit(), current.expectedProfit())) {
+        if (differsLong(legacy.expectedProfit(), current.expectedProfit())) {
             mismatches.add("expectedProfit");
         }
-        if (equalsLong(legacy.requiredCapital(), current.requiredCapital())) {
+        if (differsLong(legacy.requiredCapital(), current.requiredCapital())) {
             mismatches.add("requiredCapital");
         }
-        if (equalsLong(legacy.durationSeconds(), current.durationSeconds())) {
+        if (differsLong(legacy.durationSeconds(), current.durationSeconds())) {
             mismatches.add("durationSeconds");
         }
-        if (equalsLong(legacy.fees(), current.fees())) {
+        if (differsLong(legacy.fees(), current.fees())) {
             mismatches.add("fees");
         }
-        if (equalsDouble(legacy.roi(), current.roi())) {
+        if (differsDouble(legacy.roi(), current.roi())) {
             mismatches.add("roi");
         }
-        if (equalsDouble(legacy.roiPerHour(), current.roiPerHour())) {
+        if (differsDouble(legacy.roiPerHour(), current.roiPerHour())) {
             mismatches.add("roiPerHour");
         }
-        if (equalsDouble(legacy.liquidityScore(), current.liquidityScore())) {
+        if (differsDouble(legacy.liquidityScore(), current.liquidityScore())) {
             mismatches.add("liquidityScore");
         }
-        if (equalsDouble(legacy.riskScore(), current.riskScore())) {
+        if (differsDouble(legacy.riskScore(), current.riskScore())) {
             mismatches.add("riskScore");
         }
         if (legacy.partial() != current.partial()) {
@@ -226,36 +230,24 @@ public class FlipStorageParityService {
         return mismatches;
     }
 
-    private boolean equalsLong(Long left, Long right) {
-        return !Optional.ofNullable(left).orElse(0L).equals(Optional.ofNullable(right).orElse(0L));
+    private boolean differsLong(Long left, Long right) {
+        if (left == null && right == null) {
+            return false;
+        }
+        if (left == null || right == null) {
+            return true;
+        }
+        return !left.equals(right);
     }
 
-    private boolean equalsDouble(Double left, Double right) {
-        double leftValue = left == null ? 0D : left;
-        double rightValue = right == null ? 0D : right;
-        return !(Math.abs(leftValue - rightValue) <= DOUBLE_TOLERANCE);
-    }
-
-    private UnifiedFlipDto withStableId(UnifiedFlipDto dto, UUID stableId) {
-        return new UnifiedFlipDto(
-                stableId,
-                dto.flipType(),
-                dto.inputItems(),
-                dto.outputItems(),
-                dto.requiredCapital(),
-                dto.expectedProfit(),
-                dto.roi(),
-                dto.roiPerHour(),
-                dto.durationSeconds(),
-                dto.fees(),
-                dto.liquidityScore(),
-                dto.riskScore(),
-                dto.snapshotTimestamp(),
-                dto.partial(),
-                dto.partialReasons(),
-                dto.steps(),
-                dto.constraints()
-        );
+    private boolean differsDouble(Double left, Double right) {
+        if (left == null && right == null) {
+            return false;
+        }
+        if (left == null || right == null) {
+            return true;
+        }
+        return Math.abs(left - right) > DOUBLE_TOLERANCE;
     }
 
     public record FlipStorageParityReport(

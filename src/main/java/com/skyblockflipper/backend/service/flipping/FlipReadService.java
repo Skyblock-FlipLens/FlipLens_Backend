@@ -72,8 +72,9 @@ public class FlipReadService {
 
     public Page<UnifiedFlipDto> listFlips(FlipType flipType, Instant snapshotTimestamp, Pageable pageable) {
         if (useCurrentStorage(snapshotTimestamp)) {
-            List<UnifiedFlipDto> current = sortedById(unifiedFlipCurrentReadService.listCurrent(flipType));
-            return paginateUnified(current, pageable);
+            Pageable normalized = normalizeCurrentStoragePageable(pageable);
+            Page<UnifiedFlipDto> page = unifiedFlipCurrentReadService.listCurrentPage(flipType, normalized);
+            return page.map(dto -> dto);
         }
         if (useOnDemandSnapshot(snapshotTimestamp)) {
             List<UnifiedFlipDto> onDemand = sortedById(onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType));
@@ -192,7 +193,10 @@ public class FlipReadService {
             return new FlipSummaryStatsDto(mapped.size(), avgProfit, round2(avgRoi), bestFlipProfit, byType);
         }
         if (useOnDemandSnapshot(snapshotTimestamp)) {
-            List<UnifiedFlipDto> mapped = onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType);
+            List<UnifiedFlipDto> allTypes = onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, null);
+            List<UnifiedFlipDto> mapped = flipType == null
+                    ? allTypes
+                    : allTypes.stream().filter(dto -> dto.flipType() == flipType).toList();
             long avgProfit = Math.round(mapped.stream()
                     .map(UnifiedFlipDto::expectedProfit)
                     .filter(value -> value != null && value > 0)
@@ -209,9 +213,6 @@ public class FlipReadService {
                     .max(Long::compareTo)
                     .orElse(0L);
 
-            List<UnifiedFlipDto> allTypes = flipType == null
-                    ? mapped
-                    : onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, null);
             Map<String, Long> byType = new LinkedHashMap<>();
             for (FlipType type : FlipType.values()) {
                 long count = allTypes.stream().filter(dto -> dto.flipType() == type).count();
@@ -312,43 +313,21 @@ public class FlipReadService {
 
         List<FlipGoodnessDto> ranked;
         if (useCurrentStorage(snapshotTimestamp)) {
-            ranked = unifiedFlipCurrentReadService.listCurrent(flipType).stream()
-                    .map(this::toGoodnessDto)
-                    .sorted(Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
-                            .thenComparing(entry -> {
-                                UnifiedFlipDto flip = entry.flip();
-                                return flip.expectedProfit() == null ? Long.MIN_VALUE : flip.expectedProfit();
-                            }, Comparator.reverseOrder())
-                            .thenComparing(entry -> entry.flip().id() == null ? "" : entry.flip().id().toString()))
-                    .toList();
+            ranked = rankByGoodness(unifiedFlipCurrentReadService.listCurrent(flipType));
         } else if (useOnDemandSnapshot(snapshotTimestamp)) {
-            ranked = onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType).stream()
-                    .map(this::toGoodnessDto)
-                    .sorted(Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
-                            .thenComparing(entry -> {
-                                UnifiedFlipDto flip = entry.flip();
-                                return flip.expectedProfit() == null ? Long.MIN_VALUE : flip.expectedProfit();
-                            }, Comparator.reverseOrder())
-                            .thenComparing(entry -> entry.flip().id() == null ? "" : entry.flip().id().toString()))
-                    .toList();
+            ranked = rankByGoodness(onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType));
         } else {
             Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
             FlipCalculationContext context = snapshotEpochMillis == null
                     ? flipCalculationContextService.loadCurrentContext()
                     : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
 
-            ranked = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
+            List<UnifiedFlipDto> mapped = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
                     .stream()
                     .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
                     .filter(Objects::nonNull)
-                    .map(this::toGoodnessDto)
-                    .sorted(Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
-                            .thenComparing(entry -> {
-                                UnifiedFlipDto flip = entry.flip();
-                                return flip.expectedProfit() == null ? Long.MIN_VALUE : flip.expectedProfit();
-                            }, Comparator.reverseOrder())
-                            .thenComparing(entry -> entry.flip().id() == null ? "" : entry.flip().id().toString()))
                     .toList();
+            ranked = rankByGoodness(mapped);
         }
 
         return paginateGoodness(ranked, fixedPageable);
@@ -552,44 +531,32 @@ public class FlipReadService {
                                                    FlipSortBy sortBy,
                                                    Sort.Direction sortDirection) {
         if (useCurrentStorage(snapshotTimestamp)) {
-            return unifiedFlipCurrentReadService.listCurrent(flipType).stream()
-                    .filter(Objects::nonNull)
-                    .filter(dto -> minLiquidityScore == null
-                            || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
-                    .filter(dto -> maxRiskScore == null
-                            || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
-                    .filter(dto -> minExpectedProfit == null
-                            || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
-                    .filter(dto -> minRoi == null
-                            || (dto.roi() != null && dto.roi() >= minRoi))
-                    .filter(dto -> minRoiPerHour == null
-                            || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
-                    .filter(dto -> maxRequiredCapital == null
-                            || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
-                    .filter(dto -> partial == null || dto.partial() == partial)
-                    .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
-                            sortDirection == null ? Sort.Direction.DESC : sortDirection))
-                    .toList();
+            return applyFiltersAndSort(
+                    unifiedFlipCurrentReadService.listCurrent(flipType),
+                    minLiquidityScore,
+                    maxRiskScore,
+                    minExpectedProfit,
+                    minRoi,
+                    minRoiPerHour,
+                    maxRequiredCapital,
+                    partial,
+                    sortBy,
+                    sortDirection
+            );
         }
         if (useOnDemandSnapshot(snapshotTimestamp)) {
-            return onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType).stream()
-                    .filter(Objects::nonNull)
-                    .filter(dto -> minLiquidityScore == null
-                            || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
-                    .filter(dto -> maxRiskScore == null
-                            || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
-                    .filter(dto -> minExpectedProfit == null
-                            || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
-                    .filter(dto -> minRoi == null
-                            || (dto.roi() != null && dto.roi() >= minRoi))
-                    .filter(dto -> minRoiPerHour == null
-                            || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
-                    .filter(dto -> maxRequiredCapital == null
-                            || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
-                    .filter(dto -> partial == null || dto.partial() == partial)
-                    .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
-                            sortDirection == null ? Sort.Direction.DESC : sortDirection))
-                    .toList();
+            return applyFiltersAndSort(
+                    onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType),
+                    minLiquidityScore,
+                    maxRiskScore,
+                    minExpectedProfit,
+                    minRoi,
+                    minRoiPerHour,
+                    maxRequiredCapital,
+                    partial,
+                    sortBy,
+                    sortDirection
+            );
         }
 
         Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
@@ -597,26 +564,22 @@ public class FlipReadService {
                 ? flipCalculationContextService.loadCurrentContext()
                 : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
 
-        return queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
+        List<UnifiedFlipDto> mapped = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
                 .stream()
                 .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
-                .filter(Objects::nonNull)
-                .filter(dto -> minLiquidityScore == null
-                        || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
-                .filter(dto -> maxRiskScore == null
-                        || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
-                .filter(dto -> minExpectedProfit == null
-                        || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
-                .filter(dto -> minRoi == null
-                        || (dto.roi() != null && dto.roi() >= minRoi))
-                .filter(dto -> minRoiPerHour == null
-                        || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
-                .filter(dto -> maxRequiredCapital == null
-                        || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
-                .filter(dto -> partial == null || dto.partial() == partial)
-                .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
-                        sortDirection == null ? Sort.Direction.DESC : sortDirection))
                 .toList();
+        return applyFiltersAndSort(
+                mapped,
+                minLiquidityScore,
+                maxRiskScore,
+                minExpectedProfit,
+                minRoi,
+                minRoiPerHour,
+                maxRequiredCapital,
+                partial,
+                sortBy,
+                sortDirection
+        );
     }
 
     private boolean useCurrentStorage(Instant snapshotTimestamp) {
@@ -644,6 +607,71 @@ public class FlipReadService {
         }
         return values.stream()
                 .sorted(Comparator.comparing(dto -> dto.id() == null ? "" : dto.id().toString()))
+                .toList();
+    }
+
+    private Pageable normalizeCurrentStoragePageable(Pageable pageable) {
+        if (pageable == null || pageable.isUnpaged()) {
+            return pageable;
+        }
+        Sort normalizedSort = Sort.unsorted();
+        if (pageable.getSort() != null && pageable.getSort().isSorted()) {
+            List<Sort.Order> normalizedOrders = new ArrayList<>();
+            for (Sort.Order order : pageable.getSort()) {
+                if (order == null) {
+                    continue;
+                }
+                String property = order.getProperty();
+                String normalizedProperty = "id".equals(property) ? "stableFlipId" : property;
+                normalizedOrders.add(new Sort.Order(order.getDirection(), normalizedProperty));
+            }
+            if (!normalizedOrders.isEmpty()) {
+                normalizedSort = Sort.by(normalizedOrders);
+            }
+        }
+        return OffsetLimitPageRequest.of(pageable.getOffset(), pageable.getPageSize(), normalizedSort);
+    }
+
+    private List<UnifiedFlipDto> applyFiltersAndSort(List<UnifiedFlipDto> source,
+                                                     Double minLiquidityScore,
+                                                     Double maxRiskScore,
+                                                     Long minExpectedProfit,
+                                                     Double minRoi,
+                                                     Double minRoiPerHour,
+                                                     Long maxRequiredCapital,
+                                                     Boolean partial,
+                                                     FlipSortBy sortBy,
+                                                     Sort.Direction sortDirection) {
+        return (source == null ? List.<UnifiedFlipDto>of() : source).stream()
+                .filter(Objects::nonNull)
+                .filter(dto -> minLiquidityScore == null
+                        || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
+                .filter(dto -> maxRiskScore == null
+                        || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
+                .filter(dto -> minExpectedProfit == null
+                        || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
+                .filter(dto -> minRoi == null
+                        || (dto.roi() != null && dto.roi() >= minRoi))
+                .filter(dto -> minRoiPerHour == null
+                        || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
+                .filter(dto -> maxRequiredCapital == null
+                        || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
+                .filter(dto -> partial == null || dto.partial() == partial)
+                .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
+                        sortDirection == null ? Sort.Direction.DESC : sortDirection))
+                .toList();
+    }
+
+    private List<FlipGoodnessDto> rankByGoodness(List<UnifiedFlipDto> source) {
+        return (source == null ? List.<UnifiedFlipDto>of() : source).stream()
+                .filter(Objects::nonNull)
+                .map(this::toGoodnessDto)
+                .sorted(Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
+                        .thenComparing(entry -> {
+                            UnifiedFlipDto flip = entry.flip();
+                            return flip.expectedProfit() == null ? Long.MIN_VALUE : flip.expectedProfit();
+                        }, Comparator.reverseOrder())
+                        .thenComparing(entry -> entry.flip().id() == null ? "" : entry.flip().id().toString()))
                 .toList();
     }
 
