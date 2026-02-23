@@ -6,6 +6,8 @@ import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeToFlipMapper;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.RecipeRepository;
+import com.skyblockflipper.backend.service.flipping.storage.FlipStorageProperties;
+import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipStorageService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
@@ -26,11 +28,13 @@ public class FlipGenerationService {
     private final MarketSnapshotPersistenceService marketSnapshotPersistenceService;
     private final UnifiedFlipInputMapper unifiedFlipInputMapper;
     private final MarketFlipMapper marketFlipMapper;
+    private final UnifiedFlipStorageService unifiedFlipStorageService;
+    private final FlipStorageProperties flipStorageProperties;
 
     public FlipGenerationService(FlipRepository flipRepository,
                                  RecipeRepository recipeRepository,
                                  RecipeToFlipMapper recipeToFlipMapper) {
-        this(flipRepository, recipeRepository, recipeToFlipMapper, null, null, null);
+        this(flipRepository, recipeRepository, recipeToFlipMapper, null, null, null, null, null);
     }
 
     @Autowired
@@ -39,13 +43,17 @@ public class FlipGenerationService {
                                  RecipeToFlipMapper recipeToFlipMapper,
                                  MarketSnapshotPersistenceService marketSnapshotPersistenceService,
                                  UnifiedFlipInputMapper unifiedFlipInputMapper,
-                                 MarketFlipMapper marketFlipMapper) {
+                                 MarketFlipMapper marketFlipMapper,
+                                 UnifiedFlipStorageService unifiedFlipStorageService,
+                                 FlipStorageProperties flipStorageProperties) {
         this.flipRepository = flipRepository;
         this.recipeRepository = recipeRepository;
         this.recipeToFlipMapper = recipeToFlipMapper;
         this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
         this.unifiedFlipInputMapper = unifiedFlipInputMapper;
         this.marketFlipMapper = marketFlipMapper;
+        this.unifiedFlipStorageService = unifiedFlipStorageService;
+        this.flipStorageProperties = flipStorageProperties;
     }
 
     @Transactional
@@ -54,7 +62,7 @@ public class FlipGenerationService {
             return new GenerationResult(0, 0, true);
         }
         long snapshotEpochMillis = snapshotTimestamp.toEpochMilli();
-        if (flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis)) {
+        if (existsSnapshotInActiveStorage(snapshotEpochMillis)) {
             return new GenerationResult(0, 0, true);
         }
         return regenerateForSnapshot(snapshotTimestamp);
@@ -72,7 +80,9 @@ public class FlipGenerationService {
         if (recipes.isEmpty() && marketInputSnapshot.isEmpty()) {
             return new GenerationResult(0, 0, true);
         }
-        flipRepository.deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
+        if (isLegacyWriteEnabled()) {
+            flipRepository.deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
+        }
 
         List<Flip> generatedFlips = new ArrayList<>(recipes.size() + (marketInputSnapshot.isPresent() ? 128 : 0));
         int skipped = 0;
@@ -89,10 +99,28 @@ public class FlipGenerationService {
             flip.setSnapshotTimestampEpochMillis(snapshotEpochMillis);
         }
 
-        if (!generatedFlips.isEmpty()) {
+        if (!generatedFlips.isEmpty() && isLegacyWriteEnabled()) {
             flipRepository.saveAll(generatedFlips);
         }
+        if (!generatedFlips.isEmpty() && isDualWriteEnabled() && unifiedFlipStorageService != null) {
+            unifiedFlipStorageService.persistSnapshotFlips(generatedFlips, snapshotTimestamp);
+        }
         return new GenerationResult(generatedFlips.size(), skipped, false);
+    }
+
+    private boolean existsSnapshotInActiveStorage(long snapshotEpochMillis) {
+        if (isDualWriteEnabled() && !isLegacyWriteEnabled() && unifiedFlipStorageService != null) {
+            return unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
+        }
+        return flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
+    }
+
+    private boolean isDualWriteEnabled() {
+        return flipStorageProperties == null || flipStorageProperties.isDualWriteEnabled();
+    }
+
+    private boolean isLegacyWriteEnabled() {
+        return flipStorageProperties == null || flipStorageProperties.isLegacyWriteEnabled();
     }
 
     private Optional<UnifiedFlipInputSnapshot> loadMarketInputSnapshot(Instant snapshotTimestamp) {
