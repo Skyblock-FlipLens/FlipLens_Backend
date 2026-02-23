@@ -171,8 +171,8 @@ public class FlipIdentityService {
             }
             return normalized;
         }
-        if (node.isTextual()) {
-            return JsonNodeFactory.instance.textNode(normalizeString(node.asText("")));
+        if (node.isString()) {
+            return JsonNodeFactory.instance.stringNode(normalizeString(node.asString("")));
         }
         return node;
     }

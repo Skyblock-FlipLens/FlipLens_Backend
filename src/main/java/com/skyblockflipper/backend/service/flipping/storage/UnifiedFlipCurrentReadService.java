@@ -59,10 +59,7 @@ public class UnifiedFlipCurrentReadService {
             return Optional.empty();
         }
         Optional<FlipDefinitionEntity> definition = flipDefinitionRepository.findById(current.get().getFlipKey());
-        if (definition.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(storedFlipDtoMapper.toDto(current.get(), definition.get()));
+        return definition.map(flipDefinitionEntity -> storedFlipDtoMapper.toDto(current.get(), flipDefinitionEntity));
     }
 
     @Transactional(readOnly = true)

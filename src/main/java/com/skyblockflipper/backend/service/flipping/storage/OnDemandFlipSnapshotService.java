@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -92,7 +93,7 @@ public class OnDemandFlipSnapshotService {
                     }
                     return withStableId(dto, flipIdentityService.derive(flip).stableFlipId());
                 })
-                .filter(dto -> dto != null)
+                .filter(Objects::nonNull)
                 .toList();
     }
 

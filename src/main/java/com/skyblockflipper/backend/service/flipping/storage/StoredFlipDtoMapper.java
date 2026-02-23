@@ -72,18 +72,18 @@ public class StoredFlipDtoMapper {
             }
             List<UnifiedFlipDto.StepDto> result = new ArrayList<>();
             for (JsonNode node : root) {
-                StepType type = enumValue(node.path("type").asText(""), StepType.class);
-                DurationType durationType = enumValue(node.path("durationType").asText(""), DurationType.class);
+                StepType type = enumValue(node.path("type").asString(""), StepType.class);
+                DurationType durationType = enumValue(node.path("durationType").asString(""), DurationType.class);
                 Long baseDurationSeconds = nullableLong(node.path("baseDurationSeconds"));
                 Double durationFactor = nullableDouble(node.path("durationFactor"));
-                StepResource resource = enumValue(node.path("resource").asText(""), StepResource.class, StepResource.NONE);
+                StepResource resource = enumValue(node.path("resource").asString(""), StepResource.class, StepResource.NONE);
                 int resourceUnits = node.path("resourceUnits").asInt(0);
                 SchedulingPolicy schedulingPolicy = enumValue(
-                        node.path("schedulingPolicy").asText(""),
+                        node.path("schedulingPolicy").asString(""),
                         SchedulingPolicy.class,
                         SchedulingPolicy.NONE
                 );
-                String paramsJson = node.path("paramsJson").asText("");
+                String paramsJson = node.path("paramsJson").asString("");
                 result.add(new UnifiedFlipDto.StepDto(
                         type,
                         durationType,
@@ -112,7 +112,7 @@ public class StoredFlipDtoMapper {
             }
             List<UnifiedFlipDto.ConstraintDto> result = new ArrayList<>();
             for (JsonNode node : root) {
-                ConstraintType type = enumValue(node.path("type").asText(""), ConstraintType.class);
+                ConstraintType type = enumValue(node.path("type").asString(""), ConstraintType.class);
                 String stringValue = nullableText(node.path("stringValue"));
                 Integer intValue = nullableInt(node.path("intValue"));
                 Long longValue = nullableLong(node.path("longValue"));
@@ -135,8 +135,8 @@ public class StoredFlipDtoMapper {
             }
             LinkedHashSet<String> reasons = new LinkedHashSet<>();
             for (JsonNode node : root) {
-                if (node.isTextual()) {
-                    String value = node.asText("").trim();
+                if (node.isString()) {
+                    String value = node.asString("").trim();
                     if (!value.isEmpty()) {
                         reasons.add(value);
                     }
@@ -185,7 +185,7 @@ public class StoredFlipDtoMapper {
         }
         try {
             JsonNode node = objectMapper.readTree(paramsJson);
-            String itemId = node.path("itemId").asText("");
+            String itemId = node.path("itemId").asString("");
             if (itemId.isBlank()) {
                 return null;
             }
@@ -229,9 +229,9 @@ public class StoredFlipDtoMapper {
         if (node.isNumber()) {
             return node.longValue();
         }
-        if (node.isTextual()) {
+        if (node.isString()) {
             try {
-                return Long.parseLong(node.asText().trim());
+                return Long.parseLong(node.asString().trim());
             } catch (NumberFormatException ignored) {
                 return null;
             }
@@ -246,9 +246,9 @@ public class StoredFlipDtoMapper {
         if (node.isNumber()) {
             return node.intValue();
         }
-        if (node.isTextual()) {
+        if (node.isString()) {
             try {
-                return Integer.parseInt(node.asText().trim());
+                return Integer.parseInt(node.asString().trim());
             } catch (NumberFormatException ignored) {
                 return null;
             }
@@ -263,9 +263,9 @@ public class StoredFlipDtoMapper {
         if (node.isNumber()) {
             return node.doubleValue();
         }
-        if (node.isTextual()) {
+        if (node.isString()) {
             try {
-                return Double.parseDouble(node.asText().trim());
+                return Double.parseDouble(node.asString().trim());
             } catch (NumberFormatException ignored) {
                 return null;
             }
@@ -277,7 +277,7 @@ public class StoredFlipDtoMapper {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
         }
-        String value = node.asText("");
+        String value = node.asString("");
         return value.isBlank() ? null : value;
     }
 

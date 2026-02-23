@@ -11,14 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class FlipStorageParityService {
@@ -157,7 +150,7 @@ public class FlipStorageParityService {
                     UUID stableId = flipIdentityService.derive(flip).stableFlipId();
                     return withStableId(dto, stableId);
                 })
-                .filter(dto -> dto != null)
+                .filter(Objects::nonNull)
                 .toList();
     }
 
@@ -203,28 +196,28 @@ public class FlipStorageParityService {
 
     private List<String> mismatchedFields(UnifiedFlipDto legacy, UnifiedFlipDto current) {
         List<String> mismatches = new ArrayList<>();
-        if (!equalsLong(legacy.expectedProfit(), current.expectedProfit())) {
+        if (equalsLong(legacy.expectedProfit(), current.expectedProfit())) {
             mismatches.add("expectedProfit");
         }
-        if (!equalsLong(legacy.requiredCapital(), current.requiredCapital())) {
+        if (equalsLong(legacy.requiredCapital(), current.requiredCapital())) {
             mismatches.add("requiredCapital");
         }
-        if (!equalsLong(legacy.durationSeconds(), current.durationSeconds())) {
+        if (equalsLong(legacy.durationSeconds(), current.durationSeconds())) {
             mismatches.add("durationSeconds");
         }
-        if (!equalsLong(legacy.fees(), current.fees())) {
+        if (equalsLong(legacy.fees(), current.fees())) {
             mismatches.add("fees");
         }
-        if (!equalsDouble(legacy.roi(), current.roi())) {
+        if (equalsDouble(legacy.roi(), current.roi())) {
             mismatches.add("roi");
         }
-        if (!equalsDouble(legacy.roiPerHour(), current.roiPerHour())) {
+        if (equalsDouble(legacy.roiPerHour(), current.roiPerHour())) {
             mismatches.add("roiPerHour");
         }
-        if (!equalsDouble(legacy.liquidityScore(), current.liquidityScore())) {
+        if (equalsDouble(legacy.liquidityScore(), current.liquidityScore())) {
             mismatches.add("liquidityScore");
         }
-        if (!equalsDouble(legacy.riskScore(), current.riskScore())) {
+        if (equalsDouble(legacy.riskScore(), current.riskScore())) {
             mismatches.add("riskScore");
         }
         if (legacy.partial() != current.partial()) {
@@ -234,13 +227,13 @@ public class FlipStorageParityService {
     }
 
     private boolean equalsLong(Long left, Long right) {
-        return Optional.ofNullable(left).orElse(0L).equals(Optional.ofNullable(right).orElse(0L));
+        return !Optional.ofNullable(left).orElse(0L).equals(Optional.ofNullable(right).orElse(0L));
     }
 
     private boolean equalsDouble(Double left, Double right) {
         double leftValue = left == null ? 0D : left;
         double rightValue = right == null ? 0D : right;
-        return Math.abs(leftValue - rightValue) <= DOUBLE_TOLERANCE;
+        return !(Math.abs(leftValue - rightValue) <= DOUBLE_TOLERANCE);
     }
 
     private UnifiedFlipDto withStableId(UnifiedFlipDto dto, UUID stableId) {
