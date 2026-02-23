@@ -11,6 +11,8 @@ import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.RecipeRepository;
+import com.skyblockflipper.backend.service.flipping.storage.FlipStorageProperties;
+import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipStorageService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -19,8 +21,10 @@ import org.springframework.data.domain.Sort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -134,5 +138,105 @@ class FlipGenerationServiceTest {
         assertEquals(snapshotTimestamp.toEpochMilli(), marketFlip.getSnapshotTimestampEpochMillis());
         verify(flipRepository).deleteBySnapshotTimestampEpochMillis(snapshotTimestamp.toEpochMilli());
         verify(flipRepository).saveAll(List.of(marketFlip));
+    }
+
+    @Test
+    void constructorFailsWhenNoWritePathIsConfigured() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        RecipeRepository recipeRepository = mock(RecipeRepository.class);
+        RecipeToFlipMapper recipeMapper = mock(RecipeToFlipMapper.class);
+        MarketSnapshotPersistenceService snapshotPersistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = mock(UnifiedFlipInputMapper.class);
+        MarketFlipMapper marketFlipMapper = mock(MarketFlipMapper.class);
+        UnifiedFlipStorageService unifiedFlipStorageService = mock(UnifiedFlipStorageService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setDualWriteEnabled(false);
+        flipStorageProperties.setLegacyWriteEnabled(false);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new FlipGenerationService(
+                        flipRepository,
+                        recipeRepository,
+                        recipeMapper,
+                        snapshotPersistenceService,
+                        inputMapper,
+                        marketFlipMapper,
+                        unifiedFlipStorageService,
+                        flipStorageProperties
+                )
+        );
+    }
+
+    @Test
+    void constructorFailsWhenDualWriteOnlyIsConfiguredWithoutUnifiedService() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        RecipeRepository recipeRepository = mock(RecipeRepository.class);
+        RecipeToFlipMapper recipeMapper = mock(RecipeToFlipMapper.class);
+        MarketSnapshotPersistenceService snapshotPersistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = mock(UnifiedFlipInputMapper.class);
+        MarketFlipMapper marketFlipMapper = mock(MarketFlipMapper.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setDualWriteEnabled(true);
+        flipStorageProperties.setLegacyWriteEnabled(false);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new FlipGenerationService(
+                        flipRepository,
+                        recipeRepository,
+                        recipeMapper,
+                        snapshotPersistenceService,
+                        inputMapper,
+                        marketFlipMapper,
+                        null,
+                        flipStorageProperties
+                )
+        );
+    }
+
+    @Test
+    void regenerateForSnapshotClearsUnifiedStorageEvenWhenNoFlipsAreGenerated() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        RecipeRepository recipeRepository = mock(RecipeRepository.class);
+        RecipeToFlipMapper recipeMapper = mock(RecipeToFlipMapper.class);
+        MarketSnapshotPersistenceService snapshotPersistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = mock(UnifiedFlipInputMapper.class);
+        MarketFlipMapper marketFlipMapper = mock(MarketFlipMapper.class);
+        UnifiedFlipStorageService unifiedFlipStorageService = mock(UnifiedFlipStorageService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setDualWriteEnabled(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipGenerationService service = new FlipGenerationService(
+                flipRepository,
+                recipeRepository,
+                recipeMapper,
+                snapshotPersistenceService,
+                inputMapper,
+                marketFlipMapper,
+                unifiedFlipStorageService,
+                flipStorageProperties
+        );
+        Instant snapshot = Instant.parse("2026-02-20T21:30:00Z");
+        Item outputItem = Item.builder().id("ENCHANTED_HAY_BALE").build();
+        Recipe recipe = new Recipe(
+                "ENCHANTED_HAY_BALE:craft:0",
+                outputItem,
+                RecipeProcessType.CRAFT,
+                0L,
+                List.of(new RecipeIngredient("HAY_BLOCK", 144))
+        );
+        when(recipeRepository.findAll(any(Sort.class))).thenReturn(List.of(recipe));
+        when(recipeMapper.fromRecipe(recipe)).thenReturn(null);
+        when(snapshotPersistenceService.asOf(snapshot)).thenReturn(Optional.empty());
+
+        FlipGenerationService.GenerationResult result = service.regenerateForSnapshot(snapshot);
+
+        assertEquals(0, result.generatedCount());
+        assertEquals(1, result.skippedCount());
+        verify(flipRepository).deleteBySnapshotTimestampEpochMillis(snapshot.toEpochMilli());
+        verify(unifiedFlipStorageService).clearSnapshotData(snapshot.toEpochMilli());
+        verify(unifiedFlipStorageService, never()).persistSnapshotFlips(any(), any());
+        verify(flipRepository, never()).saveAll(any());
     }
 }

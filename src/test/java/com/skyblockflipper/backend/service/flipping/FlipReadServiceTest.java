@@ -4,11 +4,16 @@ import com.skyblockflipper.backend.api.FlipCoverageDto;
 import com.skyblockflipper.backend.api.FlipGoodnessDto;
 import com.skyblockflipper.backend.api.OffsetLimitPageRequest;
 import com.skyblockflipper.backend.api.FlipSortBy;
+import com.skyblockflipper.backend.api.FlipSummaryStatsDto;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.repository.FlipRepository;
+import com.skyblockflipper.backend.service.flipping.storage.FlipStorageProperties;
+import com.skyblockflipper.backend.service.flipping.storage.OnDemandFlipSnapshotService;
+import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipCurrentReadService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -439,6 +445,118 @@ class FlipReadServiceTest {
         assertEquals(5, result.getContent().size());
         assertEquals(UUID.fromString("00000005-0000-0000-0000-000000000000"), result.getContent().getFirst().flip().id());
         assertEquals(Sort.by("id").ascending(), result.getSort());
+    }
+
+    @Test
+    void summaryStatsOnDemandComputesSnapshotOnceAndLocallyFiltersByType() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(false);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        Instant snapshot = Instant.parse("2026-02-20T21:30:00Z");
+        UnifiedFlipDto bazaar = new UnifiedFlipDto(
+                UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                FlipType.BAZAAR,
+                List.of(),
+                List.of(),
+                1_000_000L,
+                500_000L,
+                0.5D,
+                1.2D,
+                120L,
+                1_000L,
+                80D,
+                10D,
+                snapshot,
+                false,
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        UnifiedFlipDto auction = new UnifiedFlipDto(
+                UUID.fromString("22222222-2222-2222-2222-222222222222"),
+                FlipType.AUCTION,
+                List.of(),
+                List.of(),
+                2_000_000L,
+                100_000L,
+                0.05D,
+                0.3D,
+                90L,
+                500L,
+                65D,
+                15D,
+                snapshot,
+                false,
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        when(onDemandFlipSnapshotService.computeSnapshotDtos(snapshot, null)).thenReturn(List.of(bazaar, auction));
+
+        FlipSummaryStatsDto result = service.summaryStats(FlipType.BAZAAR, snapshot);
+
+        assertEquals(1L, result.totalActiveFlips());
+        assertEquals(500_000L, result.avgProfit());
+        assertEquals(0.5D, result.avgRoi());
+        assertEquals(500_000L, result.bestFlipProfit());
+        assertEquals(1, result.byType().size());
+        assertEquals(1L, result.byType().get(FlipType.BAZAAR.name()));
+        verify(onDemandFlipSnapshotService, times(1)).computeSnapshotDtos(snapshot, null);
+        verify(onDemandFlipSnapshotService, never()).computeSnapshotDtos(snapshot, FlipType.BAZAAR);
+        verifyNoInteractions(unifiedFlipCurrentReadService);
+        verifyNoInteractions(flipRepository);
+    }
+
+    @Test
+    void listFlipsCurrentStorageNormalizesIdSortToStableFlipId() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        UnifiedFlipDto dto = sampleDto();
+        when(unifiedFlipCurrentReadService.listCurrentPage(org.mockito.ArgumentMatchers.eq(FlipType.BAZAAR), org.mockito.ArgumentMatchers.any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(dto), PageRequest.of(1, 5), 1));
+        Pageable requested = PageRequest.of(1, 5, Sort.by(Sort.Order.desc("id")));
+
+        Page<UnifiedFlipDto> result = service.listFlips(FlipType.BAZAAR, null, requested);
+
+        assertEquals(1, result.getContent().size());
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(unifiedFlipCurrentReadService).listCurrentPage(org.mockito.ArgumentMatchers.eq(FlipType.BAZAAR), pageableCaptor.capture());
+        Pageable normalized = pageableCaptor.getValue();
+        Sort.Order order = normalized.getSort().getOrderFor("stableFlipId");
+        assertEquals(5L, normalized.getOffset());
+        assertEquals(5, normalized.getPageSize());
+        assertTrue(order != null && order.isDescending());
+        verifyNoInteractions(onDemandFlipSnapshotService);
+        verifyNoInteractions(flipRepository);
     }
 
     private UnifiedFlipDto sampleDto() {
