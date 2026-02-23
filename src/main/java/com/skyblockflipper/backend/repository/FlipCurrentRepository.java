@@ -17,6 +17,8 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
 
     boolean existsBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
 
+    void deleteBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
+
     @Query("select max(fc.snapshotTimestampEpochMillis) from FlipCurrentEntity fc")
     Optional<Long> findMaxSnapshotTimestampEpochMillis();
 

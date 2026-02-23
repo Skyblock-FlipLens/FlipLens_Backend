@@ -9,4 +9,7 @@ import java.util.List;
 public interface FlipTrendSegmentRepository extends JpaRepository<FlipTrendSegmentEntity, Long> {
 
     List<FlipTrendSegmentEntity> findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(Collection<String> flipKeys);
+
+    void deleteByValidFromSnapshotEpochMillisAndValidToSnapshotEpochMillis(long validFromSnapshotEpochMillis,
+                                                                            long validToSnapshotEpochMillis);
 }

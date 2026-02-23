@@ -122,6 +122,7 @@ public class FlipGenerationService {
             flipRepository.saveAll(generatedFlips);
         }
         if (!generatedFlips.isEmpty() && isDualWriteEnabled() && unifiedFlipStorageService != null) {
+            unifiedFlipStorageService.clearSnapshotData(snapshotEpochMillis);
             unifiedFlipStorageService.persistSnapshotFlips(generatedFlips, snapshotTimestamp);
         }
         return new GenerationResult(generatedFlips.size(), skipped, false);
@@ -165,11 +166,23 @@ public class FlipGenerationService {
 
     private void validateStorageConfiguration() {
         if (flipStorageProperties != null
+                && !flipStorageProperties.isDualWriteEnabled()
+                && !flipStorageProperties.isLegacyWriteEnabled()) {
+            throw new IllegalStateException(
+                    "FlipGenerationService.validateStorageConfiguration misconfiguration: "
+                            + "flipStorageProperties.isDualWriteEnabled() and "
+                            + "flipStorageProperties.isLegacyWriteEnabled() are both false, "
+                            + "so no active write path is configured. "
+                            + "Check unifiedFlipStorageService and flipStorageProperties flags."
+            );
+        }
+
+        if (flipStorageProperties != null
                 && flipStorageProperties.isDualWriteEnabled()
                 && !flipStorageProperties.isLegacyWriteEnabled()
                 && unifiedFlipStorageService == null) {
             throw new IllegalStateException(
-                    "FlipGenerationService constructor misconfiguration: "
+                    "FlipGenerationService.validateStorageConfiguration misconfiguration: "
                             + "flipStorageProperties requires non-null unifiedFlipStorageService when "
                             + "flipStorageProperties.isDualWriteEnabled() is true and "
                             + "flipStorageProperties.isLegacyWriteEnabled() is false."
