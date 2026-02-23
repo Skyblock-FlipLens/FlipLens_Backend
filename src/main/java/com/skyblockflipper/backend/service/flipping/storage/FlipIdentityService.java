@@ -104,13 +104,11 @@ public class FlipIdentityService {
         }
 
         List<Constraint> sorted = constraints.stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(ArrayList::new));
-        sorted.sort(Comparator
-                .comparing((Constraint c) -> c.getType() == null ? "" : c.getType().name())
-                .thenComparing(c -> normalizeString(c.getStringValue()))
-                .thenComparing(c -> c.getIntValue() == null ? Integer.MIN_VALUE : c.getIntValue())
-                .thenComparing(c -> c.getLongValue() == null ? Long.MIN_VALUE : c.getLongValue()));
+                .filter(Objects::nonNull).sorted(Comparator
+                        .comparing((Constraint c) -> c.getType() == null ? "" : c.getType().name())
+                        .thenComparing(c -> normalizeString(c.getStringValue()))
+                        .thenComparing(c -> c.getIntValue() == null ? Integer.MIN_VALUE : c.getIntValue())
+                        .thenComparing(c -> c.getLongValue() == null ? Long.MIN_VALUE : c.getLongValue())).collect(Collectors.toCollection(ArrayList::new));
 
         for (Constraint constraint : sorted) {
             if (constraint == null) {

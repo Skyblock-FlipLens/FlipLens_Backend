@@ -21,15 +21,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -163,7 +157,7 @@ class FlipReadServiceTest {
         FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
 
         List<FlipType> expected = Arrays.stream(FlipType.values())
-                .sorted((a, b) -> a.name().compareTo(b.name()))
+                .sorted(Comparator.comparing(Enum::name))
                 .toList();
 
         assertEquals(expected, service.listSupportedFlipTypes().flipTypes());
@@ -200,7 +194,7 @@ class FlipReadServiceTest {
 
         var stats = service.snapshotStats(null);
 
-        assertEquals(null, stats.snapshotTimestamp());
+        assertNull(stats.snapshotTimestamp());
         assertEquals(0L, stats.totalFlips());
         assertEquals(FlipType.values().length, stats.byType().size());
         assertTrue(stats.byType().stream().allMatch(item -> item.count() == 0L));
@@ -255,7 +249,7 @@ class FlipReadServiceTest {
 
         FlipCoverageDto result = service.flipTypeCoverage();
 
-        assertEquals(null, result.snapshotTimestamp());
+        assertNull(result.snapshotTimestamp());
         assertEquals(List.of("SHARD", "FUSION"), result.excludedFlipTypes());
         assertEquals(4, result.flipTypes().size());
         assertTrue(result.flipTypes().stream().allMatch(type -> type.latestSnapshotCount() == 0L));

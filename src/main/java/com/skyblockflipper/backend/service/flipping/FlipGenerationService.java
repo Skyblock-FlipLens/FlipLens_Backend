@@ -140,9 +140,8 @@ public class FlipGenerationService {
         }
 
         boolean unifiedActive = dualWriteEnabled && unifiedFlipStorageService != null;
-        boolean legacyActive = legacyWriteEnabled;
 
-        if (unifiedActive && legacyActive) {
+        if (unifiedActive && legacyWriteEnabled) {
             boolean unifiedExists = unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
             boolean legacyExists = flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
             return unifiedExists && legacyExists;
@@ -152,7 +151,7 @@ public class FlipGenerationService {
             return unifiedFlipStorageService.existsForSnapshot(snapshotEpochMillis);
         }
 
-        if (legacyActive) {
+        if (legacyWriteEnabled) {
             return flipRepository.existsBySnapshotTimestampEpochMillis(snapshotEpochMillis);
         }
 

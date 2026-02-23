@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class FlipIdentityServiceTest {
 
     @Test
-    void deriveIgnoresNullConstraintsInCanonicalization() throws Exception {
+    void deriveIgnoresNullConstraintsInCanonicalization() {
         FlipIdentityService service = new FlipIdentityService(new ObjectMapper());
         List<Constraint> constraints = new ArrayList<>();
         constraints.add(null);

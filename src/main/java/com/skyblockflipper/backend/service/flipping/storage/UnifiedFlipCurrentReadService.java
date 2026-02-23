@@ -12,13 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class UnifiedFlipCurrentReadService {
@@ -70,7 +64,7 @@ public class UnifiedFlipCurrentReadService {
         Map<String, FlipDefinitionEntity> definitionsByKey = definitionsByKey(page.getContent());
         List<UnifiedFlipDto> content = page.getContent().stream()
                 .map(current -> storedFlipDtoMapper.toDto(current, definitionsByKey.get(current.getFlipKey())))
-                .filter(dto -> dto != null)
+                .filter(Objects::nonNull)
                 .toList();
         return new PageImpl<>(content, pageable, page.getTotalElements());
     }
