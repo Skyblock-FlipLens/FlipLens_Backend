@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,8 +25,11 @@ public class SnapshotController {
 
     @GetMapping
     public Page<MarketSnapshotDto> listSnapshots(
-            @PageableDefault(size = 100, sort = "snapshotTimestampEpochMillis", direction = Sort.Direction.DESC) Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 100,
+                Sort.by(Sort.Direction.DESC, "snapshotTimestampEpochMillis"));
         return marketSnapshotReadService.listSnapshots(pageable);
     }
 
@@ -35,8 +37,10 @@ public class SnapshotController {
     public Page<UnifiedFlipDto> listFlipsForSnapshot(
             @PathVariable long snapshotEpochMillis,
             @RequestParam(required = false) FlipType flipType,
-            @PageableDefault(size = 50, sort = "id") Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
         return flipReadService.listFlips(flipType, Instant.ofEpochMilli(snapshotEpochMillis), pageable);
     }
 }

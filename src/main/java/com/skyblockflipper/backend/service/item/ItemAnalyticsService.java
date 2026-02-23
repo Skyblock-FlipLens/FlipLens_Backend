@@ -307,7 +307,7 @@ public class ItemAnalyticsService {
         if (pageable == null || pageable.isUnpaged()) {
             return new PageImpl<>(values);
         }
-        int fromIndex = (int) Math.min((long) pageable.getPageNumber() * pageable.getPageSize(), values.size());
+        int fromIndex = (int) Math.min(pageable.getOffset(), values.size());
         int toIndex = Math.min(fromIndex + pageable.getPageSize(), values.size());
         List<UnifiedFlipDto> content = fromIndex >= toIndex ? List.of() : values.subList(fromIndex, toIndex);
         return new PageImpl<>(content, pageable, values.size());

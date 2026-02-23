@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,8 +29,10 @@ public class AuctionHouseController {
             @RequestParam(required = false) Integer minStars,
             @RequestParam(required = false) Integer maxStars,
             @RequestParam(required = false) String reforge,
-            @PageableDefault(size = 20) Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 20, Sort.by("id").ascending());
         return auctionHouseReadService.listListings(
                 itemId,
                 sortBy,

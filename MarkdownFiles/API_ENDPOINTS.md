@@ -9,8 +9,9 @@ This document is formatted as a public API reference (similar style to Hypixel d
 
 - Time format: ISO-8601 UTC (`2026-02-19T20:00:00Z`)
 - Snapshot path IDs use epoch milliseconds (`snapshotEpochMillis`)
-- Pagination follows Spring `Page<T>` conventions:
-- Query: `page`, `size`, `sort`
+- Pagination follows Spring `Page<T>` response conventions:
+- Query: `min`, `max` (inclusive index range)
+- Defaults are endpoint-specific and keep previous default window sizes
 - Response: `content`, `number`, `size`, `totalElements`, `totalPages`, `first`, `last`, `empty`
 
 ---
@@ -77,9 +78,8 @@ List flips (optionally filtered by `flipType` and snapshot).
 Query params:
 - `flipType` (optional): `AUCTION`, `BAZAAR`, `CRAFTING`, `FORGE`, `KATGRADE`, `FUSION`
 - `snapshotTimestamp` (optional, ISO-8601)
-- `page` (optional, default `0`)
-- `size` (optional, default `50`)
-- `sort` (optional, default `id,asc`)
+- `min` (optional, default `0`)
+- `max` (optional, default `49`)
 
 Response:
 - `Page<UnifiedFlipDto>`
@@ -182,14 +182,15 @@ Query params:
 - `sortBy` (optional, default `EXPECTED_PROFIT`):
 - `EXPECTED_PROFIT`, `ROI`, `ROI_PER_HOUR`, `LIQUIDITY_SCORE`, `RISK_SCORE`, `REQUIRED_CAPITAL`, `FEES`, `DURATION_SECONDS`
 - `sortDirection` (optional, default `DESC`): `ASC` or `DESC`
-- `page` / `size` / `sort` (pagination; `sort` field is ignored here because `sortBy/sortDirection` are used)
+- `min` (optional, default `0`)
+- `max` (optional, default `49`)
 
 Response:
 - `Page<UnifiedFlipDto>`
 
 Example:
 
-`GET /api/v1/flips/filter?flipType=BAZAAR&minLiquidityScore=85&maxRiskScore=20&sortBy=LIQUIDITY_SCORE&sortDirection=DESC&size=25`
+`GET /api/v1/flips/filter?flipType=BAZAAR&minLiquidityScore=85&maxRiskScore=20&sortBy=LIQUIDITY_SCORE&sortDirection=DESC&min=0&max=24`
 
 ---
 
@@ -200,7 +201,8 @@ Convenience endpoint: best liquidity first.
 Query params:
 - `flipType` (optional enum)
 - `snapshotTimestamp` (optional ISO-8601)
-- `page` / `size` / `sort`
+- `min` (optional, default `0`)
+- `max` (optional, default `49`)
 
 Behavior:
 - Internally sorts by `LIQUIDITY_SCORE DESC`
@@ -217,7 +219,8 @@ Convenience endpoint: lowest risk first.
 Query params:
 - `flipType` (optional enum)
 - `snapshotTimestamp` (optional ISO-8601)
-- `page` / `size` / `sort`
+- `min` (optional, default `0`)
+- `max` (optional, default `49`)
 
 Behavior:
 - Internally sorts by `RISK_SCORE ASC`
@@ -234,12 +237,14 @@ Convenience endpoint: flips ranked by combined "goodness" score.
 Query params:
 - `flipType` (optional enum)
 - `snapshotTimestamp` (optional ISO-8601)
-- `page` (optional, default `0`)
+- `min` (optional, default `0`)
+- `max` (optional, default `9`)
 
 Behavior:
-- Fixed page size: `10`
+- Default window size: `10`
 - Sorted by computed `goodnessScore DESC`
 - Score combines profitability, ROI/h, liquidity, and inverse risk
+- Uses `min`/`max` (default `0..9`) for an explicit contiguous index window instead of `page`/`size`; the controller maps this range to `Pageable` via `RangePagination.pageable(min, max, 10, ...)`, while the response remains standard `Page<T>`.
 
 Response:
 - `Page<FlipGoodnessDto>`
@@ -263,9 +268,8 @@ Response:
 List market snapshots.
 
 Query params:
-- `page` (optional, default `0`)
-- `size` (optional, default `100`)
-- `sort` (optional, default `snapshotTimestampEpochMillis,desc`)
+- `min` (optional, default `0`)
+- `max` (optional, default `99`)
 
 Response:
 - `Page<MarketSnapshotDto>`
@@ -288,9 +292,8 @@ Path params:
 
 Query params:
 - `flipType` (optional enum)
-- `page` (optional, default `0`)
-- `size` (optional, default `50`)
-- `sort` (optional, default `id,asc`)
+- `min` (optional, default `0`)
+- `max` (optional, default `49`)
 
 Response:
 - `Page<UnifiedFlipDto>`
@@ -305,9 +308,8 @@ List items.
 
 Query params:
 - `itemId` (optional string filter)
-- `page` (optional, default `0`)
-- `size` (optional, default `100`)
-- `sort` (optional)
+- `min` (optional, default `0`)
+- `max` (optional, default `11`)
 
 Response:
 - `Page<ItemDto>`
@@ -328,9 +330,8 @@ List NPC buy offers.
 
 Query params:
 - `itemId` (optional string filter)
-- `page` (optional, default `0`)
-- `size` (optional, default `100`)
-- `sort` (optional)
+- `min` (optional, default `0`)
+- `max` (optional, default `99`)
 
 Response:
 - `Page<NpcShopOfferDto>`
@@ -355,9 +356,8 @@ List recipes.
 Query params:
 - `outputItemId` (optional string)
 - `processType` (optional): `CRAFT`, `FORGE`, `KATGRADE`
-- `page` (optional, default `0`)
-- `size` (optional, default `100`)
-- `sort` (optional, default `recipeId,asc`)
+- `min` (optional, default `0`)
+- `max` (optional, default `99`)
 
 Response:
 - `Page<RecipeDto>`

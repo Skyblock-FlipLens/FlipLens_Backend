@@ -6,8 +6,8 @@ import com.skyblockflipper.backend.service.flipping.RecipeReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
 
@@ -23,7 +23,7 @@ class RecipeControllerTest {
         RecipeReadService recipeReadService = mock(RecipeReadService.class);
         RecipeCostService recipeCostService = mock(RecipeCostService.class);
         RecipeController controller = new RecipeController(recipeReadService, recipeCostService);
-        Pageable pageable = PageRequest.of(0, 100);
+        Pageable pageable = RangePagination.pageable(0, 99, 100, Sort.by("recipeId").ascending());
         RecipeDto dto = new RecipeDto(
                 "ENCHANTED_HAY_BALE:craft:0",
                 "ENCHANTED_HAY_BALE",
@@ -35,7 +35,7 @@ class RecipeControllerTest {
 
         when(recipeReadService.listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, pageable)).thenReturn(expected);
 
-        Page<RecipeDto> response = controller.listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, pageable);
+        Page<RecipeDto> response = controller.listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, 0, 99);
 
         assertEquals(expected, response);
         verify(recipeReadService).listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, pageable);

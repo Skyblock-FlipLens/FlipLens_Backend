@@ -2,6 +2,7 @@ package com.skyblockflipper.backend.service.flipping;
 
 import com.skyblockflipper.backend.api.FlipCoverageDto;
 import com.skyblockflipper.backend.api.FlipGoodnessDto;
+import com.skyblockflipper.backend.api.OffsetLimitPageRequest;
 import com.skyblockflipper.backend.api.FlipSortBy;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
@@ -406,6 +407,38 @@ class FlipReadServiceTest {
         assertEquals(10, secondPage.getSize());
         assertEquals(1, secondPage.getNumber());
         assertEquals(2, secondPage.getContent().size());
+    }
+
+    @Test
+    void topGoodnessFlipsPreservesOffsetWhenNormalizingPageSize() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        List<Flip> flips = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            flips.add(mock(Flip.class));
+        }
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(flips));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+        for (int i = 0; i < flips.size(); i++) {
+            Flip flip = flips.get(i);
+            long profit = i + 1L;
+            UUID id = UUID.fromString(String.format("%08d-0000-0000-0000-000000000000", i + 1));
+            when(mapper.toDto(flip, context)).thenReturn(sampleGoodnessDto(id, 1.0D, profit, 50.0D, 50.0D, false));
+        }
+
+        Pageable requested = OffsetLimitPageRequest.of(25L, 50, Sort.by("id").ascending());
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, requested);
+
+        assertEquals(30, result.getTotalElements());
+        assertEquals(10, result.getSize());
+        assertEquals(25L, result.getPageable().getOffset());
+        assertEquals(5, result.getContent().size());
+        assertEquals(UUID.fromString("00000005-0000-0000-0000-000000000000"), result.getContent().getFirst().flip().id());
+        assertEquals(Sort.by("id").ascending(), result.getSort());
     }
 
     private UnifiedFlipDto sampleDto() {

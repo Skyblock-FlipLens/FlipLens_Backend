@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -64,8 +63,10 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @PageableDefault(size = 50, sort = "id") Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
         return flipReadService.listFlips(flipType, snapshotTimestamp, pageable);
     }
 
@@ -84,8 +85,13 @@ public class FlipController {
             @RequestParam(required = false) Boolean partial,
             @RequestParam(defaultValue = "EXPECTED_PROFIT") FlipSortBy sortBy,
             @RequestParam(defaultValue = "DESC") Sort.Direction sortDirection,
-            @PageableDefault(size = 50, sort = "id") Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        FlipSortBy effectiveSortBy = sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy;
+        Sort.Direction effectiveSortDirection = sortDirection == null ? Sort.Direction.DESC : sortDirection;
+        Sort requestedSort = Sort.by(effectiveSortDirection, effectiveSortBy.toFieldName());
+        Pageable pageable = RangePagination.pageable(min, max, 50, requestedSort);
         return flipReadService.filterFlips(
                 flipType,
                 snapshotTimestamp,
@@ -137,8 +143,11 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @PageableDefault(size = 50, sort = "id") Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        // Sorting is enforced in FlipReadService.topLiquidityFlips/filterFlips.
+        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.unsorted());
         return flipReadService.topLiquidityFlips(flipType, snapshotTimestamp, pageable);
     }
 
@@ -148,8 +157,10 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @PageableDefault(size = 50, sort = "id") Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
         return flipReadService.lowestRiskFlips(flipType, snapshotTimestamp, pageable);
     }
 
@@ -159,9 +170,11 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @RequestParam(defaultValue = "0") int page
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
-        return flipReadService.topGoodnessFlips(flipType, snapshotTimestamp, page);
+        Pageable pageable = RangePagination.pageable(min, max, 10, Sort.by("id").ascending());
+        return flipReadService.topGoodnessFlips(flipType, snapshotTimestamp, pageable);
     }
 
     @GetMapping("/{id}")

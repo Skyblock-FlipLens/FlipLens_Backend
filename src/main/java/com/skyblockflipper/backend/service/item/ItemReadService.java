@@ -116,7 +116,7 @@ public class ItemReadService {
         if (pageable == null || pageable.isUnpaged()) {
             return new PageImpl<>(new ArrayList<>(values));
         }
-        int fromIndex = (int) Math.min((long) pageable.getPageNumber() * pageable.getPageSize(), values.size());
+        int fromIndex = (int) Math.min(pageable.getOffset(), values.size());
         int toIndex = Math.min(fromIndex + pageable.getPageSize(), values.size());
         List<ItemDto> content = fromIndex >= toIndex ? List.of() : values.subList(fromIndex, toIndex);
         return new PageImpl<>(content, pageable, values.size());

@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableDefault;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,8 +32,10 @@ public class ItemController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String rarity,
             @RequestParam(required = false) MarketplaceType marketplace,
-            @PageableDefault(size = 12) Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 12, Sort.by("id").ascending());
         return itemReadService.listItems(itemId, search, category, rarity, marketplace, pageable);
     }
 
@@ -67,16 +69,20 @@ public class ItemController {
     @GetMapping("/{itemId}/flips")
     public Page<UnifiedFlipDto> itemFlips(
             @PathVariable String itemId,
-            @PageableDefault() Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 20, Sort.by("id").ascending());
         return itemAnalyticsService.listFlipsForItem(itemId, pageable);
     }
 
     @GetMapping("/npc-buyable")
     public Page<NpcShopOfferDto> listNpcBuyableItems(
             @RequestParam(required = false) String itemId,
-            @PageableDefault(size = 100) Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 100, Sort.by("itemId").ascending());
         return npcShopReadService.listNpcBuyableOffers(itemId, pageable);
     }
 }

@@ -6,7 +6,7 @@ import com.skyblockflipper.backend.service.flipping.RecipeReadService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableDefault;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,8 +26,10 @@ public class RecipeController {
     public Page<RecipeDto> listRecipes(
             @RequestParam(required = false) String outputItemId,
             @RequestParam(required = false) RecipeProcessType processType,
-            @PageableDefault(size = 100, sort = "recipeId") Pageable pageable
+            @RequestParam(required = false) Integer min,
+            @RequestParam(required = false) Integer max
     ) {
+        Pageable pageable = RangePagination.pageable(min, max, 100, Sort.by("recipeId").ascending());
         return recipeReadService.listRecipes(outputItemId, processType, pageable);
     }
 

@@ -6,8 +6,8 @@ import com.skyblockflipper.backend.service.market.MarketSnapshotReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,7 +25,7 @@ class SnapshotControllerTest {
         MarketSnapshotReadService snapshotReadService = mock(MarketSnapshotReadService.class);
         FlipReadService flipReadService = mock(FlipReadService.class);
         SnapshotController controller = new SnapshotController(snapshotReadService, flipReadService);
-        Pageable pageable = PageRequest.of(0, 100);
+        Pageable pageable = RangePagination.pageable(0, 99, 100, Sort.by(Sort.Direction.DESC, "snapshotTimestampEpochMillis"));
         MarketSnapshotDto dto = new MarketSnapshotDto(
                 UUID.randomUUID(),
                 Instant.parse("2026-02-18T21:00:00Z"),
@@ -37,7 +37,7 @@ class SnapshotControllerTest {
 
         when(snapshotReadService.listSnapshots(pageable)).thenReturn(expected);
 
-        Page<MarketSnapshotDto> response = controller.listSnapshots(pageable);
+        Page<MarketSnapshotDto> response = controller.listSnapshots(0, 99);
 
         assertEquals(expected, response);
         verify(snapshotReadService).listSnapshots(pageable);
@@ -48,7 +48,7 @@ class SnapshotControllerTest {
         MarketSnapshotReadService snapshotReadService = mock(MarketSnapshotReadService.class);
         FlipReadService flipReadService = mock(FlipReadService.class);
         SnapshotController controller = new SnapshotController(snapshotReadService, flipReadService);
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.by("id").ascending());
         long snapshotEpochMillis = Instant.parse("2026-02-18T21:00:00Z").toEpochMilli();
         UnifiedFlipDto dto = new UnifiedFlipDto(
                 UUID.randomUUID(),
@@ -74,7 +74,7 @@ class SnapshotControllerTest {
         when(flipReadService.listFlips(FlipType.CRAFTING, Instant.ofEpochMilli(snapshotEpochMillis), pageable))
                 .thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.listFlipsForSnapshot(snapshotEpochMillis, FlipType.CRAFTING, pageable);
+        Page<UnifiedFlipDto> response = controller.listFlipsForSnapshot(snapshotEpochMillis, FlipType.CRAFTING, 0, 49);
 
         assertEquals(expected, response);
         verify(flipReadService).listFlips(FlipType.CRAFTING, Instant.ofEpochMilli(snapshotEpochMillis), pageable);

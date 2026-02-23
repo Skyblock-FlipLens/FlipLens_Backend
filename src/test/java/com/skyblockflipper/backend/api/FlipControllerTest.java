@@ -5,7 +5,6 @@ import com.skyblockflipper.backend.service.flipping.FlipReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -27,13 +26,13 @@ class FlipControllerTest {
     void listFlipsDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.by("id").ascending());
         UnifiedFlipDto dto = sampleDto();
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
 
         when(service.listFlips(FlipType.FORGE, null, pageable)).thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, null, pageable);
+        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, null, 0, 49);
 
         assertEquals(expected, response);
         verify(service).listFlips(FlipType.FORGE, null, pageable);
@@ -43,14 +42,14 @@ class FlipControllerTest {
     void listFlipsWithSnapshotDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.by("id").ascending());
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
         UnifiedFlipDto dto = sampleDto();
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
 
         when(service.listFlips(FlipType.FORGE, snapshotTimestamp, pageable)).thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, snapshotTimestamp, pageable);
+        Page<UnifiedFlipDto> response = controller.listFlips(FlipType.FORGE, snapshotTimestamp, 0, 49);
 
         assertEquals(expected, response);
         verify(service).listFlips(FlipType.FORGE, snapshotTimestamp, pageable);
@@ -60,7 +59,12 @@ class FlipControllerTest {
     void filterFlipsDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = RangePagination.pageable(
+                10,
+                59,
+                50,
+                Sort.by(Sort.Direction.DESC, FlipSortBy.LIQUIDITY_SCORE.toFieldName())
+        );
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(sampleDto()), pageable, 1);
 
@@ -91,7 +95,8 @@ class FlipControllerTest {
                 false,
                 FlipSortBy.LIQUIDITY_SCORE,
                 Sort.Direction.DESC,
-                pageable
+                10,
+                59
         );
 
         assertEquals(expected, response);
@@ -115,13 +120,13 @@ class FlipControllerTest {
     void topLiquidityFlipsDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.unsorted());
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(sampleDto()), pageable, 1);
 
         when(service.topLiquidityFlips(FlipType.AUCTION, snapshotTimestamp, pageable)).thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.topLiquidityFlips(FlipType.AUCTION, snapshotTimestamp, pageable);
+        Page<UnifiedFlipDto> response = controller.topLiquidityFlips(FlipType.AUCTION, snapshotTimestamp, 0, 49);
 
         assertEquals(expected, response);
         verify(service).topLiquidityFlips(FlipType.AUCTION, snapshotTimestamp, pageable);
@@ -131,13 +136,13 @@ class FlipControllerTest {
     void lowestRiskFlipsDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = PageRequest.of(0, 50);
+        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.by("id").ascending());
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(sampleDto()), pageable, 1);
 
         when(service.lowestRiskFlips(FlipType.AUCTION, snapshotTimestamp, pageable)).thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.lowestRiskFlips(FlipType.AUCTION, snapshotTimestamp, pageable);
+        Page<UnifiedFlipDto> response = controller.lowestRiskFlips(FlipType.AUCTION, snapshotTimestamp, 0, 49);
 
         assertEquals(expected, response);
         verify(service).lowestRiskFlips(FlipType.AUCTION, snapshotTimestamp, pageable);
@@ -148,17 +153,18 @@ class FlipControllerTest {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
+        Pageable pageable = RangePagination.pageable(20, 29, 10, Sort.by("id").ascending());
         Page<FlipGoodnessDto> expected = new PageImpl<>(List.of(
                 new FlipGoodnessDto(sampleDto(), 87.3D,
                         new FlipGoodnessDto.GoodnessBreakdown(90D, 70D, 80D, 85D, false))
         ));
 
-        when(service.topGoodnessFlips(FlipType.BAZAAR, snapshotTimestamp, 2)).thenReturn(expected);
+        when(service.topGoodnessFlips(FlipType.BAZAAR, snapshotTimestamp, pageable)).thenReturn(expected);
 
-        Page<FlipGoodnessDto> response = controller.topGoodnessFlips(FlipType.BAZAAR, snapshotTimestamp, 2);
+        Page<FlipGoodnessDto> response = controller.topGoodnessFlips(FlipType.BAZAAR, snapshotTimestamp, 20, 29);
 
         assertEquals(expected, response);
-        verify(service).topGoodnessFlips(FlipType.BAZAAR, snapshotTimestamp, 2);
+        verify(service).topGoodnessFlips(FlipType.BAZAAR, snapshotTimestamp, pageable);
     }
 
     @Test

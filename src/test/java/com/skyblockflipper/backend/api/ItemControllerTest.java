@@ -1,13 +1,13 @@
 package com.skyblockflipper.backend.api;
 
-import com.skyblockflipper.backend.service.item.ItemReadService;
 import com.skyblockflipper.backend.service.item.ItemAnalyticsService;
+import com.skyblockflipper.backend.service.item.ItemReadService;
 import com.skyblockflipper.backend.service.item.NpcShopReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -28,13 +28,13 @@ class ItemControllerTest {
         ItemAnalyticsService itemAnalyticsService = mock(ItemAnalyticsService.class);
         NpcShopReadService npcShopReadService = mock(NpcShopReadService.class);
         ItemController controller = new ItemController(itemReadService, itemAnalyticsService, npcShopReadService);
-        Pageable pageable = PageRequest.of(0, 100);
+        Pageable pageable = RangePagination.pageable(0, 11, 12, Sort.by("id").ascending());
         ItemDto dto = new ItemDto("WHEAT", "Wheat", "minecraft:wheat", "COMMON", "FARMING", List.of());
         Page<ItemDto> expected = new PageImpl<>(List.of(dto), pageable, 1);
 
         when(itemReadService.listItems("WHEAT", null, null, null, null, pageable)).thenReturn(expected);
 
-        Page<ItemDto> response = controller.listItems("WHEAT", null, null, null, null, pageable);
+        Page<ItemDto> response = controller.listItems("WHEAT", null, null, null, null, 0, 11);
 
         assertEquals(expected, response);
         verify(itemReadService).listItems("WHEAT", null, null, null, null, pageable);
@@ -46,7 +46,7 @@ class ItemControllerTest {
         ItemAnalyticsService itemAnalyticsService = mock(ItemAnalyticsService.class);
         NpcShopReadService service = mock(NpcShopReadService.class);
         ItemController controller = new ItemController(itemReadService, itemAnalyticsService, service);
-        Pageable pageable = PageRequest.of(0, 100);
+        Pageable pageable = RangePagination.pageable(0, 99, 100, Sort.by("itemId").ascending());
         NpcShopOfferDto dto = new NpcShopOfferDto(
                 "FARM_MERCHANT_NPC",
                 "Farm Merchant",
@@ -60,7 +60,7 @@ class ItemControllerTest {
 
         when(service.listNpcBuyableOffers("WHEAT", pageable)).thenReturn(expected);
 
-        Page<NpcShopOfferDto> response = controller.listNpcBuyableItems("WHEAT", pageable);
+        Page<NpcShopOfferDto> response = controller.listNpcBuyableItems("WHEAT", 0, 99);
 
         assertEquals(expected, response);
         verify(service).listNpcBuyableOffers("WHEAT", pageable);
@@ -147,13 +147,13 @@ class ItemControllerTest {
         NpcShopReadService npcShopReadService = mock(NpcShopReadService.class);
         ItemController controller = new ItemController(itemReadService, itemAnalyticsService, npcShopReadService);
 
-        Pageable pageable = PageRequest.of(0, 10);
+        Pageable pageable = RangePagination.pageable(0, 9, 20, Sort.by("id").ascending());
         Page<UnifiedFlipDto> flips = new PageImpl<>(List.of(
                 new UnifiedFlipDto(null, null, List.of(), List.of(), null, null, null, null, null, null, 0.65D, 0.35D, Instant.parse("2026-02-21T00:00:00Z"), false, List.of(), List.of(), List.of())
-        ), PageRequest.of(0, 10), 1);
+        ), pageable, 1);
         when(itemAnalyticsService.listFlipsForItem("HYPERION", pageable)).thenReturn(flips);
 
-        assertEquals(flips, controller.itemFlips("HYPERION", pageable));
+        assertEquals(flips, controller.itemFlips("HYPERION", 0, 9));
         verify(itemAnalyticsService).listFlipsForItem("HYPERION", pageable);
     }
 }
