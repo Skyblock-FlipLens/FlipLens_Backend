@@ -63,7 +63,7 @@ class FlipControllerWebMvcTest {
         );
 
         Pageable expectedRequest = RangePagination.pageable(2, 3, 50, Sort.by("id").ascending());
-        Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(dto), expectedRequest, 1);
+        Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(dto), expectedRequest, 3);
         when(flipReadService.listFlips(eq(FlipType.FORGE), any(), any(Pageable.class))).thenReturn(resultPage);
 
         mockMvc.perform(get("/api/v1/flips")

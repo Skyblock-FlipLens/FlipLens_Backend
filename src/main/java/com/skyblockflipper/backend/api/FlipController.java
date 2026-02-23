@@ -88,7 +88,10 @@ public class FlipController {
             @RequestParam(required = false) Integer min,
             @RequestParam(required = false) Integer max
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
+        FlipSortBy effectiveSortBy = sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy;
+        Sort.Direction effectiveSortDirection = sortDirection == null ? Sort.Direction.DESC : sortDirection;
+        Sort requestedSort = Sort.by(effectiveSortDirection, effectiveSortBy.toFieldName());
+        Pageable pageable = RangePagination.pageable(min, max, 50, requestedSort);
         return flipReadService.filterFlips(
                 flipType,
                 snapshotTimestamp,
@@ -143,7 +146,8 @@ public class FlipController {
             @RequestParam(required = false) Integer min,
             @RequestParam(required = false) Integer max
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
+        // Sorting is enforced in FlipReadService.topLiquidityFlips/filterFlips.
+        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.unsorted());
         return flipReadService.topLiquidityFlips(flipType, snapshotTimestamp, pageable);
     }
 

@@ -244,6 +244,7 @@ Behavior:
 - Default window size: `10`
 - Sorted by computed `goodnessScore DESC`
 - Score combines profitability, ROI/h, liquidity, and inverse risk
+- Uses `min`/`max` (default `0..9`) for an explicit contiguous index window instead of `page`/`size`; the controller maps this range to `Pageable` via `RangePagination.pageable(min, max, 10, ...)`, while the response remains standard `Page<T>`.
 
 Response:
 - `Page<FlipGoodnessDto>`

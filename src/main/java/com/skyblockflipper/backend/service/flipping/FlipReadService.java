@@ -205,6 +205,16 @@ public class FlipReadService {
     }
 
     public Page<FlipGoodnessDto> topGoodnessFlips(FlipType flipType, Instant snapshotTimestamp, Pageable pageable) {
+        int pageNumber = 0;
+        Sort sort = Sort.unsorted();
+        if (pageable != null) {
+            sort = pageable.getSort() == null ? Sort.unsorted() : pageable.getSort();
+            if (!pageable.isUnpaged()) {
+                pageNumber = Math.max(0, pageable.getPageNumber());
+            }
+        }
+        Pageable fixedPageable = PageRequest.of(pageNumber, GOODNESS_PAGE_SIZE, sort);
+
         Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
         FlipCalculationContext context = snapshotEpochMillis == null
                 ? flipCalculationContextService.loadCurrentContext()
@@ -223,7 +233,7 @@ public class FlipReadService {
                         .thenComparing(entry -> entry.flip().id() == null ? "" : entry.flip().id().toString()))
                 .toList();
 
-        return paginateGoodness(ranked, pageable);
+        return paginateGoodness(ranked, fixedPageable);
     }
 
     public FlipTypesDto listSupportedFlipTypes() {

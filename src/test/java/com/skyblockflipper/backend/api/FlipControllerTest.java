@@ -59,7 +59,12 @@ class FlipControllerTest {
     void filterFlipsDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = RangePagination.pageable(10, 59, 50, Sort.by("id").ascending());
+        Pageable pageable = RangePagination.pageable(
+                10,
+                59,
+                50,
+                Sort.by(Sort.Direction.DESC, FlipSortBy.LIQUIDITY_SCORE.toFieldName())
+        );
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(sampleDto()), pageable, 1);
 
@@ -115,7 +120,7 @@ class FlipControllerTest {
     void topLiquidityFlipsDelegatesToService() {
         FlipReadService service = mock(FlipReadService.class);
         FlipController controller = new FlipController(service);
-        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.by("id").ascending());
+        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.unsorted());
         Instant snapshotTimestamp = Instant.parse("2026-02-18T21:00:00Z");
         Page<UnifiedFlipDto> expected = new PageImpl<>(List.of(sampleDto()), pageable, 1);
 
