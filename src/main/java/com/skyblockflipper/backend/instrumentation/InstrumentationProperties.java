@@ -8,6 +8,7 @@ import jakarta.annotation.PostConstruct;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 @Getter
 @ConfigurationProperties(prefix = "instrumentation")
@@ -54,6 +55,7 @@ public class InstrumentationProperties {
     public static class Admin {
         private boolean localOnly = true;
         private String token = "";
+        private List<String> allowedSubnets = List.of();
     }
 
     @Getter
