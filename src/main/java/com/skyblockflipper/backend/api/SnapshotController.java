@@ -25,10 +25,10 @@ public class SnapshotController {
 
     @GetMapping
     public Page<MarketSnapshotDto> listSnapshots(
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 100,
+        Pageable pageable = StandardPagination.pageable(page, size, 100,
                 Sort.by(Sort.Direction.DESC, "snapshotTimestampEpochMillis"));
         return marketSnapshotReadService.listSnapshots(pageable);
     }
@@ -37,10 +37,10 @@ public class SnapshotController {
     public Page<UnifiedFlipDto> listFlipsForSnapshot(
             @PathVariable long snapshotEpochMillis,
             @RequestParam(required = false) FlipType flipType,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 50, Sort.by("id").ascending());
         return flipReadService.listFlips(flipType, Instant.ofEpochMilli(snapshotEpochMillis), pageable);
     }
 }

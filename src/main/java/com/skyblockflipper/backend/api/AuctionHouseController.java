@@ -29,10 +29,10 @@ public class AuctionHouseController {
             @RequestParam(required = false) Integer minStars,
             @RequestParam(required = false) Integer maxStars,
             @RequestParam(required = false) String reforge,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 20, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 20, Sort.by("id").ascending());
         return auctionHouseReadService.listListings(
                 itemId,
                 sortBy,

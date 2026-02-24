@@ -32,10 +32,10 @@ public class ItemController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String rarity,
             @RequestParam(required = false) MarketplaceType marketplace,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 12, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 12, Sort.by("id").ascending());
         return itemReadService.listItems(itemId, search, category, rarity, marketplace, pageable);
     }
 
@@ -69,20 +69,20 @@ public class ItemController {
     @GetMapping("/{itemId}/flips")
     public Page<UnifiedFlipDto> itemFlips(
             @PathVariable String itemId,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 20, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 20, Sort.by("id").ascending());
         return itemAnalyticsService.listFlipsForItem(itemId, pageable);
     }
 
     @GetMapping("/npc-buyable")
     public Page<NpcShopOfferDto> listNpcBuyableItems(
             @RequestParam(required = false) String itemId,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 100, Sort.by("itemId").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 100, Sort.by("itemId").ascending());
         return npcShopReadService.listNpcBuyableOffers(itemId, pageable);
     }
 }

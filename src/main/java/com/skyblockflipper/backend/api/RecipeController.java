@@ -26,10 +26,10 @@ public class RecipeController {
     public Page<RecipeDto> listRecipes(
             @RequestParam(required = false) String outputItemId,
             @RequestParam(required = false) RecipeProcessType processType,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 100, Sort.by("recipeId").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 100, Sort.by("recipeId").ascending());
         return recipeReadService.listRecipes(outputItemId, processType, pageable);
     }
 
