@@ -62,14 +62,14 @@ class FlipControllerWebMvcTest {
                 List.of()
         );
 
-        Pageable expectedRequest = RangePagination.pageable(2, 3, 50, Sort.by("id").ascending());
+        Pageable expectedRequest = StandardPagination.pageable(0, 2, 50, Sort.by("id").ascending());
         Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(dto), expectedRequest, 3);
         when(flipReadService.listFlips(eq(FlipType.FORGE), any(), any(Pageable.class))).thenReturn(resultPage);
 
         mockMvc.perform(get("/api/v1/flips")
                         .param("flipType", "FORGE")
-                        .param("min", "2")
-                        .param("max", "3"))
+                        .param("page", "0")
+                        .param("size", "2"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -77,7 +77,7 @@ class FlipControllerWebMvcTest {
                 .andExpect(jsonPath("$.content[0].flipType").value("FORGE"))
                 .andExpect(jsonPath("$.content[0].inputItems[0].itemId").value("ENCHANTED_DIAMOND"))
                 .andExpect(jsonPath("$.content[0].outputItems[0].itemId").value("REFINED_DIAMOND"))
-                .andExpect(jsonPath("$.number").value(1))
+                .andExpect(jsonPath("$.number").value(0))
                 .andExpect(jsonPath("$.size").value(2))
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.totalPages").value(2));
@@ -91,7 +91,7 @@ class FlipControllerWebMvcTest {
         assertEquals(FlipType.FORGE, flipTypeCaptor.getValue());
         assertNull(snapshotTimestampCaptor.getValue());
         Pageable pageable = pageableCaptor.getValue();
-        assertEquals(2, pageable.getOffset());
+        assertEquals(0, pageable.getOffset());
         assertEquals(2, pageable.getPageSize());
         assertEquals(Sort.by("id").ascending(), pageable.getSort());
     }
@@ -209,7 +209,7 @@ class FlipControllerWebMvcTest {
                 List.of()
         );
 
-        Pageable expectedRequest = RangePagination.pageable(0, 4, 50, Sort.by("id").ascending());
+        Pageable expectedRequest = StandardPagination.pageable(0, 5, 50, Sort.by("id").ascending());
         Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(dto), expectedRequest, 1);
         when(flipReadService.filterFlips(
                 eq(FlipType.BAZAAR),
@@ -238,8 +238,8 @@ class FlipControllerWebMvcTest {
                         .param("partial", "false")
                         .param("sortBy", "LIQUIDITY_SCORE")
                         .param("sortDirection", "DESC")
-                        .param("min", "0")
-                        .param("max", "4"))
+                        .param("page", "0")
+                        .param("size", "5"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -265,13 +265,13 @@ class FlipControllerWebMvcTest {
 
     @Test
     void topLiquidityEndpointDelegatesToService() throws Exception {
-        Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(), RangePagination.pageable(0, 9, 50, Sort.by("id").ascending()), 0);
+        Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(), StandardPagination.pageable(0, 10, 50, Sort.by("id").ascending()), 0);
         when(flipReadService.topLiquidityFlips(eq(FlipType.AUCTION), any(), any(Pageable.class))).thenReturn(resultPage);
 
         mockMvc.perform(get("/api/v1/flips/top/liquidity")
                         .param("flipType", "AUCTION")
-                        .param("min", "0")
-                        .param("max", "9"))
+                        .param("page", "0")
+                        .param("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(0));
@@ -281,13 +281,13 @@ class FlipControllerWebMvcTest {
 
     @Test
     void lowRiskEndpointDelegatesToService() throws Exception {
-        Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(), RangePagination.pageable(0, 9, 50, Sort.by("id").ascending()), 0);
+        Page<UnifiedFlipDto> resultPage = new PageImpl<>(List.of(), StandardPagination.pageable(0, 10, 50, Sort.by("id").ascending()), 0);
         when(flipReadService.lowestRiskFlips(eq(FlipType.BAZAAR), any(), any(Pageable.class))).thenReturn(resultPage);
 
         mockMvc.perform(get("/api/v1/flips/top/low-risk")
                         .param("flipType", "BAZAAR")
-                        .param("min", "0")
-                        .param("max", "9"))
+                        .param("page", "0")
+                        .param("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(0));
@@ -321,7 +321,7 @@ class FlipControllerWebMvcTest {
                 84.42D,
                 new FlipGoodnessDto.GoodnessBreakdown(95.0D, 60.0D, 88.0D, 88.0D, false)
         );
-        Pageable expectedRequest = RangePagination.pageable(10, 19, 10, Sort.by("id").ascending());
+        Pageable expectedRequest = OffsetLimitPageRequest.of(26L, 20, Sort.by("id").ascending());
         Page<FlipGoodnessDto> resultPage = new PageImpl<>(List.of(ranked), expectedRequest, 11);
         when(flipReadService.topGoodnessFlips(eq(FlipType.BAZAAR), eq(Instant.parse("2026-02-19T20:00:00Z")), any(Pageable.class)))
                 .thenReturn(resultPage);
@@ -329,8 +329,7 @@ class FlipControllerWebMvcTest {
         mockMvc.perform(get("/api/v1/flips/top/best")
                         .param("flipType", "BAZAAR")
                         .param("snapshotTimestamp", "2026-02-19T20:00:00Z")
-                        .param("min", "10")
-                        .param("max", "19"))
+                        .param("getbypage", "1"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -338,10 +337,63 @@ class FlipControllerWebMvcTest {
                 .andExpect(jsonPath("$.content[0].flip.id").value("33333333-3333-3333-3333-333333333333"))
                 .andExpect(jsonPath("$.content[0].flip.flipType").value("BAZAAR"))
                 .andExpect(jsonPath("$.content[0].breakdown.partialPenaltyApplied").value(false))
-                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.number").value(1));
 
         verify(flipReadService, times(1))
                 .topGoodnessFlips(eq(FlipType.BAZAAR), eq(Instant.parse("2026-02-19T20:00:00Z")), any(Pageable.class));
+    }
+
+    @Test
+    void topGoodnessEndpointWithoutPageReturnsTopSix() throws Exception {
+        Page<FlipGoodnessDto> resultPage = new PageImpl<>(List.of());
+        when(flipReadService.topGoodnessFlips(eq(FlipType.BAZAAR), any(), any(Pageable.class))).thenReturn(resultPage);
+
+        mockMvc.perform(get("/api/v1/flips/top/best")
+                        .param("flipType", "BAZAAR"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(flipReadService).topGoodnessFlips(eq(FlipType.BAZAAR), any(), pageableCaptor.capture());
+        Pageable pageable = pageableCaptor.getValue();
+        assertEquals(0L, pageable.getOffset());
+        assertEquals(6, pageable.getPageSize());
+    }
+
+    @Test
+    void topGoodnessEndpointGetByPageOneUsesTwentySixToFortyFiveWindow() throws Exception {
+        Page<FlipGoodnessDto> resultPage = new PageImpl<>(List.of());
+        when(flipReadService.topGoodnessFlips(eq(FlipType.BAZAAR), any(), any(Pageable.class))).thenReturn(resultPage);
+
+        mockMvc.perform(get("/api/v1/flips/top/best")
+                        .param("flipType", "BAZAAR")
+                        .param("getbypage", "1"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(flipReadService, times(1)).topGoodnessFlips(eq(FlipType.BAZAAR), any(), pageableCaptor.capture());
+        Pageable pageable = pageableCaptor.getValue();
+        assertEquals(26L, pageable.getOffset());
+        assertEquals(20, pageable.getPageSize());
+    }
+
+    @Test
+    void topGoodnessEndpointGetByPageZeroUsesSixToTwentyFiveWindow() throws Exception {
+        Page<FlipGoodnessDto> resultPage = new PageImpl<>(List.of());
+        when(flipReadService.topGoodnessFlips(eq(FlipType.BAZAAR), any(), any(Pageable.class))).thenReturn(resultPage);
+
+        mockMvc.perform(get("/api/v1/flips/top/best")
+                        .param("flipType", "BAZAAR")
+                        .param("getbypage", "0"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(flipReadService, times(1)).topGoodnessFlips(eq(FlipType.BAZAAR), any(), pageableCaptor.capture());
+        Pageable pageable = pageableCaptor.getValue();
+        assertEquals(6L, pageable.getOffset());
+        assertEquals(20, pageable.getPageSize());
     }
 }

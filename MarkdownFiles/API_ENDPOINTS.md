@@ -10,7 +10,9 @@ This document is formatted as a public API reference (similar style to Hypixel d
 - Time format: ISO-8601 UTC (`2026-02-19T20:00:00Z`)
 - Snapshot path IDs use epoch milliseconds (`snapshotEpochMillis`)
 - Pagination follows Spring `Page<T>` response conventions:
-- Query: `min`, `max` (inclusive index range)
+- Query: `page`, `size`
+- `MAX_PAGE_SIZE = 1000` in `StandardPagination`
+- Requests with `size > 1000` are clamped to `1000` (no error)
 - Defaults are endpoint-specific and keep previous default window sizes
 - Response: `content`, `number`, `size`, `totalElements`, `totalPages`, `first`, `last`, `empty`
 
@@ -78,8 +80,8 @@ List flips (optionally filtered by `flipType` and snapshot).
 Query params:
 - `flipType` (optional): `AUCTION`, `BAZAAR`, `CRAFTING`, `FORGE`, `KATGRADE`, `FUSION`
 - `snapshotTimestamp` (optional, ISO-8601)
-- `min` (optional, default `0`)
-- `max` (optional, default `49`)
+- `page` (optional, default `0`)
+- `size` (optional, default `50`)
 
 Response:
 - `Page<UnifiedFlipDto>`
@@ -182,15 +184,15 @@ Query params:
 - `sortBy` (optional, default `EXPECTED_PROFIT`):
 - `EXPECTED_PROFIT`, `ROI`, `ROI_PER_HOUR`, `LIQUIDITY_SCORE`, `RISK_SCORE`, `REQUIRED_CAPITAL`, `FEES`, `DURATION_SECONDS`
 - `sortDirection` (optional, default `DESC`): `ASC` or `DESC`
-- `min` (optional, default `0`)
-- `max` (optional, default `49`)
+- `page` (optional, default `0`)
+- `size` (optional, default `50`)
 
 Response:
 - `Page<UnifiedFlipDto>`
 
 Example:
 
-`GET /api/v1/flips/filter?flipType=BAZAAR&minLiquidityScore=85&maxRiskScore=20&sortBy=LIQUIDITY_SCORE&sortDirection=DESC&min=0&max=24`
+`GET /api/v1/flips/filter?flipType=BAZAAR&minLiquidityScore=85&maxRiskScore=20&sortBy=LIQUIDITY_SCORE&sortDirection=DESC&page=0&size=25`
 
 ---
 
@@ -201,8 +203,8 @@ Convenience endpoint: best liquidity first.
 Query params:
 - `flipType` (optional enum)
 - `snapshotTimestamp` (optional ISO-8601)
-- `min` (optional, default `0`)
-- `max` (optional, default `49`)
+- `page` (optional, default `0`)
+- `size` (optional, default `50`)
 
 Behavior:
 - Internally sorts by `LIQUIDITY_SCORE DESC`
@@ -219,8 +221,8 @@ Convenience endpoint: lowest risk first.
 Query params:
 - `flipType` (optional enum)
 - `snapshotTimestamp` (optional ISO-8601)
-- `min` (optional, default `0`)
-- `max` (optional, default `49`)
+- `page` (optional, default `0`)
+- `size` (optional, default `50`)
 
 Behavior:
 - Internally sorts by `RISK_SCORE ASC`
@@ -237,14 +239,20 @@ Convenience endpoint: flips ranked by combined "goodness" score.
 Query params:
 - `flipType` (optional enum)
 - `snapshotTimestamp` (optional ISO-8601)
-- `min` (optional, default `0`)
-- `max` (optional, default `9`)
+- `getbypage` (optional int): paged state after top-6
 
 Behavior:
-- Default window size: `10`
+- This endpoint intentionally does not use standard `page`/`size`.
+- If no `getbypage` is provided, endpoint returns only the first `6` ranked flips (`0..5`).
+- `Page<FlipGoodnessDto>` metadata for this "featured 6" mode is:
+- `number=0`, `size=6`
+- `totalElements` is the full ranked dataset size (not capped to 6)
+- `totalPages` is computed from that full total and page size 6
 - Sorted by computed `goodnessScore DESC`
 - Score combines profitability, ROI/h, liquidity, and inverse risk
-- Uses `min`/`max` (default `0..9`) for an explicit contiguous index window instead of `page`/`size`; the controller maps this range to `Pageable` via `RangePagination.pageable(min, max, 10, ...)`, while the response remains standard `Page<T>`.
+- `getbypage` uses page size `20` starting at index `6`:
+- `getbypage=0` -> `6..25`
+- `getbypage=1` -> `26..45`
 
 Response:
 - `Page<FlipGoodnessDto>`
@@ -268,8 +276,8 @@ Response:
 List market snapshots.
 
 Query params:
-- `min` (optional, default `0`)
-- `max` (optional, default `99`)
+- `page` (optional, default `0`)
+- `size` (optional, default `100`)
 
 Response:
 - `Page<MarketSnapshotDto>`
@@ -292,8 +300,8 @@ Path params:
 
 Query params:
 - `flipType` (optional enum)
-- `min` (optional, default `0`)
-- `max` (optional, default `49`)
+- `page` (optional, default `0`)
+- `size` (optional, default `50`)
 
 Response:
 - `Page<UnifiedFlipDto>`
@@ -308,8 +316,8 @@ List items.
 
 Query params:
 - `itemId` (optional string filter)
-- `min` (optional, default `0`)
-- `max` (optional, default `11`)
+- `page` (optional, default `0`)
+- `size` (optional, default `12`)
 
 Response:
 - `Page<ItemDto>`
@@ -330,8 +338,8 @@ List NPC buy offers.
 
 Query params:
 - `itemId` (optional string filter)
-- `min` (optional, default `0`)
-- `max` (optional, default `99`)
+- `page` (optional, default `0`)
+- `size` (optional, default `100`)
 
 Response:
 - `Page<NpcShopOfferDto>`
@@ -356,8 +364,8 @@ List recipes.
 Query params:
 - `outputItemId` (optional string)
 - `processType` (optional): `CRAFT`, `FORGE`, `KATGRADE`
-- `min` (optional, default `0`)
-- `max` (optional, default `99`)
+- `page` (optional, default `0`)
+- `size` (optional, default `100`)
 
 Response:
 - `Page<RecipeDto>`

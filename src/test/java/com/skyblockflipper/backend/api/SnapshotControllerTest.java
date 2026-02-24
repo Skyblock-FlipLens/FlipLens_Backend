@@ -25,7 +25,7 @@ class SnapshotControllerTest {
         MarketSnapshotReadService snapshotReadService = mock(MarketSnapshotReadService.class);
         FlipReadService flipReadService = mock(FlipReadService.class);
         SnapshotController controller = new SnapshotController(snapshotReadService, flipReadService);
-        Pageable pageable = RangePagination.pageable(0, 99, 100, Sort.by(Sort.Direction.DESC, "snapshotTimestampEpochMillis"));
+        Pageable pageable = StandardPagination.pageable(0, 100, 100, Sort.by(Sort.Direction.DESC, "snapshotTimestampEpochMillis"));
         MarketSnapshotDto dto = new MarketSnapshotDto(
                 UUID.randomUUID(),
                 Instant.parse("2026-02-18T21:00:00Z"),
@@ -37,7 +37,7 @@ class SnapshotControllerTest {
 
         when(snapshotReadService.listSnapshots(pageable)).thenReturn(expected);
 
-        Page<MarketSnapshotDto> response = controller.listSnapshots(0, 99);
+        Page<MarketSnapshotDto> response = controller.listSnapshots(0, 100);
 
         assertEquals(expected, response);
         verify(snapshotReadService).listSnapshots(pageable);
@@ -48,7 +48,7 @@ class SnapshotControllerTest {
         MarketSnapshotReadService snapshotReadService = mock(MarketSnapshotReadService.class);
         FlipReadService flipReadService = mock(FlipReadService.class);
         SnapshotController controller = new SnapshotController(snapshotReadService, flipReadService);
-        Pageable pageable = RangePagination.pageable(0, 49, 50, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(0, 50, 50, Sort.by("id").ascending());
         long snapshotEpochMillis = Instant.parse("2026-02-18T21:00:00Z").toEpochMilli();
         UnifiedFlipDto dto = new UnifiedFlipDto(
                 UUID.randomUUID(),
@@ -74,7 +74,7 @@ class SnapshotControllerTest {
         when(flipReadService.listFlips(FlipType.CRAFTING, Instant.ofEpochMilli(snapshotEpochMillis), pageable))
                 .thenReturn(expected);
 
-        Page<UnifiedFlipDto> response = controller.listFlipsForSnapshot(snapshotEpochMillis, FlipType.CRAFTING, 0, 49);
+        Page<UnifiedFlipDto> response = controller.listFlipsForSnapshot(snapshotEpochMillis, FlipType.CRAFTING, 0, 50);
 
         assertEquals(expected, response);
         verify(flipReadService).listFlips(FlipType.CRAFTING, Instant.ofEpochMilli(snapshotEpochMillis), pageable);

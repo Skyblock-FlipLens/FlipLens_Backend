@@ -37,6 +37,7 @@ class MarketDataProcessingServiceTest {
                 "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
                 100L, false, List.of(), 120L, List.of()
         );
+        auction.setBin(true);
         AuctionResponse auctionResponse = new AuctionResponse(true, 0, 1, 1, 10_000L, List.of(auction));
         BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
         BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
@@ -82,6 +83,7 @@ class MarketDataProcessingServiceTest {
                 "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
                 100L, false, List.of(), 120L, List.of()
         );
+        auction.setBin(true);
         AuctionResponse auctionResponse = new AuctionResponse(true, 0, 1, 1, 10_000L, List.of(auction));
         BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
         BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());

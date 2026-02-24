@@ -22,6 +22,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FlipController {
 
+    private static final int TOP_BEST_FEATURED_COUNT = 6;
+    private static final int TOP_BEST_PAGED_START_OFFSET = 6;
+    private static final int TOP_BEST_PAGE_SIZE = 20;
+
     private final FlipReadService flipReadService;
 
     @GetMapping("/coverage")
@@ -63,10 +67,10 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 50, Sort.by("id").ascending());
         return flipReadService.listFlips(flipType, snapshotTimestamp, pageable);
     }
 
@@ -85,13 +89,13 @@ public class FlipController {
             @RequestParam(required = false) Boolean partial,
             @RequestParam(defaultValue = "EXPECTED_PROFIT") FlipSortBy sortBy,
             @RequestParam(defaultValue = "DESC") Sort.Direction sortDirection,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
         FlipSortBy effectiveSortBy = sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy;
         Sort.Direction effectiveSortDirection = sortDirection == null ? Sort.Direction.DESC : sortDirection;
         Sort requestedSort = Sort.by(effectiveSortDirection, effectiveSortBy.toFieldName());
-        Pageable pageable = RangePagination.pageable(min, max, 50, requestedSort);
+        Pageable pageable = StandardPagination.pageable(page, size, 50, requestedSort);
         return flipReadService.filterFlips(
                 flipType,
                 snapshotTimestamp,
@@ -143,11 +147,11 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
         // Sorting is enforced in FlipReadService.topLiquidityFlips/filterFlips.
-        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.unsorted());
+        Pageable pageable = StandardPagination.pageable(page, size, 50, Sort.unsorted());
         return flipReadService.topLiquidityFlips(flipType, snapshotTimestamp, pageable);
     }
 
@@ -157,10 +161,10 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 50, Sort.by("id").ascending());
+        Pageable pageable = StandardPagination.pageable(page, size, 50, Sort.by("id").ascending());
         return flipReadService.lowestRiskFlips(flipType, snapshotTimestamp, pageable);
     }
 
@@ -170,10 +174,16 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(name = "getbypage", required = false) Integer getbypage
     ) {
-        Pageable pageable = RangePagination.pageable(min, max, 10, Sort.by("id").ascending());
+        Pageable pageable;
+        if (getbypage != null) {
+            int safePage = Math.max(0, getbypage);
+            long offset = TOP_BEST_PAGED_START_OFFSET + (long) safePage * TOP_BEST_PAGE_SIZE;
+            pageable = OffsetLimitPageRequest.of(offset, TOP_BEST_PAGE_SIZE, Sort.by("id").ascending());
+        } else {
+            pageable = OffsetLimitPageRequest.of(0L, TOP_BEST_FEATURED_COUNT, Sort.by("id").ascending());
+        }
         return flipReadService.topGoodnessFlips(flipType, snapshotTimestamp, pageable);
     }
 

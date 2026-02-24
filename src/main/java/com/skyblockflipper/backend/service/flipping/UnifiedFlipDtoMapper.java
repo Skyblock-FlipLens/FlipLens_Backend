@@ -132,10 +132,6 @@ public class UnifiedFlipDtoMapper {
 
     private List<UnifiedFlipDto.ItemStackDto> mapOutputItems(Flip flip) {
         Map<String, Integer> itemCounts = new LinkedHashMap<>();
-        if (flip.getResultItemId() != null && !flip.getResultItemId().isBlank()) {
-            itemCounts.put(flip.getResultItemId(), 1);
-        }
-
         List<Step> steps = flip.getSteps();
         if (steps != null) {
             for (Step step : steps) {
@@ -147,6 +143,9 @@ public class UnifiedFlipDtoMapper {
                     itemCounts.merge(parsed.itemId(), parsed.amount(), Integer::sum);
                 }
             }
+        }
+        if (flip.getResultItemId() != null && !flip.getResultItemId().isBlank()) {
+            itemCounts.putIfAbsent(flip.getResultItemId(), 1);
         }
         return toItemStackList(itemCounts);
     }

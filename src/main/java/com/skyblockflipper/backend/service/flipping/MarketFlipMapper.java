@@ -82,12 +82,13 @@ public class MarketFlipMapper {
 
         String buyParams = buildParamsJson(itemId, "AUCTION", DEFAULT_STACK_AMOUNT, null);
         String sellParams = buildParamsJson(itemId, "AUCTION", DEFAULT_STACK_AMOUNT, DEFAULT_AUCTION_DURATION_HOURS);
+        long auctionSellDurationSeconds = DEFAULT_AUCTION_DURATION_HOURS * 3600L;
         return new Flip(
                 null,
                 FlipType.AUCTION,
                 List.of(
                         Step.forBuyMarketBased(DEFAULT_MARKET_STEP_SECONDS, buyParams),
-                        Step.forSellMarketBased(DEFAULT_MARKET_STEP_SECONDS, sellParams)
+                        Step.forSellMarketBased(auctionSellDurationSeconds, sellParams)
                 ),
                 itemId,
                 List.of()

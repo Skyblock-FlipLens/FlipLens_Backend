@@ -23,7 +23,7 @@ class RecipeControllerTest {
         RecipeReadService recipeReadService = mock(RecipeReadService.class);
         RecipeCostService recipeCostService = mock(RecipeCostService.class);
         RecipeController controller = new RecipeController(recipeReadService, recipeCostService);
-        Pageable pageable = RangePagination.pageable(0, 99, 100, Sort.by("recipeId").ascending());
+        Pageable pageable = StandardPagination.pageable(0, 100, 100, Sort.by("recipeId").ascending());
         RecipeDto dto = new RecipeDto(
                 "ENCHANTED_HAY_BALE:craft:0",
                 "ENCHANTED_HAY_BALE",
@@ -35,7 +35,7 @@ class RecipeControllerTest {
 
         when(recipeReadService.listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, pageable)).thenReturn(expected);
 
-        Page<RecipeDto> response = controller.listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, 0, 99);
+        Page<RecipeDto> response = controller.listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, 0, 100);
 
         assertEquals(expected, response);
         verify(recipeReadService).listRecipes("ENCHANTED_HAY_BALE", RecipeProcessType.CRAFT, pageable);

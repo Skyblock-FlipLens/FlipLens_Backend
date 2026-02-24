@@ -9,7 +9,9 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -75,10 +77,10 @@ class StoredFlipDtoMapperTest {
         assertEquals("INK_SACK:3", dto.inputItems().getFirst().itemId());
         assertEquals(5, dto.inputItems().getFirst().amount());
         assertEquals(2, dto.outputItems().size());
-        assertEquals("RESULT_ITEM", dto.outputItems().get(0).itemId());
-        assertEquals(1, dto.outputItems().get(0).amount());
-        assertEquals("ENCHANTED_INK_SACK", dto.outputItems().get(1).itemId());
-        assertEquals(2, dto.outputItems().get(1).amount());
+        Map<String, Integer> outputByItem = dto.outputItems().stream()
+                .collect(Collectors.toMap(UnifiedFlipDto.ItemStackDto::itemId, UnifiedFlipDto.ItemStackDto::amount, (left, right) -> right, java.util.LinkedHashMap::new));
+        assertEquals(1, outputByItem.get("RESULT_ITEM"));
+        assertEquals(2, outputByItem.get("ENCHANTED_INK_SACK"));
     }
 
     @Test
@@ -117,4 +119,3 @@ class StoredFlipDtoMapperTest {
         assertNull(mapper.toDto(new FlipCurrentEntity(), null));
     }
 }
-

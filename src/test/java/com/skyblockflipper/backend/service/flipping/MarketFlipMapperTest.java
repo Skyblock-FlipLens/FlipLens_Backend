@@ -41,6 +41,7 @@ class MarketFlipMapperTest {
 
         Flip auctionFlip = flips.stream().filter(flip -> flip.getFlipType() == FlipType.AUCTION).findFirst().orElseThrow();
         Step auctionSellStep = auctionFlip.getSteps().getLast();
+        assertEquals(43_200L, auctionSellStep.getBaseDurationSeconds());
         assertTrue(auctionSellStep.getParamsJson().contains("\"durationHours\":12"));
         assertTrue(auctionSellStep.getParamsJson().contains("\"market\":\"AUCTION\""));
     }

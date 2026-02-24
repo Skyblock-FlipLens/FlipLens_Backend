@@ -59,6 +59,9 @@ public class UnifiedFlipInputMapper {
             if (record == null || record.itemName() == null || record.itemName().isBlank()) {
                 continue;
             }
+            if (!record.bin()) {
+                continue;
+            }
             long observedPrice = record.highestBidAmount() > 0 ? record.highestBidAmount() : record.startingBid();
             byItem.computeIfAbsent(record.itemName(), ignored -> new AuctionAccumulator())
                     .accept(record.startingBid(), observedPrice);

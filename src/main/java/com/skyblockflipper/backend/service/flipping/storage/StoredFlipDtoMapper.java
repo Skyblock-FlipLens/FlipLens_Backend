@@ -164,9 +164,6 @@ public class StoredFlipDtoMapper {
 
     private List<UnifiedFlipDto.ItemStackDto> mapOutputItems(List<UnifiedFlipDto.StepDto> steps, String resultItemId) {
         Map<String, Integer> itemCounts = new LinkedHashMap<>();
-        if (resultItemId != null && !resultItemId.isBlank()) {
-            itemCounts.put(resultItemId, 1);
-        }
         for (UnifiedFlipDto.StepDto step : steps) {
             if (step == null || step.type() != StepType.SELL) {
                 continue;
@@ -175,6 +172,9 @@ public class StoredFlipDtoMapper {
             if (parsed != null) {
                 itemCounts.merge(parsed.itemId(), parsed.amount(), Integer::sum);
             }
+        }
+        if (resultItemId != null && !resultItemId.isBlank()) {
+            itemCounts.putIfAbsent(resultItemId, 1);
         }
         return toItemStackList(itemCounts);
     }
