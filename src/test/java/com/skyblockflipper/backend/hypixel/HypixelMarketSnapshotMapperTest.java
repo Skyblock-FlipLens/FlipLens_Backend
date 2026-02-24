@@ -28,6 +28,7 @@ class HypixelMarketSnapshotMapperTest {
                 "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
                 100L, false, java.util.List.of(), 120L, java.util.List.of()
         );
+        auction.setBin(true);
         AuctionResponse auctionResponse = new AuctionResponse(true, 0, 1, 1, 1_000L, Arrays.asList(auction, null));
 
         BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.5, 100, 90, 1000, 900, 4, 3);
@@ -43,6 +44,7 @@ class HypixelMarketSnapshotMapperTest {
         assertEquals(Instant.ofEpochMilli(2_000L), snapshot.snapshotTimestamp());
         assertEquals(1, snapshot.auctions().size());
         assertEquals("ENCHANTED_DIAMOND", snapshot.auctions().getFirst().itemName());
+        assertTrue(snapshot.auctions().getFirst().bin());
         assertEquals(1, snapshot.bazaarProducts().size());
 
         BazaarMarketRecord record = snapshot.bazaarProducts().get("ENCHANTED_DIAMOND");

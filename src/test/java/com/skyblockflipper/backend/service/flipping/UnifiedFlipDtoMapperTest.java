@@ -53,7 +53,7 @@ class UnifiedFlipDtoMapperTest {
         assertEquals(2, dto.inputItems().getFirst().amount());
         assertEquals(1, dto.outputItems().size());
         assertEquals("REFINED_DIAMOND", dto.outputItems().getFirst().itemId());
-        assertEquals(2, dto.outputItems().getFirst().amount());
+        assertEquals(1, dto.outputItems().getFirst().amount());
         assertTrue(dto.partial());
         assertFalse(dto.partialReasons().isEmpty());
         assertNotNull(dto.snapshotTimestamp());

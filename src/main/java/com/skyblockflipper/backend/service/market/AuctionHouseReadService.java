@@ -143,7 +143,7 @@ public class AuctionHouseReadService {
                         extractStars(auction.itemName()),
                         extractReforge(auction.itemName(), auction.itemLore()),
                         Instant.ofEpochMilli(auction.endTimestamp()),
-                        false
+                        auction.bin()
                 ))
                 .toList();
     }
@@ -161,7 +161,7 @@ public class AuctionHouseReadService {
                 extractStars(name),
                 extractReforge(name, auction.itemLore()),
                 Instant.ofEpochMilli(auction.endTimestamp()),
-                false,
+                auction.bin(),
                 estimatedValue,
                 0,
                 extractGemSlots(name, auction.itemLore())

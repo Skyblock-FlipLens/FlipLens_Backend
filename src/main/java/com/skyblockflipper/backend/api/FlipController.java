@@ -170,8 +170,8 @@ public class FlipController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             Instant snapshotTimestamp,
-            @RequestParam(required = false) Integer min,
-            @RequestParam(required = false) Integer max
+            @RequestParam(required = false, defaultValue = "0") Integer min,
+            @RequestParam(required = false, defaultValue = "5") Integer max
     ) {
         Pageable pageable = RangePagination.pageable(min, max, 10, Sort.by("id").ascending());
         return flipReadService.topGoodnessFlips(flipType, snapshotTimestamp, pageable);

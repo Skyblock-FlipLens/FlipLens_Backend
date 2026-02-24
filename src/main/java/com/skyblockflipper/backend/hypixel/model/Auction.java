@@ -9,7 +9,6 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @Data
-@AllArgsConstructor
 public class Auction {
     private String uuid;
     private String auctioneer;
@@ -28,11 +27,71 @@ public class Auction {
     @JsonProperty("starting_bid")
     private long startingBid;
     private boolean claimed;
+    @JsonProperty("bin")
+    private boolean bin;
     @JsonProperty("claimed_bidders")
     private List<String> claimedBidders;
     @JsonProperty("highest_bid_amount")
     private long highestBidAmount;
     private List<Bid> bids;
+
+    public Auction() {
+    }
+
+    public Auction(String uuid,
+                   String auctioneer,
+                   String profileId,
+                   List<String> coop,
+                   long start,
+                   long end,
+                   String itemName,
+                   String itemLore,
+                   String extra,
+                   String category,
+                   String tier,
+                   long startingBid,
+                   boolean claimed,
+                   List<String> claimedBidders,
+                   long highestBidAmount,
+                   List<Bid> bids) {
+        this(uuid, auctioneer, profileId, coop, start, end, itemName, itemLore, extra, category, tier, startingBid, claimed, false, claimedBidders, highestBidAmount, bids);
+    }
+
+    public Auction(String uuid,
+                   String auctioneer,
+                   String profileId,
+                   List<String> coop,
+                   long start,
+                   long end,
+                   String itemName,
+                   String itemLore,
+                   String extra,
+                   String category,
+                   String tier,
+                   long startingBid,
+                   boolean claimed,
+                   boolean bin,
+                   List<String> claimedBidders,
+                   long highestBidAmount,
+                   List<Bid> bids) {
+        this.uuid = uuid;
+        this.auctioneer = auctioneer;
+        this.profileId = profileId;
+        this.coop = coop;
+        this.start = start;
+        this.end = end;
+        this.itemName = itemName;
+        this.itemLore = itemLore;
+        this.extra = extra;
+        this.category = category;
+        this.tier = tier;
+        this.startingBid = startingBid;
+        this.claimed = claimed;
+        this.bin = bin;
+        this.claimedBidders = claimedBidders;
+        this.highestBidAmount = highestBidAmount;
+        this.bids = bids;
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @Data

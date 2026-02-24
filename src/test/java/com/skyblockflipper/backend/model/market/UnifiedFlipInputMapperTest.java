@@ -19,9 +19,10 @@ class UnifiedFlipInputMapperTest {
     void mapAggregatesAuctionAndBazaarQuotes() {
         Instant timestamp = Instant.parse("2026-02-15T12:30:00Z");
         List<AuctionMarketRecord> auctions = List.of(
-                new AuctionMarketRecord("a1", "ENCHANTED_DIAMOND", "misc", "RARE", 100L, 0L, 1L, 2L, false),
-                new AuctionMarketRecord("a2", "ENCHANTED_DIAMOND", "misc", "RARE", 80L, 120L, 1L, 2L, true),
-                new AuctionMarketRecord("a3", "HOT_POTATO_BOOK", "misc", "EPIC", 50L, 0L, 1L, 2L, false)
+                new AuctionMarketRecord("a1", "ENCHANTED_DIAMOND", "misc", "RARE", 100L, 0L, 1L, 2L, false, true),
+                new AuctionMarketRecord("a2", "ENCHANTED_DIAMOND", "misc", "RARE", 80L, 120L, 1L, 2L, true, true),
+                new AuctionMarketRecord("a3", "HOT_POTATO_BOOK", "misc", "EPIC", 50L, 0L, 1L, 2L, false, true),
+                new AuctionMarketRecord("a4", "ENCHANTED_DIAMOND", "misc", "RARE", 1L, 500L, 1L, 2L, false, false)
         );
         Map<String, BazaarMarketRecord> bazaar = Map.of(
                 "ENCHANTED_DIAMOND", new BazaarMarketRecord("ENCHANTED_DIAMOND", 10.0, 9.0, 100, 90, 1000, 900, 4, 3)
