@@ -244,6 +244,10 @@ Query params:
 Behavior:
 - This endpoint intentionally does not use standard `page`/`size`.
 - If no `getbypage` is provided, endpoint returns only the first `6` ranked flips (`0..5`).
+- `Page<FlipGoodnessDto>` metadata for this "featured 6" mode is:
+- `number=0`, `size=6`
+- `totalElements` is the full ranked dataset size (not capped to 6)
+- `totalPages` is computed from that full total and page size 6
 - Sorted by computed `goodnessScore DESC`
 - Score combines profitability, ROI/h, liquidity, and inverse risk
 - `getbypage` uses page size `20` starting at index `6`:
