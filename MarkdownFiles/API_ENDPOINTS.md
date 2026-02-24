@@ -11,6 +11,8 @@ This document is formatted as a public API reference (similar style to Hypixel d
 - Snapshot path IDs use epoch milliseconds (`snapshotEpochMillis`)
 - Pagination follows Spring `Page<T>` response conventions:
 - Query: `page`, `size`
+- `MAX_PAGE_SIZE = 1000` in `StandardPagination`
+- Requests with `size > 1000` are clamped to `1000` (no error)
 - Defaults are endpoint-specific and keep previous default window sizes
 - Response: `content`, `number`, `size`, `totalElements`, `totalPages`, `first`, `last`, `empty`
 
@@ -240,6 +242,7 @@ Query params:
 - `getbypage` (optional int): paged state after top-6
 
 Behavior:
+- This endpoint intentionally does not use standard `page`/`size`.
 - If no `getbypage` is provided, endpoint returns only the first `6` ranked flips (`0..5`).
 - Sorted by computed `goodnessScore DESC`
 - Score combines profitability, ROI/h, liquidity, and inverse risk
