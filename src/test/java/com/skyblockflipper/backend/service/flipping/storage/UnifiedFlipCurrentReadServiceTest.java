@@ -131,6 +131,7 @@ class UnifiedFlipCurrentReadServiceTest {
         assertEquals(1, result.size());
         assertEquals(current.getStableFlipId(), result.getFirst().id());
         assertEquals(1_250_000L, result.getFirst().expectedProfit());
+        assertEquals(2.5D, result.getFirst().roiPerHour());
         assertTrue(result.getFirst().steps().isEmpty());
     }
 
@@ -315,6 +316,47 @@ class UnifiedFlipCurrentReadServiceTest {
         assertEquals(1L, result.getTotalElements());
         assertEquals(1, result.getContent().size());
         assertEquals(stableId, result.getContent().getFirst().id());
+    }
+
+    @Test
+    void listCurrentFilteredPageThrowsWhenMapperReturnsNull() {
+        FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
+        StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
+        UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
+                currentRepository,
+                dtoMapper
+        );
+
+        UUID stableId = UUID.fromString("67676767-7878-8989-9090-a1a1a1a1a1a1");
+        FlipCurrentEntity current = current("key-filter-null", FlipType.BAZAAR, stableId.toString());
+        FlipDefinitionEntity definition = definition("key-filter-null", FlipType.BAZAAR, stableId);
+        Pageable pageable = PageRequest.of(0, 1);
+
+        Page<FlipCurrentRepository.CurrentDefinitionProjection> page = new PageImpl<>(
+                List.of(currentDefinitionProjection(current, definition)),
+                pageable,
+                1L
+        );
+        when(currentRepository.findFilteredWithDefinition(
+                FlipType.BAZAAR, 50.0D, 40.0D, 100_000L, 0.1D, 0.2D, 2_000_000L, Boolean.FALSE, pageable
+        )).thenReturn(page);
+        when(dtoMapper.toDto(current, definition)).thenReturn(null);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.listCurrentFilteredPage(
+                        FlipType.BAZAAR,
+                        50.0D,
+                        40.0D,
+                        100_000L,
+                        0.1D,
+                        0.2D,
+                        2_000_000L,
+                        Boolean.FALSE,
+                        pageable
+                )
+        );
+        assertTrue(exception.getMessage().contains("StoredFlipDtoMapper returned null"));
     }
 
     private FlipCurrentEntity current(String key, FlipType flipType, String stableId) {

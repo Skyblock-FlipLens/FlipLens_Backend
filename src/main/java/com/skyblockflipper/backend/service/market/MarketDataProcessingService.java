@@ -240,7 +240,8 @@ public class MarketDataProcessingService {
 
     public Optional<MarketSnapshot> marketSnapshotAsOfSecondsAgo(long secondsAgo) {
         long boundedSecondsAgo = Math.max(0L, secondsAgo);
-        return marketSnapshotPersistenceService.asOf(java.time.Instant.now().minusSeconds(boundedSecondsAgo));
+        long nowMillis = nowSupplier.getAsLong();
+        return marketSnapshotPersistenceService.asOf(java.time.Instant.ofEpochMilli(nowMillis).minusSeconds(boundedSecondsAgo));
     }
 
     public MarketSnapshotPersistenceService.SnapshotCompactionResult compactSnapshots() {
@@ -290,8 +291,14 @@ public class MarketDataProcessingService {
                     cachedAuctionResponse = fetched;
                     if (advanced) {
                         lastAuctionLastUpdated = fetchedLastUpdated;
+                        auctionCurrentIntervalMillis = auctionBaseIntervalMillis;
+                    } else {
+                        auctionCurrentIntervalMillis = growInterval(
+                                auctionCurrentIntervalMillis,
+                                auctionBaseIntervalMillis,
+                                auctionMaxIntervalMillis
+                        );
                     }
-                    auctionCurrentIntervalMillis = auctionBaseIntervalMillis;
                 } else {
                     auctionCurrentIntervalMillis = growInterval(
                             auctionCurrentIntervalMillis,
@@ -341,8 +348,14 @@ public class MarketDataProcessingService {
                     cachedBazaarResponse = fetched;
                     if (advanced) {
                         lastBazaarLastUpdated = fetchedLastUpdated;
+                        bazaarCurrentIntervalMillis = bazaarBaseIntervalMillis;
+                    } else {
+                        bazaarCurrentIntervalMillis = growInterval(
+                                bazaarCurrentIntervalMillis,
+                                bazaarBaseIntervalMillis,
+                                bazaarMaxIntervalMillis
+                        );
                     }
-                    bazaarCurrentIntervalMillis = bazaarBaseIntervalMillis;
                 } else {
                     bazaarCurrentIntervalMillis = growInterval(
                             bazaarCurrentIntervalMillis,

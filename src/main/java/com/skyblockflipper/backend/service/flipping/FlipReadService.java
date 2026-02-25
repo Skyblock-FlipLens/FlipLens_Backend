@@ -915,17 +915,23 @@ public class FlipReadService {
             return cached.ranking();
         }
 
-        List<FlipGoodnessDto> computed = computer.get();
         synchronized (goodnessCacheLock) {
+            long nowInsideLock = System.currentTimeMillis();
+            CachedGoodnessRanking rechecked = goodnessRankingCache.get(cacheKey);
+            if (rechecked != null && (nowInsideLock - rechecked.createdAtEpochMillis()) <= GOODNESS_CACHE_TTL_MILLIS) {
+                return rechecked.ranking();
+            }
+
+            List<FlipGoodnessDto> computed = computer.get();
             goodnessRankingCache.put(cacheKey, new CachedGoodnessRanking(
                     computed,
                     computed.size(),
                     Math.max(1, computed.size()),
-                    now
+                    nowInsideLock
             ));
             trimGoodnessRankingCacheLocked();
+            return computed;
         }
-        return computed;
     }
 
     private CachedGoodnessRanking cachedBoundedGoodnessRanking(FlipType flipType,
@@ -956,18 +962,26 @@ public class FlipReadService {
             return cached;
         }
 
-        CachedGoodnessRanking computed = computer.get();
-        CachedGoodnessRanking withTimestamp = new CachedGoodnessRanking(
-                computed.ranking(),
-                computed.totalRanked(),
-                computed.maxEntries(),
-                now
-        );
         synchronized (goodnessCacheLock) {
+            long nowInsideLock = System.currentTimeMillis();
+            CachedGoodnessRanking rechecked = goodnessRankingCache.get(cacheKey);
+            if (rechecked != null
+                    && (nowInsideLock - rechecked.createdAtEpochMillis()) <= GOODNESS_CACHE_TTL_MILLIS
+                    && rechecked.maxEntries() >= requiredEntries) {
+                return rechecked;
+            }
+
+            CachedGoodnessRanking computed = computer.get();
+            CachedGoodnessRanking withTimestamp = new CachedGoodnessRanking(
+                    computed.ranking(),
+                    computed.totalRanked(),
+                    computed.maxEntries(),
+                    nowInsideLock
+            );
             goodnessRankingCache.put(cacheKey, withTimestamp);
             trimGoodnessRankingCacheLocked();
+            return withTimestamp;
         }
-        return withTimestamp;
     }
 
     private List<FlipGoodnessDto> computeGoodnessRanking(FlipType flipType, Long snapshotEpochMillis) {
