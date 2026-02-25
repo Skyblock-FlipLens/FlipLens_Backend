@@ -14,10 +14,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
       FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE:-false}
       SERVER_PORT: ${SERVER_PORT:-1880}
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=10 -XX:MaxRAMPercentage=75}"
     ports:
       - "${SERVER_PORT:-1880}:${SERVER_PORT:-1880}"
-    mem_limit: 8g
-    memswap_limit: 10g
+    mem_limit: 12g
+    memswap_limit: 14g
     networks:
       - app_net
       - db_net
