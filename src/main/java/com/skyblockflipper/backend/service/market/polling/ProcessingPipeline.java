@@ -82,15 +82,20 @@ public class ProcessingPipeline<T> implements AutoCloseable {
             long lagMillis = Math.max(0L, System.currentTimeMillis() - envelope.enqueuedAtMillis);
             meterRegistry.summary("skyblock.adaptive.processing_lag_ms", "endpoint", endpoint).record(lagMillis);
             long startedAt = System.nanoTime();
+            boolean success = false;
             try {
                 processor.accept(envelope.payload);
-                meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", endpoint).increment();
+                success = true;
             } catch (RuntimeException e) {
-                meterRegistry.counter("skyblock.adaptive.processing_error", "endpoint", endpoint).increment();
                 log.warn("Processing failed for endpoint {}: {}", endpoint, e.getMessage());
             } finally {
                 long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
                 meterRegistry.summary("skyblock.adaptive.processing_duration_ms", "endpoint", endpoint).record(tookMillis);
+                if (success) {
+                    meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", endpoint).increment();
+                } else {
+                    meterRegistry.counter("skyblock.adaptive.processing_error", "endpoint", endpoint).increment();
+                }
             }
         }
     }
