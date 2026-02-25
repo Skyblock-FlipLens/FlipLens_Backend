@@ -176,6 +176,9 @@ After parity checks pass:
 5. deprecate legacy `flip` snapshot-heavy reads
 6. eventually drop legacy tables in a later migration
 
+Detailed execution and rollback checklist:
+- `MarkdownFiles/LEGACY_DECOMMISSION_RUNBOOK.md`
+
 ### Operational Cutover Flags
 
 Recommended runtime sequence:
