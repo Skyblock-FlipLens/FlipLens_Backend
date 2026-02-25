@@ -681,6 +681,145 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void filterFlipsCurrentStorageHydratesPagedRowsOnly() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        UUID highId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        UUID lowId = UUID.fromString("89898989-8989-8989-8989-898989898989");
+        UnifiedFlipDto highScore = sampleGoodnessDto(highId, 3.0D, 3_000_000L, 80.0D, 10.0D, false);
+        UnifiedFlipDto lowScore = sampleGoodnessDto(lowId, 1.0D, 1_000_000L, 75.0D, 15.0D, false);
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(null)).thenReturn(List.of(lowScore, highScore));
+
+        UnifiedFlipDto hydratedHigh = new UnifiedFlipDto(
+                highId,
+                FlipType.BAZAAR,
+                List.of(new UnifiedFlipDto.ItemStackDto("RAW_FISH", 16)),
+                List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_RAW_FISH", 1)),
+                highScore.requiredCapital(),
+                highScore.expectedProfit(),
+                highScore.roi(),
+                highScore.roiPerHour(),
+                highScore.durationSeconds(),
+                highScore.fees(),
+                highScore.liquidityScore(),
+                highScore.riskScore(),
+                highScore.snapshotTimestamp(),
+                highScore.partial(),
+                highScore.partialReasons(),
+                List.of(),
+                List.of()
+        );
+        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(highId)))
+                .thenReturn(List.of(hydratedHigh));
+
+        Page<UnifiedFlipDto> result = service.filterFlips(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                FlipSortBy.EXPECTED_PROFIT,
+                Sort.Direction.DESC,
+                PageRequest.of(0, 1)
+        );
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(1, result.getContent().size());
+        assertEquals(highId, result.getContent().getFirst().id());
+        assertEquals("ENCHANTED_RAW_FISH", result.getContent().getFirst().outputItems().getFirst().itemId());
+        verify(unifiedFlipCurrentReadService).listCurrentScoringDtos(null);
+        verify(unifiedFlipCurrentReadService).listCurrentByStableFlipIds(List.of(highId));
+        verifyNoInteractions(flipRepository);
+    }
+
+    @Test
+    void topFlipsCurrentStorageHydratesLimitedRowsOnly() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        UUID firstId = UUID.fromString("8a8a8a8a-8a8a-8a8a-8a8a-8a8a8a8a8a8a");
+        UUID secondId = UUID.fromString("8b8b8b8b-8b8b-8b8b-8b8b-8b8b8b8b8b8b");
+        UnifiedFlipDto firstScore = sampleGoodnessDto(firstId, 3.0D, 3_000_000L, 80.0D, 10.0D, false);
+        UnifiedFlipDto secondScore = sampleGoodnessDto(secondId, 2.0D, 2_000_000L, 70.0D, 15.0D, false);
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(FlipType.BAZAAR)).thenReturn(List.of(secondScore, firstScore));
+
+        UnifiedFlipDto hydratedFirst = new UnifiedFlipDto(
+                firstId,
+                FlipType.BAZAAR,
+                List.of(new UnifiedFlipDto.ItemStackDto("GOLD_INGOT", 64)),
+                List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_GOLD", 1)),
+                firstScore.requiredCapital(),
+                firstScore.expectedProfit(),
+                firstScore.roi(),
+                firstScore.roiPerHour(),
+                firstScore.durationSeconds(),
+                firstScore.fees(),
+                firstScore.liquidityScore(),
+                firstScore.riskScore(),
+                firstScore.snapshotTimestamp(),
+                firstScore.partial(),
+                firstScore.partialReasons(),
+                List.of(),
+                List.of()
+        );
+        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(firstId)))
+                .thenReturn(List.of(hydratedFirst));
+
+        List<UnifiedFlipDto> result = service.topFlips(
+                FlipType.BAZAAR,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                1
+        );
+
+        assertEquals(1, result.size());
+        assertEquals(firstId, result.getFirst().id());
+        assertEquals("ENCHANTED_GOLD", result.getFirst().outputItems().getFirst().itemId());
+        verify(unifiedFlipCurrentReadService).listCurrentScoringDtos(FlipType.BAZAAR);
+        verify(unifiedFlipCurrentReadService).listCurrentByStableFlipIds(List.of(firstId));
+        verifyNoInteractions(flipRepository);
+    }
+
+    @Test
     void filterFlipsExcludesMissingInputPriceEntries() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

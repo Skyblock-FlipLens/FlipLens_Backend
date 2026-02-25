@@ -154,6 +154,22 @@ public class FlipReadService {
                                             FlipSortBy sortBy,
                                             Sort.Direction sortDirection,
                                             Pageable pageable) {
+        if (useCurrentStorage(snapshotTimestamp)) {
+            List<UnifiedFlipDto> ranked = applyFiltersAndSort(
+                    unifiedFlipCurrentReadService.listCurrentScoringDtos(flipType),
+                    minLiquidityScore,
+                    maxRiskScore,
+                    minExpectedProfit,
+                    minRoi,
+                    minRoiPerHour,
+                    maxRequiredCapital,
+                    partial,
+                    sortBy,
+                    sortDirection
+            );
+            return hydrateCurrentUnifiedPage(paginateUnified(ranked, pageable));
+        }
+
         List<UnifiedFlipDto> mapped = filterFlipsAsList(
                 flipType,
                 snapshotTimestamp,
@@ -181,6 +197,21 @@ public class FlipReadService {
                                          Boolean partial,
                                          int limit) {
         int safeLimit = Math.max(1, limit);
+        if (useCurrentStorage(snapshotTimestamp)) {
+            List<UnifiedFlipDto> ranked = applyFiltersAndSort(
+                    unifiedFlipCurrentReadService.listCurrentScoringDtos(flipType),
+                    minLiquidityScore,
+                    maxRiskScore,
+                    minExpectedProfit,
+                    minRoi,
+                    minRoiPerHour,
+                    maxRequiredCapital,
+                    partial,
+                    FlipSortBy.EXPECTED_PROFIT,
+                    Sort.Direction.DESC
+            );
+            return hydrateCurrentUnifiedList(ranked.stream().limit(safeLimit).toList());
+        }
         return filterFlipsAsList(
                 flipType,
                 snapshotTimestamp,
@@ -749,6 +780,46 @@ public class FlipReadService {
                 .filter(this::isActionableFlip)
                 .sorted(Comparator.comparing(dto -> dto.id() == null ? "" : dto.id().toString()))
                 .toList();
+    }
+
+    private Page<UnifiedFlipDto> hydrateCurrentUnifiedPage(Page<UnifiedFlipDto> paged) {
+        if (paged == null || paged.isEmpty()) {
+            return paged == null ? Page.empty() : paged;
+        }
+        List<UnifiedFlipDto> hydrated = hydrateCurrentUnifiedList(paged.getContent());
+        return new PageImpl<>(hydrated, paged.getPageable(), paged.getTotalElements());
+    }
+
+    private List<UnifiedFlipDto> hydrateCurrentUnifiedList(List<UnifiedFlipDto> ranked) {
+        if (ranked == null || ranked.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> orderedIds = ranked.stream()
+                .map(UnifiedFlipDto::id)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (orderedIds.isEmpty()) {
+            return ranked;
+        }
+
+        Map<UUID, UnifiedFlipDto> fullById = new LinkedHashMap<>();
+        for (UnifiedFlipDto full : unifiedFlipCurrentReadService.listCurrentByStableFlipIds(orderedIds)) {
+            if (full != null && full.id() != null) {
+                fullById.put(full.id(), full);
+            }
+        }
+
+        List<UnifiedFlipDto> hydrated = new ArrayList<>(ranked.size());
+        for (UnifiedFlipDto entry : ranked) {
+            if (entry == null || entry.id() == null) {
+                continue;
+            }
+            UnifiedFlipDto full = fullById.get(entry.id());
+            hydrated.add(full == null ? entry : full);
+        }
+        return List.copyOf(hydrated);
     }
 
     private Pageable normalizeCurrentStoragePageable(Pageable pageable) {
