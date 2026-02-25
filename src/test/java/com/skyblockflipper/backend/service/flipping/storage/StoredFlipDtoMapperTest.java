@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.model.flippingstorage.FlipCurrentEntity;
 import com.skyblockflipper.backend.model.flippingstorage.FlipDefinitionEntity;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.util.List;
@@ -117,5 +118,51 @@ class StoredFlipDtoMapperTest {
         StoredFlipDtoMapper mapper = new StoredFlipDtoMapper(new ObjectMapper());
         assertNull(mapper.toDto(null, new FlipDefinitionEntity()));
         assertNull(mapper.toDto(new FlipCurrentEntity(), null));
+    }
+
+    @Test
+    void toDtoReusesParsedStepParamsAcrossRepeatedSteps() {
+        CountingObjectMapper objectMapper = new CountingObjectMapper();
+        StoredFlipDtoMapper mapper = new StoredFlipDtoMapper(objectMapper);
+        FlipCurrentEntity current = new FlipCurrentEntity();
+        current.setFlipKey("key-3");
+        current.setStableFlipId(UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc"));
+        current.setFlipType(FlipType.BAZAAR);
+        current.setSnapshotTimestampEpochMillis(Instant.parse("2026-02-20T12:00:00Z").toEpochMilli());
+        current.setPartial(false);
+        current.setPartialReasonsJson("[]");
+
+        FlipDefinitionEntity definition = new FlipDefinitionEntity();
+        definition.setFlipKey("key-3");
+        definition.setStableFlipId(current.getStableFlipId());
+        definition.setFlipType(FlipType.BAZAAR);
+        definition.setResultItemId("OUT");
+        definition.setStepsJson("""
+                [
+                  {"type":"BUY","durationType":"MARKET_BASED","baseDurationSeconds":30,"durationFactor":null,"resource":"NONE","resourceUnits":0,"schedulingPolicy":"BEST_EFFORT","paramsJson":"{\\"itemId\\":\\"INK_SACK:3\\",\\"amount\\":2}"},
+                  {"type":"BUY","durationType":"MARKET_BASED","baseDurationSeconds":30,"durationFactor":null,"resource":"NONE","resourceUnits":0,"schedulingPolicy":"BEST_EFFORT","paramsJson":"{\\"itemId\\":\\"INK_SACK:3\\",\\"amount\\":2}"},
+                  {"type":"SELL","durationType":"MARKET_BASED","baseDurationSeconds":30,"durationFactor":null,"resource":"NONE","resourceUnits":0,"schedulingPolicy":"BEST_EFFORT","paramsJson":"{\\"itemId\\":\\"ENCHANTED_INK_SACK\\",\\"amount\\":1}"},
+                  {"type":"SELL","durationType":"MARKET_BASED","baseDurationSeconds":30,"durationFactor":null,"resource":"NONE","resourceUnits":0,"schedulingPolicy":"BEST_EFFORT","paramsJson":"{\\"itemId\\":\\"ENCHANTED_INK_SACK\\",\\"amount\\":1}"}
+                ]
+                """);
+        definition.setConstraintsJson("[]");
+
+        mapper.toDto(current, definition);
+
+        assertEquals(5, objectMapper.readTreeCallCount());
+    }
+
+    private static final class CountingObjectMapper extends ObjectMapper {
+        private int readTreeCallCount = 0;
+
+        @Override
+        public JsonNode readTree(String content) {
+            readTreeCallCount++;
+            return super.readTree(content);
+        }
+
+        private int readTreeCallCount() {
+            return readTreeCallCount;
+        }
     }
 }

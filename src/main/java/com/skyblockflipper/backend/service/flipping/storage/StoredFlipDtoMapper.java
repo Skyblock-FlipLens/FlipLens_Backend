@@ -19,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @Component
 public class StoredFlipDtoMapper {
@@ -36,8 +37,9 @@ public class StoredFlipDtoMapper {
 
         List<UnifiedFlipDto.StepDto> steps = parseSteps(definition.getStepsJson());
         List<UnifiedFlipDto.ConstraintDto> constraints = parseConstraints(definition.getConstraintsJson());
-        List<UnifiedFlipDto.ItemStackDto> inputItems = mapInputItems(steps);
-        List<UnifiedFlipDto.ItemStackDto> outputItems = mapOutputItems(steps, definition.getResultItemId());
+        Map<String, Optional<ParsedItemStack>> parsedItemCache = new LinkedHashMap<>();
+        List<UnifiedFlipDto.ItemStackDto> inputItems = mapInputItems(steps, parsedItemCache);
+        List<UnifiedFlipDto.ItemStackDto> outputItems = mapOutputItems(steps, definition.getResultItemId(), parsedItemCache);
         List<String> partialReasons = parsePartialReasonsJson(current.getPartialReasonsJson());
 
         return new UnifiedFlipDto(
@@ -148,13 +150,14 @@ public class StoredFlipDtoMapper {
         }
     }
 
-    private List<UnifiedFlipDto.ItemStackDto> mapInputItems(List<UnifiedFlipDto.StepDto> steps) {
+    private List<UnifiedFlipDto.ItemStackDto> mapInputItems(List<UnifiedFlipDto.StepDto> steps,
+                                                            Map<String, Optional<ParsedItemStack>> parsedItemCache) {
         Map<String, Integer> itemCounts = new LinkedHashMap<>();
         for (UnifiedFlipDto.StepDto step : steps) {
             if (step == null || step.type() != StepType.BUY) {
                 continue;
             }
-            ParsedItemStack parsed = parseItemStack(step.paramsJson());
+            ParsedItemStack parsed = parseItemStack(step.paramsJson(), parsedItemCache);
             if (parsed != null) {
                 itemCounts.merge(parsed.itemId(), parsed.amount(), Integer::sum);
             }
@@ -162,13 +165,15 @@ public class StoredFlipDtoMapper {
         return toItemStackList(itemCounts);
     }
 
-    private List<UnifiedFlipDto.ItemStackDto> mapOutputItems(List<UnifiedFlipDto.StepDto> steps, String resultItemId) {
+    private List<UnifiedFlipDto.ItemStackDto> mapOutputItems(List<UnifiedFlipDto.StepDto> steps,
+                                                             String resultItemId,
+                                                             Map<String, Optional<ParsedItemStack>> parsedItemCache) {
         Map<String, Integer> itemCounts = new LinkedHashMap<>();
         for (UnifiedFlipDto.StepDto step : steps) {
             if (step == null || step.type() != StepType.SELL) {
                 continue;
             }
-            ParsedItemStack parsed = parseItemStack(step.paramsJson());
+            ParsedItemStack parsed = parseItemStack(step.paramsJson(), parsedItemCache);
             if (parsed != null) {
                 itemCounts.merge(parsed.itemId(), parsed.amount(), Integer::sum);
             }
@@ -179,10 +184,21 @@ public class StoredFlipDtoMapper {
         return toItemStackList(itemCounts);
     }
 
-    private ParsedItemStack parseItemStack(String paramsJson) {
+    private ParsedItemStack parseItemStack(String paramsJson,
+                                           Map<String, Optional<ParsedItemStack>> parsedItemCache) {
         if (paramsJson == null || paramsJson.isBlank()) {
             return null;
         }
+        Optional<ParsedItemStack> cached = parsedItemCache.get(paramsJson);
+        if (cached != null) {
+            return cached.orElse(null);
+        }
+        ParsedItemStack parsed = parseItemStackUncached(paramsJson);
+        parsedItemCache.put(paramsJson, Optional.ofNullable(parsed));
+        return parsed;
+    }
+
+    private ParsedItemStack parseItemStackUncached(String paramsJson) {
         try {
             JsonNode node = objectMapper.readTree(paramsJson);
             String itemId = node.path("itemId").asString("");
