@@ -65,7 +65,8 @@ public class HypixelClient {
             throw new IllegalStateException("Failed to fetch auctions page 0 from Hypixel API.");
         }
 
-        List<Auction> allAuctions = new ArrayList<>();
+        int expectedSize = Math.max(0, firstPage.getTotalAuctions());
+        List<Auction> allAuctions = new ArrayList<>(expectedSize);
         if (firstPage.getAuctions() != null) {
             allAuctions.addAll(firstPage.getAuctions());
         }

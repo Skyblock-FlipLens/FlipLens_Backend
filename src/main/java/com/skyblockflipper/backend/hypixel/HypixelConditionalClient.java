@@ -49,7 +49,8 @@ public class HypixelConditionalClient {
         if (firstPage == null || !firstPage.isSuccess()) {
             return HypixelHttpResult.error(500, HttpHeaders.EMPTY, "Invalid first auctions page");
         }
-        List<Auction> allAuctions = new ArrayList<>();
+        int expectedSize = Math.max(0, firstPage.getTotalAuctions());
+        List<Auction> allAuctions = new ArrayList<>(expectedSize);
         if (firstPage.getAuctions() != null) {
             allAuctions.addAll(firstPage.getAuctions());
         }
