@@ -844,6 +844,63 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void summaryStatsCurrentStorageUsesScoringDtosWithoutDefinitionHydration() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        UnifiedFlipDto first = sampleGoodnessDto(
+                UUID.fromString("86868686-8686-8686-8686-868686868686"),
+                1.0D,
+                2_000_000L,
+                70.0D,
+                20.0D,
+                false
+        );
+        UnifiedFlipDto second = sampleGoodnessDto(
+                UUID.fromString("87878787-8787-8787-8787-878787878787"),
+                0.5D,
+                500_000L,
+                60.0D,
+                25.0D,
+                false
+        );
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(FlipType.BAZAAR)).thenReturn(List.of(first, second));
+
+        EnumMap<FlipType, Long> counts = new EnumMap<>(FlipType.class);
+        for (FlipType type : FlipType.values()) {
+            counts.put(type, 0L);
+        }
+        counts.put(FlipType.BAZAAR, 2L);
+        when(unifiedFlipCurrentReadService.countsByType()).thenReturn(counts);
+
+        FlipSummaryStatsDto result = service.summaryStats(FlipType.BAZAAR, null);
+
+        assertEquals(2L, result.totalActiveFlips());
+        assertEquals(1_250_000L, result.avgProfit());
+        assertEquals(0.5D, result.avgRoi());
+        assertEquals(2_000_000L, result.bestFlipProfit());
+        assertEquals(1, result.byType().size());
+        assertEquals(2L, result.byType().get(FlipType.BAZAAR.name()));
+        verify(unifiedFlipCurrentReadService).listCurrentScoringDtos(FlipType.BAZAAR);
+        verify(unifiedFlipCurrentReadService, never()).listCurrent(FlipType.BAZAAR);
+        verifyNoInteractions(flipRepository);
+    }
+
+    @Test
     void summaryStatsOnDemandComputesSnapshotOnceAndLocallyFiltersByType() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

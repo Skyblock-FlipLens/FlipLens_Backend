@@ -198,7 +198,7 @@ public class FlipReadService {
 
     public FlipSummaryStatsDto summaryStats(FlipType flipType, Instant snapshotTimestamp) {
         if (useCurrentStorage(snapshotTimestamp)) {
-            List<UnifiedFlipDto> mapped = unifiedFlipCurrentReadService.listCurrent(flipType);
+            List<UnifiedFlipDto> mapped = unifiedFlipCurrentReadService.listCurrentScoringDtos(flipType);
             long avgProfit = Math.round(mapped.stream()
                     .map(UnifiedFlipDto::expectedProfit)
                     .filter(value -> value != null && value > 0)
