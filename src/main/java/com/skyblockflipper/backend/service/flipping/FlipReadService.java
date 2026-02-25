@@ -36,6 +36,7 @@ public class FlipReadService {
     private static final int GOODNESS_PAGE_SIZE = 10;
     private static final int GOODNESS_CACHE_MAX_ENTRIES = 8;
     private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
+    private static final int LEGACY_READ_PAGE_SIZE = 500;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
     private static final String INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_INPUT_DEPTH";
     private static final String MISSING_OUTPUT_PRICE_REASON_PREFIX = "MISSING_OUTPUT_PRICE";
@@ -211,6 +212,20 @@ public class FlipReadService {
                     Sort.Direction.DESC
             );
             return hydrateCurrentUnifiedList(ranked.stream().limit(safeLimit).toList());
+        }
+        if (!useOnDemandSnapshot(snapshotTimestamp)) {
+            return topLegacyFlips(
+                    flipType,
+                    snapshotTimestamp,
+                    minLiquidityScore,
+                    maxRiskScore,
+                    minExpectedProfit,
+                    minRoi,
+                    minRoiPerHour,
+                    maxRequiredCapital,
+                    partial,
+                    safeLimit
+            );
         }
         return filterFlipsAsList(
                 flipType,
@@ -887,23 +902,106 @@ public class FlipReadService {
                                                      Sort.Direction sortDirection) {
         return (source == null ? List.<UnifiedFlipDto>of() : source).stream()
                 .filter(Objects::nonNull)
-                .filter(this::isActionableFlip)
-                .filter(dto -> minLiquidityScore == null
-                        || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
-                .filter(dto -> maxRiskScore == null
-                        || (dto.riskScore() != null && dto.riskScore() <= maxRiskScore))
-                .filter(dto -> minExpectedProfit == null
-                        || (dto.expectedProfit() != null && dto.expectedProfit() >= minExpectedProfit))
-                .filter(dto -> minRoi == null
-                        || (dto.roi() != null && dto.roi() >= minRoi))
-                .filter(dto -> minRoiPerHour == null
-                        || (dto.roiPerHour() != null && dto.roiPerHour() >= minRoiPerHour))
-                .filter(dto -> maxRequiredCapital == null
-                        || (dto.requiredCapital() != null && dto.requiredCapital() <= maxRequiredCapital))
-                .filter(dto -> partial == null || dto.partial() == partial)
+                .filter(dto -> matchesFilters(
+                        dto,
+                        minLiquidityScore,
+                        maxRiskScore,
+                        minExpectedProfit,
+                        minRoi,
+                        minRoiPerHour,
+                        maxRequiredCapital,
+                        partial
+                ))
                 .sorted(comparatorFor(sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
                         sortDirection == null ? Sort.Direction.DESC : sortDirection))
                 .toList();
+    }
+
+    private List<UnifiedFlipDto> topLegacyFlips(FlipType flipType,
+                                                Instant snapshotTimestamp,
+                                                Double minLiquidityScore,
+                                                Double maxRiskScore,
+                                                Long minExpectedProfit,
+                                                Double minRoi,
+                                                Double minRoiPerHour,
+                                                Long maxRequiredCapital,
+                                                Boolean partial,
+                                                int limit) {
+        Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
+        FlipCalculationContext context = snapshotEpochMillis == null
+                ? flipCalculationContextService.loadCurrentContext()
+                : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
+
+        Comparator<UnifiedFlipDto> rankingOrder = comparatorFor(FlipSortBy.EXPECTED_PROFIT, Sort.Direction.DESC);
+        PriorityQueue<UnifiedFlipDto> top = new PriorityQueue<>(limit, rankingOrder.reversed());
+
+        Page<Flip> page = queryFlips(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
+        while (true) {
+            for (Flip flip : page.getContent()) {
+                UnifiedFlipDto dto = unifiedFlipDtoMapper.toDto(flip, context);
+                if (!matchesFilters(
+                        dto,
+                        minLiquidityScore,
+                        maxRiskScore,
+                        minExpectedProfit,
+                        minRoi,
+                        minRoiPerHour,
+                        maxRequiredCapital,
+                        partial
+                )) {
+                    continue;
+                }
+                if (top.size() < limit) {
+                    top.offer(dto);
+                    continue;
+                }
+                UnifiedFlipDto worstTopEntry = top.peek();
+                if (worstTopEntry != null && rankingOrder.compare(dto, worstTopEntry) < 0) {
+                    top.poll();
+                    top.offer(dto);
+                }
+            }
+            if (!page.hasNext()) {
+                break;
+            }
+            page = queryFlips(flipType, snapshotEpochMillis, page.nextPageable());
+        }
+
+        List<UnifiedFlipDto> result = new ArrayList<>(top);
+        result.sort(rankingOrder);
+        return List.copyOf(result);
+    }
+
+    private boolean matchesFilters(UnifiedFlipDto dto,
+                                   Double minLiquidityScore,
+                                   Double maxRiskScore,
+                                   Long minExpectedProfit,
+                                   Double minRoi,
+                                   Double minRoiPerHour,
+                                   Long maxRequiredCapital,
+                                   Boolean partial) {
+        if (dto == null || !isActionableFlip(dto)) {
+            return false;
+        }
+        if (minLiquidityScore != null && (dto.liquidityScore() == null || dto.liquidityScore() < minLiquidityScore)) {
+            return false;
+        }
+        if (maxRiskScore != null && (dto.riskScore() == null || dto.riskScore() > maxRiskScore)) {
+            return false;
+        }
+        if (minExpectedProfit != null && (dto.expectedProfit() == null || dto.expectedProfit() < minExpectedProfit)) {
+            return false;
+        }
+        if (minRoi != null && (dto.roi() == null || dto.roi() < minRoi)) {
+            return false;
+        }
+        if (minRoiPerHour != null && (dto.roiPerHour() == null || dto.roiPerHour() < minRoiPerHour)) {
+            return false;
+        }
+        if (maxRequiredCapital != null && (dto.requiredCapital() == null || dto.requiredCapital() > maxRequiredCapital)) {
+            return false;
+        }
+        return partial == null || dto.partial() == partial;
     }
 
     private List<FlipGoodnessDto> rankByGoodness(List<UnifiedFlipDto> source) {

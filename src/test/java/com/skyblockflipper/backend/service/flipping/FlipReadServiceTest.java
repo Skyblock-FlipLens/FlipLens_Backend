@@ -829,6 +829,63 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topFlipsLegacyUsesPagedSelectionAndKeepsTopN() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip firstPageLow = mock(Flip.class);
+        Flip firstPageHigh = mock(Flip.class);
+        Flip secondPageMid = mock(Flip.class);
+        UUID lowId = UUID.fromString("8c8c8c8c-8c8c-8c8c-8c8c-8c8c8c8c8c8c");
+        UUID highId = UUID.fromString("8d8d8d8d-8d8d-8d8d-8d8d-8d8d8d8d8d8d");
+        UUID midId = UUID.fromString("8e8e8e8e-8e8e-8e8e-8e8e-8e8e8e8e8e8e");
+        when(firstPageLow.getId()).thenReturn(lowId);
+        when(firstPageHigh.getId()).thenReturn(highId);
+        when(secondPageMid.getId()).thenReturn(midId);
+
+        Pageable firstPage = PageRequest.of(0, 500);
+        Pageable secondPage = PageRequest.of(1, 500);
+        when(flipRepository.findAllIds(firstPage)).thenReturn(new PageImpl<>(List.of(lowId, highId), firstPage, 501));
+        when(flipRepository.findAllByIdInWithDetails(List.of(lowId, highId))).thenReturn(List.of(firstPageLow, firstPageHigh));
+        when(flipRepository.findAllIds(secondPage)).thenReturn(new PageImpl<>(List.of(midId), secondPage, 501));
+        when(flipRepository.findAllByIdInWithDetails(List.of(midId))).thenReturn(List.of(secondPageMid));
+
+        when(contextService.loadCurrentContext()).thenReturn(context);
+        when(mapper.toDto(firstPageLow, context)).thenReturn(sampleGoodnessDto(
+                lowId, 1.0D, 100_000L, 70.0D, 20.0D, false
+        ));
+        when(mapper.toDto(firstPageHigh, context)).thenReturn(sampleGoodnessDto(
+                highId, 1.0D, 900_000L, 70.0D, 20.0D, false
+        ));
+        when(mapper.toDto(secondPageMid, context)).thenReturn(sampleGoodnessDto(
+                midId, 1.0D, 500_000L, 70.0D, 20.0D, false
+        ));
+
+        List<UnifiedFlipDto> result = service.topFlips(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                2
+        );
+
+        assertEquals(2, result.size());
+        assertEquals(highId, result.get(0).id());
+        assertEquals(midId, result.get(1).id());
+        verify(flipRepository).findAllIds(firstPage);
+        verify(flipRepository).findAllIds(secondPage);
+        verify(flipRepository, never()).findAll(Pageable.unpaged());
+    }
+
+    @Test
     void filterFlipsExcludesMissingInputPriceEntries() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
