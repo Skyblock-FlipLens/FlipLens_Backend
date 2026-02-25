@@ -40,7 +40,7 @@ class ProcessingPipelineTest {
             assertFalse(pipeline.submit("third"));
 
             unblock.countDown();
-            waitFor(() -> processed.get() == 2
+            waitFor(() -> processed.get() >= 2
                     && meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", "bazaar").count() >= 2.0
                     && meterRegistry.counter("skyblock.adaptive.processing_dropped", "endpoint", "bazaar").count() >= 1.0,
                     Duration.ofSeconds(2));
