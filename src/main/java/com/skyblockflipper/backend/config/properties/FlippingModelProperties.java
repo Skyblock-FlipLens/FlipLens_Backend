@@ -9,6 +9,11 @@ public class FlippingModelProperties {
     private boolean selltimeModelEnabled = false;
     private boolean scoringV2Enabled = false;
     private boolean electionPenaltySoftened = true;
+    private boolean recommendationGatesEnabled = false;
+    private double minRecommendationLiquidityScore = 15D;
+    private long minRecommendationExpectedProfit = 0L;
+    private double minConfidenceScore = 25D;
+    private boolean outlierProtectionEnabled = true;
 
     public boolean isAuctionModelV2Enabled() {
         return auctionModelV2Enabled;
@@ -40,5 +45,45 @@ public class FlippingModelProperties {
 
     public void setElectionPenaltySoftened(boolean electionPenaltySoftened) {
         this.electionPenaltySoftened = electionPenaltySoftened;
+    }
+
+    public boolean isRecommendationGatesEnabled() {
+        return recommendationGatesEnabled;
+    }
+
+    public void setRecommendationGatesEnabled(boolean recommendationGatesEnabled) {
+        this.recommendationGatesEnabled = recommendationGatesEnabled;
+    }
+
+    public double getMinRecommendationLiquidityScore() {
+        return minRecommendationLiquidityScore;
+    }
+
+    public void setMinRecommendationLiquidityScore(double minRecommendationLiquidityScore) {
+        this.minRecommendationLiquidityScore = minRecommendationLiquidityScore;
+    }
+
+    public long getMinRecommendationExpectedProfit() {
+        return minRecommendationExpectedProfit;
+    }
+
+    public void setMinRecommendationExpectedProfit(long minRecommendationExpectedProfit) {
+        this.minRecommendationExpectedProfit = minRecommendationExpectedProfit;
+    }
+
+    public double getMinConfidenceScore() {
+        return minConfidenceScore;
+    }
+
+    public void setMinConfidenceScore(double minConfidenceScore) {
+        this.minConfidenceScore = minConfidenceScore;
+    }
+
+    public boolean isOutlierProtectionEnabled() {
+        return outlierProtectionEnabled;
+    }
+
+    public void setOutlierProtectionEnabled(boolean outlierProtectionEnabled) {
+        this.outlierProtectionEnabled = outlierProtectionEnabled;
     }
 }

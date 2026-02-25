@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.api.OffsetLimitPageRequest;
 import com.skyblockflipper.backend.api.FlipSortBy;
 import com.skyblockflipper.backend.api.FlipSummaryStatsDto;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.config.properties.FlippingModelProperties;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.repository.FlipRepository;
@@ -552,6 +553,128 @@ class FlipReadServiceTest {
 
         assertEquals(1, result.getTotalElements());
         assertEquals(UUID.fromString("70707070-7070-7070-7070-707070707070"), result.getContent().getFirst().id());
+    }
+
+    @Test
+    void filterFlipsExcludesInsufficientInputDepthEntries() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip shallowInputFlip = mock(Flip.class);
+        Flip actionable = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(shallowInputFlip, actionable)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(shallowInputFlip, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("71717171-7171-7171-7171-717171717171"),
+                25.0D, 25_000_000L, 85.0D, 15.0D, true, List.of("INSUFFICIENT_INPUT_DEPTH:DEPTH_ITEM")
+        ));
+        when(mapper.toDto(actionable, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("72727272-7272-7272-7272-727272727272"),
+                2.0D, 1_500_000L, 70.0D, 25.0D, false, List.of()
+        ));
+
+        Page<UnifiedFlipDto> result = service.filterFlips(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                FlipSortBy.EXPECTED_PROFIT,
+                Sort.Direction.DESC,
+                PageRequest.of(0, 10)
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(UUID.fromString("72727272-7272-7272-7272-727272727272"), result.getContent().getFirst().id());
+    }
+
+    @Test
+    void topGoodnessFlipsScoringV2DemotesLowConfidenceOutlier() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlippingModelProperties properties = new FlippingModelProperties();
+        properties.setScoringV2Enabled(true);
+        properties.setRecommendationGatesEnabled(false);
+        FlipReadService service = new FlipReadService(
+                flipRepository, mapper, contextService, null, null, null, properties
+        );
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip lowConfidenceOutlier = mock(Flip.class);
+        Flip stable = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(lowConfidenceOutlier, stable)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(lowConfidenceOutlier, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("73737373-7373-7373-7373-737373737373"),
+                60.0D, 8_000_000L, 30.0D, 50.0D, true, List.of("INSUFFICIENT_OUTPUT_DEPTH:ITEM")
+        ));
+        when(mapper.toDto(stable, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("74747474-7474-7474-7474-747474747474"),
+                0.5D, 1_200_000L, 80.0D, 20.0D, false, List.of()
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(UUID.fromString("74747474-7474-7474-7474-747474747474"), result.getContent().getFirst().flip().id());
+    }
+
+    @Test
+    void recommendationGatesExcludeLowConfidenceFlips() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlippingModelProperties properties = new FlippingModelProperties();
+        properties.setRecommendationGatesEnabled(true);
+        properties.setMinRecommendationExpectedProfit(500_000L);
+        properties.setMinRecommendationLiquidityScore(50D);
+        properties.setMinConfidenceScore(70D);
+        FlipReadService service = new FlipReadService(
+                flipRepository, mapper, contextService, null, null, null, properties
+        );
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip lowConfidence = mock(Flip.class);
+        Flip good = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(lowConfidence, good)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(lowConfidence, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("75757575-7575-7575-7575-757575757575"),
+                2.0D, 2_000_000L, 70.0D, 25.0D, true, List.of("INSUFFICIENT_OUTPUT_DEPTH:ITEM")
+        ));
+        when(mapper.toDto(good, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("76767676-7676-7676-7676-767676767676"),
+                2.0D, 2_000_000L, 70.0D, 25.0D, false, List.of()
+        ));
+
+        Page<UnifiedFlipDto> result = service.filterFlips(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                FlipSortBy.EXPECTED_PROFIT,
+                Sort.Direction.DESC,
+                PageRequest.of(0, 10)
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(UUID.fromString("76767676-7676-7676-7676-767676767676"), result.getContent().getFirst().id());
     }
 
     @Test

@@ -32,6 +32,10 @@ public class FlipReadService {
 
     private static final int GOODNESS_PAGE_SIZE = 10;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
+    private static final String INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_INPUT_DEPTH";
+    private static final String MISSING_OUTPUT_PRICE_REASON_PREFIX = "MISSING_OUTPUT_PRICE";
+    private static final String INSUFFICIENT_OUTPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_OUTPUT_DEPTH";
+    private static final String AMBIGUOUS_INPUT_SOURCE_REASON_PREFIX = "AMBIGUOUS_INPUT_MARKET_SOURCE";
     private static final String MISSING_ELECTION_DATA_REASON = "MISSING_ELECTION_DATA";
     private static final List<FlipType> COVERED_FLIP_TYPES = List.of(
             FlipType.AUCTION,
@@ -737,13 +741,22 @@ public class FlipReadService {
         double profitScore = profitScore(dto.expectedProfit());
         double liquidityScore = clamp(nullableDouble(dto.liquidityScore()), 0D, 100D);
         double inverseRiskScore = 100D - clamp(nullableDouble(dto.riskScore()), 0D, 100D);
+        double confidenceScore = confidenceScore(dto);
         boolean partialPenaltyApplied = shouldApplyPartialPenalty(dto);
 
-        double weighted = (0.35D * roiPerHourScore)
-                + (0.25D * profitScore)
-                + (0.25D * liquidityScore)
-                + (0.15D * inverseRiskScore);
-        if (partialPenaltyApplied) {
+        double weighted;
+        if (flippingModelProperties.isScoringV2Enabled()) {
+            weighted = (0.45D * roiPerHourScore)
+                    + (0.25D * liquidityScore)
+                    + (0.15D * inverseRiskScore)
+                    + (0.15D * confidenceScore);
+        } else {
+            weighted = (0.35D * roiPerHourScore)
+                    + (0.25D * profitScore)
+                    + (0.25D * liquidityScore)
+                    + (0.15D * inverseRiskScore);
+        }
+        if (partialPenaltyApplied && !flippingModelProperties.isScoringV2Enabled()) {
             weighted -= 10D;
         }
         double score = clamp(weighted, 0D, 100D);
@@ -787,15 +800,87 @@ public class FlipReadService {
             return false;
         }
         List<String> partialReasons = dto.partialReasons();
-        if (partialReasons == null || partialReasons.isEmpty()) {
-            return true;
-        }
-        for (String reason : partialReasons) {
-            if (reason != null && reason.startsWith(MISSING_INPUT_PRICE_REASON_PREFIX)) {
-                return false;
+        if (partialReasons != null && !partialReasons.isEmpty()) {
+            for (String reason : partialReasons) {
+                if (reason != null
+                        && (reason.startsWith(MISSING_INPUT_PRICE_REASON_PREFIX)
+                        || reason.startsWith(INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX))) {
+                    return false;
+                }
             }
         }
-        return true;
+        if (!flippingModelProperties.isRecommendationGatesEnabled()) {
+            return true;
+        }
+        long minExpectedProfit = Math.max(0L, flippingModelProperties.getMinRecommendationExpectedProfit());
+        if (dto.expectedProfit() == null || dto.expectedProfit() <= minExpectedProfit) {
+            return false;
+        }
+        double minLiquidity = Math.max(0D, flippingModelProperties.getMinRecommendationLiquidityScore());
+        if (dto.liquidityScore() == null || dto.liquidityScore() < minLiquidity) {
+            return false;
+        }
+        return confidenceScore(dto) >= Math.max(0D, flippingModelProperties.getMinConfidenceScore());
+    }
+
+    private double confidenceScore(UnifiedFlipDto dto) {
+        if (dto == null) {
+            return 0D;
+        }
+        double score = 100D;
+        if (dto.partial()) {
+            score -= 15D;
+        }
+
+        List<String> partialReasons = dto.partialReasons();
+        if (partialReasons != null) {
+            for (String reason : partialReasons) {
+                if (reason == null || reason.isBlank()) {
+                    continue;
+                }
+                if (reason.startsWith(MISSING_INPUT_PRICE_REASON_PREFIX)
+                        || reason.startsWith(INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX)) {
+                    score -= 60D;
+                    continue;
+                }
+                if (reason.startsWith(MISSING_OUTPUT_PRICE_REASON_PREFIX)
+                        || reason.startsWith(INSUFFICIENT_OUTPUT_DEPTH_REASON_PREFIX)) {
+                    score -= 30D;
+                    continue;
+                }
+                if (reason.startsWith(AMBIGUOUS_INPUT_SOURCE_REASON_PREFIX)) {
+                    score -= 25D;
+                    continue;
+                }
+                if (MISSING_ELECTION_DATA_REASON.equals(reason)) {
+                    score -= 5D;
+                    continue;
+                }
+                score -= 10D;
+            }
+        }
+
+        double liquidityScore = clamp(nullableDouble(dto.liquidityScore()), 0D, 100D);
+        score += ((liquidityScore - 50D) * 0.2D);
+
+        double riskScore = clamp(nullableDouble(dto.riskScore()), 0D, 100D);
+        if (riskScore > 60D) {
+            score -= (riskScore - 60D) * 0.3D;
+        }
+
+        if (flippingModelProperties.isOutlierProtectionEnabled()) {
+            double roiPerHour = Math.max(0D, nullableDouble(dto.roiPerHour()));
+            if (roiPerHour > 50D && (dto.partial() || liquidityScore < 40D)) {
+                score -= 20D;
+            }
+            long expectedProfit = dto.expectedProfit() == null ? 0L : Math.max(0L, dto.expectedProfit());
+            long fees = dto.fees() == null ? 0L : Math.max(0L, dto.fees());
+            if (fees > 0L && expectedProfit > fees * 100L) {
+                score -= 10D;
+            }
+        }
+
+        return clamp(score, 0D, 100D);
     }
 
     private boolean shouldApplyPartialPenalty(UnifiedFlipDto dto) {

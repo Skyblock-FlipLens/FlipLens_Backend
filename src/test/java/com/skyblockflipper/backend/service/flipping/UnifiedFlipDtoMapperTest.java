@@ -296,4 +296,73 @@ class UnifiedFlipDtoMapperTest {
         assertTrue(longDurationDto.riskScore() > shortDurationDto.riskScore());
     }
 
+    @Test
+    void marksPartialAndInflatesInputCostWhenBuyDepthIsInsufficient() {
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.CRAFTING,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"DEPTH_ITEM\",\"amount\":100,\"market\":\"BAZAAR\"}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"DEPTH_ITEM\",\"amount\":100,\"market\":\"BAZAAR\"}")
+                ),
+                "DEPTH_ITEM",
+                List.of()
+        );
+
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T12:00:00Z"),
+                Map.of(
+                        "DEPTH_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(
+                                100D, 110D, 20_000L, 10L, 1_680_000L, 840L, 100, 5
+                        )
+                ),
+                Map.of()
+        );
+
+        UnifiedFlipDto dto = mapper.toDto(flip, FlipCalculationContext.standard(snapshot));
+
+        assertTrue(dto.partial());
+        assertTrue(dto.partialReasons().contains("INSUFFICIENT_INPUT_DEPTH:DEPTH_ITEM"));
+        assertTrue(dto.requiredCapital() > 10_000L);
+    }
+
+    @Test
+    void reducesOutputProfitWhenSellDepthIsInsufficient() {
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.CRAFTING,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"DEPTH_ITEM\",\"amount\":100,\"market\":\"BAZAAR\"}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"DEPTH_ITEM\",\"amount\":100,\"market\":\"BAZAAR\"}")
+                ),
+                "DEPTH_ITEM",
+                List.of()
+        );
+
+        UnifiedFlipInputSnapshot deepSnapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T12:00:00Z"),
+                Map.of(
+                        "DEPTH_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(
+                                100D, 110D, 50_000L, 50_000L, 4_200_000L, 4_200_000L, 200, 200
+                        )
+                ),
+                Map.of()
+        );
+        UnifiedFlipInputSnapshot shallowSellSnapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T12:00:00Z"),
+                Map.of(
+                        "DEPTH_ITEM", new UnifiedFlipInputSnapshot.BazaarQuote(
+                                100D, 110D, 10L, 50_000L, 840L, 4_200_000L, 5, 200
+                        )
+                ),
+                Map.of()
+        );
+
+        UnifiedFlipDto deepDto = mapper.toDto(flip, FlipCalculationContext.standard(deepSnapshot));
+        UnifiedFlipDto shallowDto = mapper.toDto(flip, FlipCalculationContext.standard(shallowSellSnapshot));
+
+        assertTrue(shallowDto.partialReasons().contains("INSUFFICIENT_OUTPUT_DEPTH:DEPTH_ITEM"));
+        assertTrue(shallowDto.expectedProfit() < deepDto.expectedProfit());
+    }
+
 }

@@ -23,6 +23,11 @@ flipping:
   selltime-model-enabled: ${FLIPPING_SELLTIME_MODEL_ENABLED:false}
   scoring-v2-enabled: ${FLIPPING_SCORING_V2_ENABLED:false}
   election-penalty-softened: ${FLIPPING_ELECTION_PENALTY_SOFTENED:true}
+  recommendation-gates-enabled: ${FLIPPING_RECOMMENDATION_GATES_ENABLED:false}
+  min-recommendation-liquidity-score: ${FLIPPING_MIN_RECOMMENDATION_LIQUIDITY_SCORE:15}
+  min-recommendation-expected-profit: ${FLIPPING_MIN_RECOMMENDATION_EXPECTED_PROFIT:0}
+  min-confidence-score: ${FLIPPING_MIN_CONFIDENCE_SCORE:25}
+  outlier-protection-enabled: ${FLIPPING_OUTLIER_PROTECTION_ENABLED:true}
 
 config:
   flip:

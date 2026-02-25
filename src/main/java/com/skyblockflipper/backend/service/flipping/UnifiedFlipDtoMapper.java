@@ -31,6 +31,7 @@ public class UnifiedFlipDtoMapper {
     private static final double EXECUTION_SPREAD_WEIGHT = 0.5D;
     private static final double EXECUTION_TIME_WEIGHT = 0.5D;
     private static final double STRUCTURAL_ILLIQUIDITY_PENALTY = 10D;
+    private static final double DEPTH_SHORTAGE_PRICE_IMPACT = 0.35D;
 
     private static final Logger log = LoggerFactory.getLogger(UnifiedFlipDtoMapper.class);
     private final ObjectMapper objectMapper;
@@ -208,7 +209,8 @@ public class UnifiedFlipDtoMapper {
                                               UnifiedFlipInputSnapshot snapshot,
                                               FlipCalculationContext context,
                                               LinkedHashSet<String> partialReasons) {
-        List<Double> legLiquidityScores = new ArrayList<>();
+        List<Double> inputLegLiquidityScores = new ArrayList<>();
+        List<Double> outputLegLiquidityScores = new ArrayList<>();
         List<Double> legExecutionRiskScores = new ArrayList<>();
         List<String> bazaarSignalItemIds = new ArrayList<>();
 
@@ -241,7 +243,8 @@ public class UnifiedFlipDtoMapper {
                     continue;
                 }
 
-                long stepCost = ceilToLong(quote.unitPrice() * parsed.amount());
+                double depthAwareBuyUnitPrice = resolveDepthAwareUnitPrice(quote, parsed.amount(), TradeSide.BUY, partialReasons);
+                long stepCost = ceilToLong(depthAwareBuyUnitPrice * parsed.amount());
                 currentPriceBaseline += stepCost;
                 totalInputCost += stepCost;
                 runningExposure += stepCost;
@@ -252,7 +255,8 @@ public class UnifiedFlipDtoMapper {
                         TradeSide.BUY,
                         resolveStepDurationHours(step),
                         safeContextFeatures(context),
-                        legLiquidityScores,
+                        inputLegLiquidityScores,
+                        outputLegLiquidityScores,
                         legExecutionRiskScores,
                         bazaarSignalItemIds,
                         partialReasons
@@ -287,7 +291,8 @@ public class UnifiedFlipDtoMapper {
                         TradeSide.SELL,
                         sellComputation.executionFillHours(),
                         safeContextFeatures(context),
-                        legLiquidityScores,
+                        inputLegLiquidityScores,
+                        outputLegLiquidityScores,
                         legExecutionRiskScores,
                         bazaarSignalItemIds,
                         partialReasons
@@ -321,7 +326,8 @@ public class UnifiedFlipDtoMapper {
                         TradeSide.SELL,
                         sellComputation.executionFillHours(),
                         safeContextFeatures(context),
-                        legLiquidityScores,
+                        inputLegLiquidityScores,
+                        outputLegLiquidityScores,
                         legExecutionRiskScores,
                         bazaarSignalItemIds,
                         partialReasons
@@ -334,7 +340,9 @@ public class UnifiedFlipDtoMapper {
             }
         }
 
-        Double liquidityScore = minValue(legLiquidityScores);
+        Double inputLiquidityScore = minValue(inputLegLiquidityScores);
+        Double outputLiquidityScore = minValue(outputLegLiquidityScores);
+        Double liquidityScore = conservativeLiquidity(inputLiquidityScore, outputLiquidityScore);
         Double riskScore = flipRiskScorer.computeTotalRiskScore(
                 legExecutionRiskScores,
                 inputFillHours,
@@ -365,7 +373,8 @@ public class UnifiedFlipDtoMapper {
             return null;
         }
 
-        long grossRevenue = floorToLong(quote.unitPrice() * parsed.amount());
+        double depthAwareSellUnitPrice = resolveDepthAwareUnitPrice(quote, parsed.amount(), TradeSide.SELL, partialReasons);
+        long grossRevenue = floorToLong(depthAwareSellUnitPrice * parsed.amount());
         long upfrontFees = 0L;
         long totalFees = 0L;
         Double executionFillHours = null;
@@ -386,6 +395,47 @@ public class UnifiedFlipDtoMapper {
 
         long netProceeds = Math.max(0L, grossRevenue - totalFees);
         return new SellComputation(quote, grossRevenue, upfrontFees, totalFees, netProceeds, executionFillHours);
+    }
+
+    private double resolveDepthAwareUnitPrice(PriceQuote quote,
+                                              int amount,
+                                              TradeSide tradeSide,
+                                              LinkedHashSet<String> partialReasons) {
+        if (quote == null || quote.source() != MarketSource.BAZAAR || quote.bazaarQuote() == null || amount <= 0) {
+            return quote == null ? 0D : quote.unitPrice();
+        }
+        UnifiedFlipInputSnapshot.BazaarQuote bazaar = quote.bazaarQuote();
+        long availableDepth = tradeSide == TradeSide.BUY ? bazaar.sellVolume() : bazaar.buyVolume();
+
+        if (availableDepth <= 0L) {
+            addDepthPartialReason(quote.itemId(), tradeSide, partialReasons);
+            return tradeSide == TradeSide.BUY
+                    ? quote.unitPrice() * (1D + DEPTH_SHORTAGE_PRICE_IMPACT)
+                    : quote.unitPrice() * (1D - DEPTH_SHORTAGE_PRICE_IMPACT);
+        }
+
+        if (amount <= availableDepth) {
+            return quote.unitPrice();
+        }
+
+        double coverage = clamp((double) availableDepth / amount, 0D, 1D);
+        double shortage = 1D - coverage;
+        double impact = clamp(shortage * DEPTH_SHORTAGE_PRICE_IMPACT, 0D, DEPTH_SHORTAGE_PRICE_IMPACT);
+        addDepthPartialReason(quote.itemId(), tradeSide, partialReasons);
+        return tradeSide == TradeSide.BUY
+                ? quote.unitPrice() * (1D + impact)
+                : quote.unitPrice() * (1D - impact);
+    }
+
+    private void addDepthPartialReason(String itemId, TradeSide tradeSide, LinkedHashSet<String> partialReasons) {
+        if (itemId == null || itemId.isBlank() || partialReasons == null) {
+            return;
+        }
+        if (tradeSide == TradeSide.BUY) {
+            partialReasons.add("INSUFFICIENT_INPUT_DEPTH:" + itemId);
+            return;
+        }
+        partialReasons.add("INSUFFICIENT_OUTPUT_DEPTH:" + itemId);
     }
 
     private int parseAuctionDurationHours(String paramsJson, LinkedHashSet<String> partialReasons) {
@@ -510,7 +560,8 @@ public class UnifiedFlipDtoMapper {
                                  TradeSide tradeSide,
                                  Double auctionFillHours,
                                  FlipScoreFeatureSet featureSet,
-                                 List<Double> legLiquidityScores,
+                                 List<Double> inputLegLiquidityScores,
+                                 List<Double> outputLegLiquidityScores,
                                  List<Double> legExecutionRiskScores,
                                  List<String> bazaarSignalItemIds,
                                  LinkedHashSet<String> partialReasons) {
@@ -531,7 +582,7 @@ public class UnifiedFlipDtoMapper {
             if (features != null && features.structurallyIlliquid()) {
                 liquidityScore -= STRUCTURAL_ILLIQUIDITY_PENALTY;
             }
-            legLiquidityScores.add(clamp(liquidityScore, 0D, 100D));
+            addLiquidityScore(tradeSide, clamp(liquidityScore, 0D, 100D), inputLegLiquidityScores, outputLegLiquidityScores);
 
             double spreadRisk = clamp01(spreadRel / EXECUTION_SPREAD_CAP) * 100D;
             double timeRisk = clamp01(fillTimeHours / EXECUTION_TIME_CAP_HOURS) * 100D;
@@ -547,7 +598,7 @@ public class UnifiedFlipDtoMapper {
             double spreadRel = computeAuctionRelativeSpread(auction);
             double spreadLiquidityFactor = 1D / (1D + (spreadRel / 0.05D));
             double liquidityScore = clamp(sampleLiquidity * spreadLiquidityFactor * 100D, 0D, 100D);
-            legLiquidityScores.add(liquidityScore);
+            addLiquidityScore(tradeSide, liquidityScore, inputLegLiquidityScores, outputLegLiquidityScores);
 
             double sampleRisk = (1D - clamp(sampleLiquidity, 0D, 1D)) * 100D;
             double spreadRisk = clamp01(spreadRel / 0.20D) * 100D;
@@ -558,6 +609,17 @@ public class UnifiedFlipDtoMapper {
         }
 
         return null;
+    }
+
+    private void addLiquidityScore(TradeSide tradeSide,
+                                   double score,
+                                   List<Double> inputLegLiquidityScores,
+                                   List<Double> outputLegLiquidityScores) {
+        if (tradeSide == TradeSide.BUY) {
+            inputLegLiquidityScores.add(score);
+            return;
+        }
+        outputLegLiquidityScores.add(score);
     }
 
     private FlipScoreFeatureSet safeContextFeatures(FlipCalculationContext context) {
@@ -579,6 +641,19 @@ public class UnifiedFlipDtoMapper {
             return null;
         }
         return values.stream().filter(Objects::nonNull).min(Double::compareTo).orElse(null);
+    }
+
+    private Double conservativeLiquidity(Double inputLiquidityScore, Double outputLiquidityScore) {
+        if (inputLiquidityScore == null && outputLiquidityScore == null) {
+            return null;
+        }
+        if (inputLiquidityScore == null) {
+            return outputLiquidityScore;
+        }
+        if (outputLiquidityScore == null) {
+            return inputLiquidityScore;
+        }
+        return Math.min(inputLiquidityScore, outputLiquidityScore);
     }
 
     private double computeRelativeSpread(UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote) {
