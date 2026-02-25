@@ -2,6 +2,7 @@ package com.skyblockflipper.backend.config.Jobs;
 
 import com.skyblockflipper.backend.NEU.NEUClient;
 import com.skyblockflipper.backend.NEU.NEUItemMapper;
+import com.skyblockflipper.backend.NEU.model.Item;
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
 import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
@@ -19,7 +20,6 @@ import java.util.List;
 @Component
 @Slf4j
 public class SourceJobs {
-
     private final NEUClient neuClient;
     private final NEUItemMapper neuItemMapper;
     private final ItemRepository itemRepository;
@@ -70,9 +70,8 @@ public class SourceJobs {
         long startedAtMillis = System.currentTimeMillis();
         try {
             List<JsonNode> nodes = neuClient.loadItemJsons();
-            for(var x : nodes){
-                itemRepository.save(neuItemMapper.fromJson(x));
-            }
+            List<Item> items = neuItemMapper.fromJson(nodes);
+            itemRepository.saveAll(items);
             marketDataProcessingService.latestMarketSnapshot()
                     .ifPresent(snapshot -> {
                         var result = flipGenerationService.regenerateForSnapshot(snapshot.snapshotTimestamp());
@@ -81,7 +80,7 @@ public class SourceJobs {
                                 result.generatedCount(),
                                 result.skippedCount());
                     });
-            log.info("copyRepoDaily completed in {} ms", System.currentTimeMillis() - startedAtMillis);
+            log.info("copyRepoDaily completed in {} ms (saved {} NEU items)", System.currentTimeMillis() - startedAtMillis, items.size());
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();

@@ -22,6 +22,20 @@ public class NEUItemMapper {
             "C1", "C2", "C3"
     );
 
+    public List<Item> fromJson(List<JsonNode> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return List.of();
+        }
+        List<Item> items = new ArrayList<>(nodes.size());
+        for (JsonNode node : nodes) {
+            Item mapped = fromJson(node);
+            if (mapped != null) {
+                items.add(mapped);
+            }
+        }
+        return items;
+    }
+
     public Item fromJson(JsonNode node) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;

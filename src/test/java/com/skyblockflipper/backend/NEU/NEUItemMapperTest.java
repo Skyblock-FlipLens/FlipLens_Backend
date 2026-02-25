@@ -10,6 +10,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -178,8 +179,23 @@ class NEUItemMapperTest {
 
     @Test
     void mapNullNodeReturnsNull() {
-        Item item = mapper.fromJson(null);
+        Item item = mapper.fromJson((JsonNode) null);
         assertNull(item);
+    }
+
+    @Test
+    void mapNodeListReturnsOnlyValidItems() {
+        JsonNode valid = readInline("{\"id\":\"valid_item\"}");
+        JsonNode invalid = readInline("{\"displayname\":\"missing id\"}");
+        List<JsonNode> source = new ArrayList<>();
+        source.add(valid);
+        source.add(invalid);
+        source.add(null);
+
+        List<Item> items = mapper.fromJson(source);
+
+        assertEquals(1, items.size());
+        assertEquals("VALID_ITEM", items.getFirst().getId());
     }
 
     @Test
