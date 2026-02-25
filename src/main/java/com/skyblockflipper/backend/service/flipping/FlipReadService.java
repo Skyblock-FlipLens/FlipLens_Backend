@@ -240,11 +240,21 @@ public class FlipReadService {
                     .max(Long::compareTo)
                     .orElse(0L);
 
+            EnumMap<FlipType, Long> countsByType = new EnumMap<>(FlipType.class);
+            for (FlipType type : FlipType.values()) {
+                countsByType.put(type, 0L);
+            }
+            for (UnifiedFlipDto dto : allTypes) {
+                if (dto == null || dto.flipType() == null) {
+                    continue;
+                }
+                countsByType.computeIfPresent(dto.flipType(), (key, count) -> count + 1L);
+            }
+
             Map<String, Long> byType = new LinkedHashMap<>();
             for (FlipType type : FlipType.values()) {
-                long count = allTypes.stream().filter(dto -> dto.flipType() == type).count();
                 if (flipType == null || flipType == type) {
-                    byType.put(type.name(), count);
+                    byType.put(type.name(), countsByType.getOrDefault(type, 0L));
                 }
             }
             return new FlipSummaryStatsDto(mapped.size(), avgProfit, round2(avgRoi), bestFlipProfit, byType);
@@ -279,11 +289,21 @@ public class FlipReadService {
                 .max(Long::compareTo)
                 .orElse(0L);
 
+        EnumMap<FlipType, Long> countsByType = new EnumMap<>(FlipType.class);
+        for (FlipType type : FlipType.values()) {
+            countsByType.put(type, 0L);
+        }
+        for (Object[] row : flipRepository.countByFlipTypeForSnapshot(snapshotEpochMillis)) {
+            if (row == null || row.length < 2 || !(row[0] instanceof FlipType type)) {
+                continue;
+            }
+            countsByType.put(type, toLong(row[1]));
+        }
+
         Map<String, Long> byType = new LinkedHashMap<>();
         for (FlipType type : FlipType.values()) {
-            long count = queryFlips(type, snapshotEpochMillis, Pageable.unpaged()).getTotalElements();
             if (flipType == null || flipType == type) {
-                byType.put(type.name(), count);
+                byType.put(type.name(), countsByType.getOrDefault(type, 0L));
             }
         }
         return new FlipSummaryStatsDto(mapped.size(), avgProfit, round2(avgRoi), bestFlipProfit, byType);

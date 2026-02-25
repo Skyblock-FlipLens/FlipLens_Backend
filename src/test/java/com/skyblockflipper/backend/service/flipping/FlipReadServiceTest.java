@@ -752,6 +752,59 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void summaryStatsLegacyUsesGroupedCountQueryForByType() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+
+        long snapshotEpochMillis = Instant.parse("2026-02-20T22:00:00Z").toEpochMilli();
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+        Flip first = mock(Flip.class);
+        Flip second = mock(Flip.class);
+
+        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
+        when(flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, Pageable.unpaged()))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
+        when(flipRepository.countByFlipTypeForSnapshot(snapshotEpochMillis)).thenReturn(List.of(
+                new Object[]{FlipType.AUCTION, 5L},
+                new Object[]{FlipType.BAZAAR, 3L}
+        ));
+        when(contextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis))).thenReturn(context);
+        when(mapper.toDto(first, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("81818181-8181-8181-8181-818181818181"),
+                1.0D,
+                1_000_000L,
+                60.0D,
+                20.0D,
+                false
+        ));
+        when(mapper.toDto(second, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("82828282-8282-8282-8282-828282828282"),
+                0.5D,
+                500_000L,
+                55.0D,
+                22.0D,
+                false
+        ));
+
+        FlipSummaryStatsDto result = service.summaryStats(null, null);
+
+        assertEquals(2L, result.totalActiveFlips());
+        assertEquals(750_000L, result.avgProfit());
+        assertEquals(0.5D, result.avgRoi());
+        assertEquals(1_000_000L, result.bestFlipProfit());
+        assertEquals(FlipType.values().length, result.byType().size());
+        assertEquals(5L, result.byType().get(FlipType.AUCTION.name()));
+        assertEquals(3L, result.byType().get(FlipType.BAZAAR.name()));
+        verify(flipRepository, times(1)).countByFlipTypeForSnapshot(snapshotEpochMillis);
+        verify(flipRepository, never()).findAllByFlipType(
+                org.mockito.ArgumentMatchers.any(FlipType.class),
+                org.mockito.ArgumentMatchers.eq(Pageable.unpaged())
+        );
+    }
+
+    @Test
     void listFlipsCurrentStorageNormalizesIdSortToStableFlipId() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
