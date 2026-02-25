@@ -233,14 +233,21 @@ public class MarketDataProcessingService {
                     return;
                 }
 
-                cachedAuctionResponse = fetched;
                 long fetchedLastUpdated = fetched.getLastUpdated();
-                boolean advanced = fetchedLastUpdated > 0L && fetchedLastUpdated > lastAuctionLastUpdated;
-                auctionCurrentIntervalMillis = advanced
-                        ? auctionBaseIntervalMillis
-                        : growInterval(auctionCurrentIntervalMillis, auctionBaseIntervalMillis, auctionMaxIntervalMillis);
-                if (fetchedLastUpdated > 0L) {
-                    lastAuctionLastUpdated = Math.max(lastAuctionLastUpdated, fetchedLastUpdated);
+                boolean accepted = fetchedLastUpdated > 0L && fetchedLastUpdated >= lastAuctionLastUpdated;
+                boolean advanced = accepted && fetchedLastUpdated > lastAuctionLastUpdated;
+                if (accepted) {
+                    cachedAuctionResponse = fetched;
+                    if (advanced) {
+                        lastAuctionLastUpdated = fetchedLastUpdated;
+                    }
+                    auctionCurrentIntervalMillis = auctionBaseIntervalMillis;
+                } else {
+                    auctionCurrentIntervalMillis = growInterval(
+                            auctionCurrentIntervalMillis,
+                            auctionBaseIntervalMillis,
+                            auctionMaxIntervalMillis
+                    );
                 }
                 nextAuctionFetchAtMillis = decisionNow + auctionCurrentIntervalMillis;
             } finally {
@@ -277,14 +284,21 @@ public class MarketDataProcessingService {
                     return;
                 }
 
-                cachedBazaarResponse = fetched;
                 long fetchedLastUpdated = fetched.getLastUpdated();
-                boolean advanced = fetchedLastUpdated > 0L && fetchedLastUpdated > lastBazaarLastUpdated;
-                bazaarCurrentIntervalMillis = advanced
-                        ? bazaarBaseIntervalMillis
-                        : growInterval(bazaarCurrentIntervalMillis, bazaarBaseIntervalMillis, bazaarMaxIntervalMillis);
-                if (fetchedLastUpdated > 0L) {
-                    lastBazaarLastUpdated = Math.max(lastBazaarLastUpdated, fetchedLastUpdated);
+                boolean accepted = fetchedLastUpdated > 0L && fetchedLastUpdated >= lastBazaarLastUpdated;
+                boolean advanced = accepted && fetchedLastUpdated > lastBazaarLastUpdated;
+                if (accepted) {
+                    cachedBazaarResponse = fetched;
+                    if (advanced) {
+                        lastBazaarLastUpdated = fetchedLastUpdated;
+                    }
+                    bazaarCurrentIntervalMillis = bazaarBaseIntervalMillis;
+                } else {
+                    bazaarCurrentIntervalMillis = growInterval(
+                            bazaarCurrentIntervalMillis,
+                            bazaarBaseIntervalMillis,
+                            bazaarMaxIntervalMillis
+                    );
                 }
                 nextBazaarFetchAtMillis = decisionNow + bazaarCurrentIntervalMillis;
             } finally {

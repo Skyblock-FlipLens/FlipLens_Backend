@@ -896,7 +896,12 @@ public class FlipReadService {
             return computer.get();
         }
 
-        GoodnessCacheKey cacheKey = GoodnessCacheKey.from(snapshotEpochMillis, flipType, flippingModelProperties);
+        GoodnessCacheKey cacheKey = GoodnessCacheKey.from(
+                snapshotEpochMillis,
+                flipType,
+                RankingMode.FULL_CURRENT,
+                flippingModelProperties
+        );
         long now = System.currentTimeMillis();
         CachedGoodnessRanking cached = goodnessRankingCache.get(cacheKey);
         if (cached != null && (now - cached.createdAtEpochMillis()) <= GOODNESS_CACHE_TTL_MILLIS) {
@@ -928,7 +933,12 @@ public class FlipReadService {
             );
         }
 
-        GoodnessCacheKey cacheKey = GoodnessCacheKey.from(snapshotEpochMillis, flipType, flippingModelProperties);
+        GoodnessCacheKey cacheKey = GoodnessCacheKey.from(
+                snapshotEpochMillis,
+                flipType,
+                RankingMode.BOUNDED_LEGACY,
+                flippingModelProperties
+        );
         long now = System.currentTimeMillis();
         CachedGoodnessRanking cached = goodnessRankingCache.get(cacheKey);
         if (cached != null
@@ -1490,6 +1500,7 @@ public class FlipReadService {
     private record GoodnessCacheKey(
             Long snapshotEpochMillis,
             FlipType flipType,
+            RankingMode rankingMode,
             boolean scoringV2Enabled,
             boolean recommendationGatesEnabled,
             boolean outlierProtectionEnabled,
@@ -1500,10 +1511,12 @@ public class FlipReadService {
     ) {
         private static GoodnessCacheKey from(Long snapshotEpochMillis,
                                              FlipType flipType,
+                                             RankingMode rankingMode,
                                              FlippingModelProperties properties) {
             return new GoodnessCacheKey(
                     snapshotEpochMillis,
                     flipType,
+                    rankingMode,
                     properties.isScoringV2Enabled(),
                     properties.isRecommendationGatesEnabled(),
                     properties.isOutlierProtectionEnabled(),
@@ -1513,6 +1526,11 @@ public class FlipReadService {
                     properties.getMinConfidenceScore()
             );
         }
+    }
+
+    private enum RankingMode {
+        FULL_CURRENT,
+        BOUNDED_LEGACY
     }
 
     private record CachedGoodnessRanking(

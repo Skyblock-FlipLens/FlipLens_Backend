@@ -275,6 +275,47 @@ class UnifiedFlipCurrentReadServiceTest {
         assertEquals(firstId, result.getContent().getFirst().id());
     }
 
+    @Test
+    void listCurrentFilteredPageReturnsDataWhenPageableIsUnpaged() {
+        FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
+        StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
+        UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
+                currentRepository,
+                dtoMapper
+        );
+
+        UUID stableId = UUID.fromString("13131313-2424-3535-4646-575757575757");
+        FlipCurrentEntity current = current("key-filter", FlipType.BAZAAR, stableId.toString());
+        FlipDefinitionEntity definition = definition("key-filter", FlipType.BAZAAR, stableId);
+        UnifiedFlipDto mapped = dto(stableId, FlipType.BAZAAR);
+
+        Page<FlipCurrentRepository.CurrentDefinitionProjection> page = new PageImpl<>(
+                List.of(currentDefinitionProjection(current, definition)),
+                Pageable.unpaged(),
+                1L
+        );
+        when(currentRepository.findFilteredWithDefinition(
+                null, null, null, null, null, null, null, null, Pageable.unpaged()
+        )).thenReturn(page);
+        when(dtoMapper.toDto(current, definition)).thenReturn(mapped);
+
+        Page<UnifiedFlipDto> result = service.listCurrentFilteredPage(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Pageable.unpaged()
+        );
+
+        assertEquals(1L, result.getTotalElements());
+        assertEquals(1, result.getContent().size());
+        assertEquals(stableId, result.getContent().getFirst().id());
+    }
+
     private FlipCurrentEntity current(String key, FlipType flipType, String stableId) {
         FlipCurrentEntity entity = new FlipCurrentEntity();
         entity.setFlipKey(key);

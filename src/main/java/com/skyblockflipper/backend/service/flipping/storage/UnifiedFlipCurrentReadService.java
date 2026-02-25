@@ -87,9 +87,7 @@ public class UnifiedFlipCurrentReadService {
                                                         Long maxRequiredCapital,
                                                         Boolean partial,
                                                         Pageable pageable) {
-        if (pageable == null || pageable.isUnpaged()) {
-            return new PageImpl<>(List.of());
-        }
+        Pageable effectivePageable = pageable == null ? Pageable.unpaged() : pageable;
         Page<FlipCurrentRepository.CurrentDefinitionProjection> page = flipCurrentRepository.findFilteredWithDefinition(
                 flipType,
                 minLiquidityScore,
@@ -99,10 +97,10 @@ public class UnifiedFlipCurrentReadService {
                 minRoiPerHour,
                 maxRequiredCapital,
                 partial,
-                pageable
+                effectivePageable
         );
         if (page.isEmpty()) {
-            return new PageImpl<>(List.of(), pageable, page.getTotalElements());
+            return new PageImpl<>(List.of(), effectivePageable, page.getTotalElements());
         }
 
         List<UnifiedFlipDto> content = new ArrayList<>(page.getNumberOfElements());
@@ -116,7 +114,7 @@ public class UnifiedFlipCurrentReadService {
             content.add(dto);
         }
         long correctedTotal = Math.max(0L, page.getTotalElements() - filteredNulls);
-        return new PageImpl<>(List.copyOf(content), pageable, correctedTotal);
+        return new PageImpl<>(List.copyOf(content), effectivePageable, correctedTotal);
     }
 
     @Transactional(readOnly = true)

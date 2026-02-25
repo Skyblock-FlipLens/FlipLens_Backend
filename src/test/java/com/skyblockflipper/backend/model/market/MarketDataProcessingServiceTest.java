@@ -191,7 +191,11 @@ class MarketDataProcessingServiceTest {
 
         long auctionWatermark = (long) ReflectionTestUtils.getField(service, "lastAuctionLastUpdated");
         long bazaarWatermark = (long) ReflectionTestUtils.getField(service, "lastBazaarLastUpdated");
+        AuctionResponse cachedAuction = (AuctionResponse) ReflectionTestUtils.getField(service, "cachedAuctionResponse");
+        BazaarResponse cachedBazaar = (BazaarResponse) ReflectionTestUtils.getField(service, "cachedBazaarResponse");
         assertEquals(10_000L, auctionWatermark);
         assertEquals(11_000L, bazaarWatermark);
+        assertEquals(10_000L, cachedAuction.getLastUpdated());
+        assertEquals(11_000L, cachedBazaar.getLastUpdated());
     }
 }

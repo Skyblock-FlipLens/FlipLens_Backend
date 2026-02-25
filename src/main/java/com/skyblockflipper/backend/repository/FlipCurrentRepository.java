@@ -84,8 +84,8 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
               and (:minRoiPerHour is null or fc.roiPerHour >= :minRoiPerHour)
               and (:maxRequiredCapital is null or fc.requiredCapital <= :maxRequiredCapital)
               and (:partial is null or fc.partial = :partial)
-              and fc.partialReasonsJson not like '%MISSING_INPUT_PRICE%'
-              and fc.partialReasonsJson not like '%INSUFFICIENT_INPUT_DEPTH%'
+              and coalesce(fc.partialReasonsJson, '') not like '%MISSING_INPUT_PRICE%'
+              and coalesce(fc.partialReasonsJson, '') not like '%INSUFFICIENT_INPUT_DEPTH%'
             """,
             countQuery = """
             select count(fc)
@@ -98,8 +98,8 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
               and (:minRoiPerHour is null or fc.roiPerHour >= :minRoiPerHour)
               and (:maxRequiredCapital is null or fc.requiredCapital <= :maxRequiredCapital)
               and (:partial is null or fc.partial = :partial)
-              and fc.partialReasonsJson not like '%MISSING_INPUT_PRICE%'
-              and fc.partialReasonsJson not like '%INSUFFICIENT_INPUT_DEPTH%'
+              and coalesce(fc.partialReasonsJson, '') not like '%MISSING_INPUT_PRICE%'
+              and coalesce(fc.partialReasonsJson, '') not like '%INSUFFICIENT_INPUT_DEPTH%'
             """)
     Page<CurrentDefinitionProjection> findFilteredWithDefinition(
             @Param("flipType") FlipType flipType,

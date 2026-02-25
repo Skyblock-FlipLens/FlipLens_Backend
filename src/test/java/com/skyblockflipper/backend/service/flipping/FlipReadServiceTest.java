@@ -766,6 +766,97 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsSeparatesCurrentAndLegacyRankingCaches() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        long snapshotEpochMillis = Instant.parse("2026-02-25T15:00:00Z").toEpochMilli();
+        when(unifiedFlipCurrentReadService.latestSnapshotEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
+
+        List<UnifiedFlipDto> currentScoring = new ArrayList<>();
+        Map<UUID, UnifiedFlipDto> currentHydratedById = new LinkedHashMap<>();
+        for (int i = 0; i < 12; i++) {
+            UUID id = UUID.fromString(String.format("%08d-aaaa-bbbb-cccc-dddddddddddd", i + 1));
+            UnifiedFlipDto scoring = sampleGoodnessDto(id, 1.0D + i, 1_000_000L + (i * 10_000L), 70.0D, 20.0D, false);
+            UnifiedFlipDto hydrated = new UnifiedFlipDto(
+                    id,
+                    FlipType.BAZAAR,
+                    List.of(new UnifiedFlipDto.ItemStackDto("ITEM_" + i, 64)),
+                    List.of(new UnifiedFlipDto.ItemStackDto("ITEM_OUT_" + i, 1)),
+                    scoring.requiredCapital(),
+                    scoring.expectedProfit(),
+                    scoring.roi(),
+                    scoring.roiPerHour(),
+                    scoring.durationSeconds(),
+                    scoring.fees(),
+                    scoring.liquidityScore(),
+                    scoring.riskScore(),
+                    scoring.snapshotTimestamp(),
+                    scoring.partial(),
+                    scoring.partialReasons(),
+                    List.of(),
+                    List.of()
+            );
+            currentScoring.add(scoring);
+            currentHydratedById.put(id, hydrated);
+        }
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(null)).thenReturn(currentScoring);
+        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(invocation -> {
+                    List<UUID> requested = invocation.getArgument(0);
+                    return requested.stream()
+                            .map(currentHydratedById::get)
+                            .filter(Objects::nonNull)
+                            .toList();
+                });
+
+        Page<FlipGoodnessDto> currentPage = service.topGoodnessFlips(null, null, 0);
+        assertEquals(12L, currentPage.getTotalElements());
+
+        Instant snapshot = Instant.ofEpochMilli(snapshotEpochMillis);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+        Flip legacyFirst = mock(Flip.class);
+        Flip legacySecond = mock(Flip.class);
+        UUID legacyFirstId = UUID.fromString("abababab-abab-abab-abab-111111111111");
+        UUID legacySecondId = UUID.fromString("bcbcbcbc-bcbc-bcbc-bcbc-222222222222");
+        when(legacyFirst.getId()).thenReturn(legacyFirstId);
+        when(legacySecond.getId()).thenReturn(legacySecondId);
+        stubLegacyPagedBySnapshot(
+                flipRepository,
+                snapshotEpochMillis,
+                List.of(legacyFirstId, legacySecondId),
+                List.of(legacyFirst, legacySecond)
+        );
+        when(contextService.loadContextAsOf(snapshot)).thenReturn(context);
+        when(mapper.toDto(legacyFirst, context)).thenReturn(sampleGoodnessDto(
+                legacyFirstId, 1.0D, 100_000L, 60.0D, 25.0D, false
+        ));
+        when(mapper.toDto(legacySecond, context)).thenReturn(sampleGoodnessDto(
+                legacySecondId, 1.5D, 200_000L, 62.0D, 22.0D, false
+        ));
+
+        Page<FlipGoodnessDto> legacyPage = service.topGoodnessFlips(null, snapshot, 0);
+
+        assertEquals(2L, legacyPage.getTotalElements());
+        verify(flipRepository, times(1))
+                .findIdsBySnapshotTimestampEpochMillis(snapshotEpochMillis, PageRequest.of(0, 500));
+    }
+
+    @Test
     void filterFlipsCurrentStorageHydratesPagedRowsOnly() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
