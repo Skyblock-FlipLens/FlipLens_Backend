@@ -483,6 +483,36 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsCachesRankingPerResolvedSnapshot() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Instant snapshotTimestamp = Instant.parse("2026-02-21T10:00:00Z");
+        long snapshotEpochMillis = snapshotTimestamp.toEpochMilli();
+        Flip flip = mock(Flip.class);
+
+        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
+        when(flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, Pageable.unpaged()))
+                .thenReturn(new PageImpl<>(List.of(flip)));
+        when(contextService.loadContextAsOf(snapshotTimestamp)).thenReturn(context);
+        when(mapper.toDto(flip, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("61616161-6161-6161-6161-616161616161"),
+                1.0D, 1_000_000L, 70.0D, 15.0D, false
+        ));
+
+        Page<FlipGoodnessDto> first = service.topGoodnessFlips(null, null, 0);
+        Page<FlipGoodnessDto> second = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(1, first.getTotalElements());
+        assertEquals(1, second.getTotalElements());
+        verify(flipRepository, times(1)).findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, Pageable.unpaged());
+        verify(contextService, times(1)).loadContextAsOf(snapshotTimestamp);
+    }
+
+    @Test
     void topGoodnessFlipsPreservesOffsetWhenNormalizingPageSize() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

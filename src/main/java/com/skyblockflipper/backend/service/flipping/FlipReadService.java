@@ -25,12 +25,17 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 @Service
 public class FlipReadService {
 
     private static final int GOODNESS_PAGE_SIZE = 10;
+    private static final int GOODNESS_CACHE_MAX_ENTRIES = 8;
+    private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
     private static final String INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_INPUT_DEPTH";
     private static final String MISSING_OUTPUT_PRICE_REASON_PREFIX = "MISSING_OUTPUT_PRICE";
@@ -52,6 +57,7 @@ public class FlipReadService {
     private final OnDemandFlipSnapshotService onDemandFlipSnapshotService;
     private final FlipStorageProperties flipStorageProperties;
     private final FlippingModelProperties flippingModelProperties;
+    private final ConcurrentMap<GoodnessCacheKey, CachedGoodnessRanking> goodnessRankingCache = new ConcurrentHashMap<>();
 
     public FlipReadService(FlipRepository flipRepository,
                            UnifiedFlipDtoMapper unifiedFlipDtoMapper,
@@ -365,16 +371,11 @@ public class FlipReadService {
             ranked = rankByGoodness(onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType));
         } else {
             Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
-            FlipCalculationContext context = snapshotEpochMillis == null
-                    ? flipCalculationContextService.loadCurrentContext()
-                    : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
-
-            List<UnifiedFlipDto> mapped = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
-                    .stream()
-                    .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
-                    .filter(Objects::nonNull)
-                    .toList();
-            ranked = rankByGoodness(mapped);
+            ranked = cachedGoodnessRanking(
+                    flipType,
+                    snapshotEpochMillis,
+                    () -> computeGoodnessRanking(flipType, snapshotEpochMillis)
+            );
         }
 
         return paginateGoodness(ranked, fixedPageable);
@@ -567,9 +568,9 @@ public class FlipReadService {
     }
 
     private List<UnifiedFlipDto> filterFlipsAsList(FlipType flipType,
-                                                   Instant snapshotTimestamp,
-                                                   Double minLiquidityScore,
-                                                   Double maxRiskScore,
+                                                    Instant snapshotTimestamp,
+                                                    Double minLiquidityScore,
+                                                    Double maxRiskScore,
                                                    Long minExpectedProfit,
                                                    Double minRoi,
                                                    Double minRoiPerHour,
@@ -627,6 +628,57 @@ public class FlipReadService {
                 sortBy,
                 sortDirection
         );
+    }
+
+    private List<FlipGoodnessDto> cachedGoodnessRanking(FlipType flipType,
+                                                        Long snapshotEpochMillis,
+                                                        Supplier<List<FlipGoodnessDto>> computer) {
+        if (snapshotEpochMillis == null) {
+            return computer.get();
+        }
+
+        GoodnessCacheKey cacheKey = GoodnessCacheKey.from(snapshotEpochMillis, flipType, flippingModelProperties);
+        long now = System.currentTimeMillis();
+        CachedGoodnessRanking cached = goodnessRankingCache.get(cacheKey);
+        if (cached != null && (now - cached.createdAtEpochMillis()) <= GOODNESS_CACHE_TTL_MILLIS) {
+            return cached.ranking();
+        }
+
+        List<FlipGoodnessDto> computed = computer.get();
+        goodnessRankingCache.put(cacheKey, new CachedGoodnessRanking(computed, now));
+        trimGoodnessRankingCache();
+        return computed;
+    }
+
+    private List<FlipGoodnessDto> computeGoodnessRanking(FlipType flipType, Long snapshotEpochMillis) {
+        FlipCalculationContext context = snapshotEpochMillis == null
+                ? flipCalculationContextService.loadCurrentContext()
+                : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
+
+        List<UnifiedFlipDto> mapped = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
+                .stream()
+                .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
+                .filter(Objects::nonNull)
+                .toList();
+        return rankByGoodness(mapped);
+    }
+
+    private void trimGoodnessRankingCache() {
+        if (goodnessRankingCache.size() <= GOODNESS_CACHE_MAX_ENTRIES) {
+            return;
+        }
+        GoodnessCacheKey oldestKey = null;
+        long oldestTimestamp = Long.MAX_VALUE;
+        for (Map.Entry<GoodnessCacheKey, CachedGoodnessRanking> entry : goodnessRankingCache.entrySet()) {
+            long createdAt = entry.getValue().createdAtEpochMillis();
+            if (createdAt < oldestTimestamp) {
+                oldestTimestamp = createdAt;
+                oldestKey = entry.getKey();
+            }
+        }
+        if (oldestKey != null) {
+            goodnessRankingCache.remove(oldestKey);
+        }
     }
 
     private boolean useCurrentStorage(Instant snapshotTimestamp) {
@@ -927,5 +979,39 @@ public class FlipReadService {
 
     private double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private record GoodnessCacheKey(
+            Long snapshotEpochMillis,
+            FlipType flipType,
+            boolean scoringV2Enabled,
+            boolean recommendationGatesEnabled,
+            boolean outlierProtectionEnabled,
+            boolean electionPenaltySoftened,
+            double minRecommendationLiquidityScore,
+            long minRecommendationExpectedProfit,
+            double minConfidenceScore
+    ) {
+        private static GoodnessCacheKey from(Long snapshotEpochMillis,
+                                             FlipType flipType,
+                                             FlippingModelProperties properties) {
+            return new GoodnessCacheKey(
+                    snapshotEpochMillis,
+                    flipType,
+                    properties.isScoringV2Enabled(),
+                    properties.isRecommendationGatesEnabled(),
+                    properties.isOutlierProtectionEnabled(),
+                    properties.isElectionPenaltySoftened(),
+                    properties.getMinRecommendationLiquidityScore(),
+                    properties.getMinRecommendationExpectedProfit(),
+                    properties.getMinConfidenceScore()
+            );
+        }
+    }
+
+    private record CachedGoodnessRanking(
+            List<FlipGoodnessDto> ranking,
+            long createdAtEpochMillis
+    ) {
     }
 }
