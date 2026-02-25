@@ -43,7 +43,7 @@ class DebugAdminControllerTest {
         Map<String, Object> response = controller.triggerCopyRepo(request);
 
         verify(adminAccessGuard, times(1)).validate(request);
-        verify(sourceJobs, times(1)).copyRepoDaily();
+        verify(sourceJobs, times(1)).copyRepoDailyAsync();
         assertEquals("triggered", response.get("status"));
         assertEquals("copyRepoDaily", response.get("job"));
         assertNotNull(response.get("triggeredAtUtc"));

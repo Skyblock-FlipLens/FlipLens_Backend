@@ -8,6 +8,7 @@ import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -57,6 +58,16 @@ public class SourceJobs {
 
     @Scheduled(cron = "0 0 23 * * *", zone = "UTC")
     public void copyRepoDaily() {
+        runCopyRepoDaily();
+    }
+
+    @Async("sourceJobsAsyncExecutor")
+    public void copyRepoDailyAsync() {
+        runCopyRepoDaily();
+    }
+
+    private void runCopyRepoDaily() {
+        long startedAtMillis = System.currentTimeMillis();
         try {
             List<JsonNode> nodes = neuClient.loadItemJsons();
             for(var x : nodes){
@@ -70,7 +81,11 @@ public class SourceJobs {
                                 result.generatedCount(),
                                 result.skippedCount());
                     });
+            log.info("copyRepoDaily completed in {} ms", System.currentTimeMillis() - startedAtMillis);
         } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             throw new RuntimeException(e);
         }
     }

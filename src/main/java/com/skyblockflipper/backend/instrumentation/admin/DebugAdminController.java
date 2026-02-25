@@ -45,7 +45,7 @@ public class DebugAdminController {
         adminAccessGuard.validate(request);
         Instant triggeredAt = Instant.now();
         log.info("Manual debug trigger: copyRepoDaily from {}", request.getRemoteAddr());
-        sourceJobs.copyRepoDaily();
+        sourceJobs.copyRepoDailyAsync();
         lastCopyRepoTrigger.set(triggeredAt);
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "triggered");
