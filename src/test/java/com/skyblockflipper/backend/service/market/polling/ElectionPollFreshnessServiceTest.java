@@ -46,7 +46,7 @@ class ElectionPollFreshnessServiceTest {
     }
 
     @Test
-    void ensureRecentElectionPollFetchesAndSavesHashWhenStaleOrMissing() throws Exception {
+    void ensureRecentElectionPollFetchesAndSavesHashWhenMissing() throws Exception {
         DataSourceHashRepository repository = mock(DataSourceHashRepository.class);
         HypixelClient hypixelClient = mock(HypixelClient.class);
         JsonNode payload = objectMapper.readTree("""

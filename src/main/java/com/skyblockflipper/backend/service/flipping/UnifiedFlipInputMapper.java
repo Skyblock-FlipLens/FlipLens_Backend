@@ -241,6 +241,8 @@ public class UnifiedFlipInputMapper {
         private long lowestStartingBid = Long.MAX_VALUE;
         private long highestObservedBid = 0L;
         private final List<Long> activeBinPrices = new ArrayList<>();
+        private List<Long> sortedActiveBinPrices = List.of();
+        private boolean sortedPricesDirty = false;
         private long observedPriceSum = 0L;
         private int sampleSize = 0;
 
@@ -257,6 +259,7 @@ public class UnifiedFlipInputMapper {
             }
             observedPriceSum += startingBid;
             sampleSize++;
+            sortedPricesDirty = true;
         }
 
         private long secondLowestStartingBid() {
@@ -296,9 +299,14 @@ public class UnifiedFlipInputMapper {
             if (activeBinPrices.isEmpty()) {
                 return List.of();
             }
+            if (!sortedPricesDirty) {
+                return sortedActiveBinPrices;
+            }
             List<Long> sorted = new ArrayList<>(activeBinPrices);
             Collections.sort(sorted);
-            return sorted;
+            sortedActiveBinPrices = sorted;
+            sortedPricesDirty = false;
+            return sortedActiveBinPrices;
         }
     }
 
