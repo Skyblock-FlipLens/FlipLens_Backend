@@ -38,8 +38,11 @@ class UnifiedFlipInputMapperTest {
         UnifiedFlipInputSnapshot.AuctionQuote diamondQuote = input.auctionQuotesByItem().get("ENCHANTED_DIAMOND");
         assertNotNull(diamondQuote);
         assertEquals(80L, diamondQuote.lowestStartingBid());
-        assertEquals(120L, diamondQuote.highestObservedBid());
-        assertEquals(110.0, diamondQuote.averageObservedPrice());
+        assertEquals(100L, diamondQuote.secondLowestStartingBid());
+        assertEquals(100L, diamondQuote.highestObservedBid());
+        assertEquals(90.0, diamondQuote.averageObservedPrice());
+        assertEquals(80.0, diamondQuote.medianObservedPrice());
+        assertEquals(80.0, diamondQuote.p25ObservedPrice());
         assertEquals(2, diamondQuote.sampleSize());
     }
 
@@ -50,5 +53,25 @@ class UnifiedFlipInputMapperTest {
         assertNotNull(input.snapshotTimestamp());
         assertTrue(input.bazaarQuotes().isEmpty());
         assertTrue(input.auctionQuotesByItem().isEmpty());
+    }
+
+    @Test
+    void mapGroupsComparableAuctionItemsUsingInternalIdFromExtra() {
+        Instant timestamp = Instant.parse("2026-02-15T12:30:00Z");
+        List<AuctionMarketRecord> auctions = List.of(
+                new AuctionMarketRecord("a1", "[Lvl 1] Squid", "pet", "EPIC", 100_000L, 0L, 1L, 2L, false, true, null, "{\"internalname\":\"SQUID;1\"}"),
+                new AuctionMarketRecord("a2", "[Lvl 1] Squid ", "pet", "EPIC", 110_000L, 0L, 1L, 2L, false, true, null, "{\"internalname\":\"SQUID;1\"}")
+        );
+        MarketSnapshot snapshot = new MarketSnapshot(timestamp, auctions, Map.of());
+
+        UnifiedFlipInputSnapshot input = mapper.map(snapshot);
+
+        String expectedInternalId = "SQUID;1";
+        assertEquals(1, input.auctionQuotesByItem().size());
+        assertTrue(input.auctionQuotesByItem().containsKey(expectedInternalId));
+        UnifiedFlipInputSnapshot.AuctionQuote quote = input.auctionQuotesByItem().values().stream().findFirst().orElseThrow();
+        assertEquals(100_000L, quote.lowestStartingBid());
+        assertEquals(110_000L, quote.secondLowestStartingBid());
+        assertEquals(2, quote.sampleSize());
     }
 }

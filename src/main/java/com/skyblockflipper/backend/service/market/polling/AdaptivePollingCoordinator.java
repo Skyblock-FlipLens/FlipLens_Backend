@@ -39,6 +39,7 @@ public class AdaptivePollingCoordinator {
     private final MarketDataProcessingService marketDataProcessingService;
     private final FlipGenerationService flipGenerationService;
     private final CycleInstrumentationService cycleInstrumentationService;
+    private final ElectionPollFreshnessService electionPollFreshnessService;
     private final String apiUrl;
     private final String apiKey;
 
@@ -51,6 +52,7 @@ public class AdaptivePollingCoordinator {
                                       MarketDataProcessingService marketDataProcessingService,
                                       FlipGenerationService flipGenerationService,
                                       CycleInstrumentationService cycleInstrumentationService,
+                                      ElectionPollFreshnessService electionPollFreshnessService,
                                       @Value("${config.hypixel.api-url}") String apiUrl,
                                       @Value("${config.hypixel.api-key:}") String apiKey) {
         this.adaptivePollingProperties = adaptivePollingProperties;
@@ -59,6 +61,7 @@ public class AdaptivePollingCoordinator {
         this.marketDataProcessingService = marketDataProcessingService;
         this.flipGenerationService = flipGenerationService;
         this.cycleInstrumentationService = cycleInstrumentationService;
+        this.electionPollFreshnessService = electionPollFreshnessService;
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
     }
@@ -194,6 +197,7 @@ public class AdaptivePollingCoordinator {
         boolean success = false;
         long totalStart = cycleInstrumentationService.startPhase();
         try {
+            electionPollFreshnessService.ensureRecentElectionPoll();
             processor.run();
             success = true;
         } catch (RuntimeException e) {

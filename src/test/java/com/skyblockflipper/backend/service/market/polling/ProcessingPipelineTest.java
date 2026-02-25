@@ -40,7 +40,10 @@ class ProcessingPipelineTest {
             assertFalse(pipeline.submit("third"));
 
             unblock.countDown();
-            waitFor(() -> processed.get() == 2, Duration.ofSeconds(2));
+            waitFor(() -> processed.get() >= 2
+                    && meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", "bazaar").count() >= 2.0
+                    && meterRegistry.counter("skyblock.adaptive.processing_dropped", "endpoint", "bazaar").count() >= 1.0,
+                    Duration.ofSeconds(2));
 
             assertEquals(1.0, meterRegistry.counter("skyblock.adaptive.processing_dropped", "endpoint", "bazaar").count());
             assertEquals(2.0, meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", "bazaar").count());
@@ -73,7 +76,10 @@ class ProcessingPipelineTest {
             assertTrue(pipeline.submit("third"));
 
             unblock.countDown();
-            waitFor(() -> processed.size() >= 2, Duration.ofSeconds(2));
+            waitFor(() -> processed.size() >= 2
+                    && meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", "auctions").count() >= 2.0
+                    && meterRegistry.counter("skyblock.adaptive.processing_dropped", "endpoint", "auctions").count() >= 1.0,
+                    Duration.ofSeconds(2));
 
             assertEquals("first", processed.getFirst());
             assertEquals("third", processed.get(1));
@@ -96,7 +102,9 @@ class ProcessingPipelineTest {
                 }
         )) {
             assertTrue(pipeline.submit("x"));
-            waitFor(() -> meterRegistry.counter("skyblock.adaptive.processing_error", "endpoint", "errors").count() >= 1.0, Duration.ofSeconds(2));
+            waitFor(() -> meterRegistry.counter("skyblock.adaptive.processing_error", "endpoint", "errors").count() >= 1.0
+                    && meterRegistry.summary("skyblock.adaptive.processing_duration_ms", "endpoint", "errors").count() >= 1L,
+                    Duration.ofSeconds(2));
 
             assertEquals(1.0, meterRegistry.counter("skyblock.adaptive.processing_error", "endpoint", "errors").count());
             assertEquals(0.0, meterRegistry.counter("skyblock.adaptive.processing_success", "endpoint", "errors").count());
