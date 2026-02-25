@@ -34,6 +34,7 @@ public class UnifiedFlipStorageService {
     private final FlipCalculationContextService flipCalculationContextService;
     private final FlipStorageProperties flipStorageProperties;
     private final ObjectMapper objectMapper;
+    private final Object persistLock = new Object();
 
     public UnifiedFlipStorageService(FlipDefinitionRepository flipDefinitionRepository,
                                      FlipCurrentRepository flipCurrentRepository,
@@ -106,101 +107,105 @@ public class UnifiedFlipStorageService {
 
         List<ComputedFlip> computedFlips = new ArrayList<>(computedFlipsByKey.values());
         List<String> flipKeys = new ArrayList<>(computedFlipsByKey.keySet());
-        Map<String, FlipDefinitionEntity> definitionsByKey = toMap(flipDefinitionRepository.findAllById(flipKeys));
-        Map<String, FlipCurrentEntity> currentByKey = toMapCurrent(flipCurrentRepository.findAllById(flipKeys));
-        Map<String, FlipTrendSegmentEntity> latestSegmentsByKey = latestSegmentsByFlipKey(flipKeys);
+        synchronized (persistLock) {
+            // Keep read/modify/write atomic per JVM instance so parallel poller pipelines
+            // cannot race inserting the same flip_key into flip_definition/flip_current.
+            Map<String, FlipDefinitionEntity> definitionsByKey = toMap(flipDefinitionRepository.findAllById(flipKeys));
+            Map<String, FlipCurrentEntity> currentByKey = toMapCurrent(flipCurrentRepository.findAllById(flipKeys));
+            Map<String, FlipTrendSegmentEntity> latestSegmentsByKey = latestSegmentsByFlipKey(flipKeys);
 
-        long now = System.currentTimeMillis();
-        List<FlipDefinitionEntity> definitionsToSave = new ArrayList<>(computedFlips.size());
-        List<FlipCurrentEntity> currentToSave = new ArrayList<>(computedFlips.size());
-        List<FlipTrendSegmentEntity> segmentsToSave = new ArrayList<>();
+            long now = System.currentTimeMillis();
+            List<FlipDefinitionEntity> definitionsToSave = new ArrayList<>(computedFlips.size());
+            List<FlipCurrentEntity> currentToSave = new ArrayList<>(computedFlips.size());
+            List<FlipTrendSegmentEntity> segmentsToSave = new ArrayList<>();
 
-        for (ComputedFlip computedFlip : computedFlips) {
-            FlipIdentityService.Identity identity = computedFlip.identity();
-            UnifiedFlipDto dto = computedFlip.dto();
-            String flipKey = identity.flipKey();
-            FlipCurrentEntity current = currentByKey.get(flipKey);
-            FlipTrendSegmentEntity latestSegment = latestSegmentsByKey.get(flipKey);
+            for (ComputedFlip computedFlip : computedFlips) {
+                FlipIdentityService.Identity identity = computedFlip.identity();
+                UnifiedFlipDto dto = computedFlip.dto();
+                String flipKey = identity.flipKey();
+                FlipCurrentEntity current = currentByKey.get(flipKey);
+                FlipTrendSegmentEntity latestSegment = latestSegmentsByKey.get(flipKey);
 
-            if (current != null && current.getSnapshotTimestampEpochMillis() >= snapshotEpochMillis) {
-                // Monotonic write guard: ignore stale/same snapshot updates.
-                continue;
-            }
-            if (latestSegment != null) {
-                long latestKnownSnapshot = Math.max(
-                        latestSegment.getValidFromSnapshotEpochMillis(),
-                        latestSegment.getValidToSnapshotEpochMillis()
-                );
-                if (latestKnownSnapshot >= snapshotEpochMillis) {
-                    // Monotonic write guard for trend history.
+                if (current != null && current.getSnapshotTimestampEpochMillis() >= snapshotEpochMillis) {
+                    // Monotonic write guard: ignore stale/same snapshot updates.
                     continue;
+                }
+                if (latestSegment != null) {
+                    long latestKnownSnapshot = Math.max(
+                            latestSegment.getValidFromSnapshotEpochMillis(),
+                            latestSegment.getValidToSnapshotEpochMillis()
+                    );
+                    if (latestKnownSnapshot >= snapshotEpochMillis) {
+                        // Monotonic write guard for trend history.
+                        continue;
+                    }
+                }
+
+                FlipDefinitionEntity definition = definitionsByKey.get(flipKey);
+                if (definition == null) {
+                    definition = new FlipDefinitionEntity();
+                    definition.setFlipKey(flipKey);
+                    definition.setCreatedAtEpochMillis(now);
+                }
+                definition.setStableFlipId(identity.stableFlipId());
+                definition.setFlipType(identity.flipType());
+                definition.setResultItemId(identity.resultItemId());
+                definition.setStepsJson(identity.stepsJson());
+                definition.setConstraintsJson(identity.constraintsJson());
+                definition.setKeyVersion(identity.keyVersion());
+                definition.setUpdatedAtEpochMillis(now);
+                definitionsToSave.add(definition);
+
+                if (current == null) {
+                    current = new FlipCurrentEntity();
+                    current.setFlipKey(flipKey);
+                }
+                current.setStableFlipId(identity.stableFlipId());
+                current.setFlipType(identity.flipType());
+                current.setSnapshotTimestampEpochMillis(snapshotEpochMillis);
+                current.setRequiredCapital(dto.requiredCapital());
+                current.setExpectedProfit(dto.expectedProfit());
+                current.setRoi(dto.roi());
+                current.setRoiPerHour(dto.roiPerHour());
+                current.setDurationSeconds(dto.durationSeconds());
+                current.setFees(dto.fees());
+                current.setLiquidityScore(dto.liquidityScore());
+                current.setRiskScore(dto.riskScore());
+                current.setPartial(dto.partial());
+                current.setPartialReasonsJson(writeJson(dto.partialReasons()));
+                current.setUpdatedAtEpochMillis(now);
+                currentToSave.add(current);
+
+                if (latestSegment != null && shouldExtendSegment(latestSegment, dto)) {
+                    latestSegment.setValidToSnapshotEpochMillis(snapshotEpochMillis);
+                    latestSegment.setSampleCount(Math.max(1, latestSegment.getSampleCount()) + 1);
+                    latestSegment.setUpdatedAtEpochMillis(now);
+                    segmentsToSave.add(latestSegment);
+                } else {
+                    FlipTrendSegmentEntity newSegment = new FlipTrendSegmentEntity();
+                    newSegment.setFlipKey(flipKey);
+                    newSegment.setValidFromSnapshotEpochMillis(snapshotEpochMillis);
+                    newSegment.setValidToSnapshotEpochMillis(snapshotEpochMillis);
+                    newSegment.setRequiredCapital(dto.requiredCapital());
+                    newSegment.setExpectedProfit(dto.expectedProfit());
+                    newSegment.setRoi(dto.roi());
+                    newSegment.setRoiPerHour(dto.roiPerHour());
+                    newSegment.setDurationSeconds(dto.durationSeconds());
+                    newSegment.setFees(dto.fees());
+                    newSegment.setLiquidityScore(dto.liquidityScore());
+                    newSegment.setRiskScore(dto.riskScore());
+                    newSegment.setPartial(dto.partial());
+                    newSegment.setSampleCount(1);
+                    newSegment.setCreatedAtEpochMillis(now);
+                    newSegment.setUpdatedAtEpochMillis(now);
+                    segmentsToSave.add(newSegment);
                 }
             }
 
-            FlipDefinitionEntity definition = definitionsByKey.get(flipKey);
-            if (definition == null) {
-                definition = new FlipDefinitionEntity();
-                definition.setFlipKey(flipKey);
-                definition.setCreatedAtEpochMillis(now);
-            }
-            definition.setStableFlipId(identity.stableFlipId());
-            definition.setFlipType(identity.flipType());
-            definition.setResultItemId(identity.resultItemId());
-            definition.setStepsJson(identity.stepsJson());
-            definition.setConstraintsJson(identity.constraintsJson());
-            definition.setKeyVersion(identity.keyVersion());
-            definition.setUpdatedAtEpochMillis(now);
-            definitionsToSave.add(definition);
-
-            if (current == null) {
-                current = new FlipCurrentEntity();
-                current.setFlipKey(flipKey);
-            }
-            current.setStableFlipId(identity.stableFlipId());
-            current.setFlipType(identity.flipType());
-            current.setSnapshotTimestampEpochMillis(snapshotEpochMillis);
-            current.setRequiredCapital(dto.requiredCapital());
-            current.setExpectedProfit(dto.expectedProfit());
-            current.setRoi(dto.roi());
-            current.setRoiPerHour(dto.roiPerHour());
-            current.setDurationSeconds(dto.durationSeconds());
-            current.setFees(dto.fees());
-            current.setLiquidityScore(dto.liquidityScore());
-            current.setRiskScore(dto.riskScore());
-            current.setPartial(dto.partial());
-            current.setPartialReasonsJson(writeJson(dto.partialReasons()));
-            current.setUpdatedAtEpochMillis(now);
-            currentToSave.add(current);
-
-            if (latestSegment != null && shouldExtendSegment(latestSegment, dto)) {
-                latestSegment.setValidToSnapshotEpochMillis(snapshotEpochMillis);
-                latestSegment.setSampleCount(Math.max(1, latestSegment.getSampleCount()) + 1);
-                latestSegment.setUpdatedAtEpochMillis(now);
-                segmentsToSave.add(latestSegment);
-            } else {
-                FlipTrendSegmentEntity newSegment = new FlipTrendSegmentEntity();
-                newSegment.setFlipKey(flipKey);
-                newSegment.setValidFromSnapshotEpochMillis(snapshotEpochMillis);
-                newSegment.setValidToSnapshotEpochMillis(snapshotEpochMillis);
-                newSegment.setRequiredCapital(dto.requiredCapital());
-                newSegment.setExpectedProfit(dto.expectedProfit());
-                newSegment.setRoi(dto.roi());
-                newSegment.setRoiPerHour(dto.roiPerHour());
-                newSegment.setDurationSeconds(dto.durationSeconds());
-                newSegment.setFees(dto.fees());
-                newSegment.setLiquidityScore(dto.liquidityScore());
-                newSegment.setRiskScore(dto.riskScore());
-                newSegment.setPartial(dto.partial());
-                newSegment.setSampleCount(1);
-                newSegment.setCreatedAtEpochMillis(now);
-                newSegment.setUpdatedAtEpochMillis(now);
-                segmentsToSave.add(newSegment);
-            }
+            flipDefinitionRepository.saveAll(definitionsToSave);
+            flipCurrentRepository.saveAll(currentToSave);
+            flipTrendSegmentRepository.saveAll(segmentsToSave);
         }
-
-        flipDefinitionRepository.saveAll(definitionsToSave);
-        flipCurrentRepository.saveAll(currentToSave);
-        flipTrendSegmentRepository.saveAll(segmentsToSave);
     }
 
     private Map<String, FlipDefinitionEntity> toMap(List<FlipDefinitionEntity> entities) {
