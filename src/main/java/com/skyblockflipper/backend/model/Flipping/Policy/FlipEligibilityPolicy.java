@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component;
 public class FlipEligibilityPolicy {
 
     private static final double MIN_BAZAAR_EDGE_RATIO = 1.015D;
-    private static final double MIN_AUCTION_EDGE_RATIO = 1.05D;
-    private static final int MIN_AUCTION_SAMPLE_SIZE = 3;
+    private static final double MIN_AUCTION_EDGE_RATIO = 1.10D;
+    private static final int MIN_AUCTION_SAMPLE_SIZE = 10;
 
     public boolean isBazaarFlipEligible(UnifiedFlipInputSnapshot.BazaarQuote quote) {
         if (quote == null) {
@@ -24,12 +24,36 @@ public class FlipEligibilityPolicy {
         if (quote == null) {
             return false;
         }
-        if (quote.lowestStartingBid() <= 0L || quote.averageObservedPrice() <= 0D) {
+        if (quote.lowestStartingBid() <= 0L) {
             return false;
         }
         if (quote.sampleSize() < MIN_AUCTION_SAMPLE_SIZE) {
             return false;
         }
-        return (quote.averageObservedPrice() / quote.lowestStartingBid()) >= MIN_AUCTION_EDGE_RATIO;
+        double conservativeSellAnchor = resolveConservativeSellAnchor(quote);
+        if (conservativeSellAnchor <= 0D) {
+            return false;
+        }
+        return (conservativeSellAnchor / quote.lowestStartingBid()) >= MIN_AUCTION_EDGE_RATIO;
+    }
+
+    private double resolveConservativeSellAnchor(UnifiedFlipInputSnapshot.AuctionQuote quote) {
+        double anchor = Double.MAX_VALUE;
+        if (quote.p25ObservedPrice() > 0D) {
+            anchor = Math.min(anchor, quote.p25ObservedPrice());
+        }
+        if (quote.secondLowestStartingBid() > 0L) {
+            anchor = Math.min(anchor, quote.secondLowestStartingBid());
+        }
+        if (anchor != Double.MAX_VALUE) {
+            return anchor;
+        }
+        if (quote.medianObservedPrice() > 0D) {
+            return quote.medianObservedPrice() * 0.97D;
+        }
+        if (quote.averageObservedPrice() > 0D) {
+            return quote.averageObservedPrice() * 0.95D;
+        }
+        return 0D;
     }
 }

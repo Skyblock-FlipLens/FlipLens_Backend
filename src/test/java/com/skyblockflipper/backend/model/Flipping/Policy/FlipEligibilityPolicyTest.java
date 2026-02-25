@@ -23,13 +23,13 @@ class FlipEligibilityPolicyTest {
     @Test
     void auctionEligibilityChecksSampleSizeAndEdge() {
         assertTrue(policy.isAuctionFlipEligible(new UnifiedFlipInputSnapshot.AuctionQuote(
-                1_000_000L, 1_500_000L, 1_100_000D, 3
+                1_000_000L, 1_250_000L, 1_400_000L, 1_300_000D, 1_260_000D, 1_150_000D, 12
         )));
         assertFalse(policy.isAuctionFlipEligible(new UnifiedFlipInputSnapshot.AuctionQuote(
-                1_000_000L, 1_500_000L, 1_100_000D, 2
+                1_000_000L, 1_250_000L, 1_400_000L, 1_300_000D, 1_260_000D, 1_150_000D, 9
         )));
         assertFalse(policy.isAuctionFlipEligible(new UnifiedFlipInputSnapshot.AuctionQuote(
-                1_000_000L, 1_500_000L, 1_020_000D, 5
+                1_000_000L, 1_100_000L, 1_150_000L, 1_090_000D, 1_080_000D, 1_050_000D, 15
         )));
     }
 }

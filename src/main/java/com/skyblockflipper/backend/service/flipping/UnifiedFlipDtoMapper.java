@@ -475,8 +475,8 @@ public class UnifiedFlipDtoMapper {
         UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote = snapshot.bazaarQuotes().get(itemId);
         UnifiedFlipInputSnapshot.AuctionQuote auctionQuote = snapshot.auctionQuotesByItem().get(itemId);
         boolean hasBazaar = bazaarQuote != null && bazaarQuote.sellPrice() > 0;
-        boolean hasAuctionAverage = auctionQuote != null && auctionQuote.averageObservedPrice() > 0;
-        boolean hasAuctionHighest = auctionQuote != null && auctionQuote.highestObservedBid() > 0;
+        double conservativeAuctionSellPrice = resolveConservativeAuctionSellUnitPrice(auctionQuote);
+        boolean hasConservativeAuctionSellPrice = conservativeAuctionSellPrice > 0D;
 
         if (parsed.marketPreference() == MarketPreference.BAZAAR) {
             if (hasBazaar) {
@@ -487,11 +487,8 @@ public class UnifiedFlipDtoMapper {
         }
 
         if (parsed.marketPreference() == MarketPreference.AUCTION) {
-            if (hasAuctionAverage) {
-                return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
-            }
-            if (hasAuctionHighest) {
-                return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
+            if (hasConservativeAuctionSellPrice) {
+                return new PriceQuote(itemId, conservativeAuctionSellPrice, MarketSource.AUCTION, null, auctionQuote);
             }
             partialReasons.add("MISSING_OUTPUT_PRICE_AUCTION:" + itemId);
             return null;
@@ -500,11 +497,8 @@ public class UnifiedFlipDtoMapper {
         if (hasBazaar) {
             return new PriceQuote(itemId, bazaarQuote.sellPrice(), MarketSource.BAZAAR, bazaarQuote, null);
         }
-        if (hasAuctionAverage) {
-            return new PriceQuote(itemId, auctionQuote.averageObservedPrice(), MarketSource.AUCTION, null, auctionQuote);
-        }
-        if (hasAuctionHighest) {
-            return new PriceQuote(itemId, auctionQuote.highestObservedBid(), MarketSource.AUCTION, null, auctionQuote);
+        if (hasConservativeAuctionSellPrice) {
+            return new PriceQuote(itemId, conservativeAuctionSellPrice, MarketSource.AUCTION, null, auctionQuote);
         }
 
         partialReasons.add("MISSING_OUTPUT_PRICE:" + itemId);
@@ -549,9 +543,15 @@ public class UnifiedFlipDtoMapper {
 
         if (quote.source() == MarketSource.AUCTION && quote.auctionQuote() != null) {
             UnifiedFlipInputSnapshot.AuctionQuote auction = quote.auctionQuote();
-            double sampleLiquidity = clamp((double) auction.sampleSize() / 20D, 0D, 1D);
-            legLiquidityScores.add(sampleLiquidity * 100D);
-            legExecutionRiskScores.add((1D - sampleLiquidity) * 100D);
+            double sampleLiquidity = 1D - Math.exp(-(double) auction.sampleSize() / 12D);
+            double spreadRel = computeAuctionRelativeSpread(auction);
+            double spreadLiquidityFactor = 1D / (1D + (spreadRel / 0.05D));
+            double liquidityScore = clamp(sampleLiquidity * spreadLiquidityFactor * 100D, 0D, 100D);
+            legLiquidityScores.add(liquidityScore);
+
+            double sampleRisk = (1D - clamp(sampleLiquidity, 0D, 1D)) * 100D;
+            double spreadRisk = clamp01(spreadRel / 0.20D) * 100D;
+            legExecutionRiskScores.add((0.6D * sampleRisk) + (0.4D * spreadRisk));
             return auctionFillHours == null || auctionFillHours <= 0D
                     ? null
                     : clamp(auctionFillHours, 0D, MAX_TIME_FOR_SCORING_HOURS);
@@ -589,6 +589,40 @@ public class UnifiedFlipDtoMapper {
             return 1D;
         }
         return Math.max(0D, (high - low) / mid);
+    }
+
+    private double computeAuctionRelativeSpread(UnifiedFlipInputSnapshot.AuctionQuote quote) {
+        if (quote == null || quote.lowestStartingBid() <= 0L || quote.secondLowestStartingBid() <= 0L) {
+            return 1D;
+        }
+        double low = quote.lowestStartingBid();
+        double high = Math.max(low, quote.secondLowestStartingBid());
+        return Math.max(0D, (high - low) / low);
+    }
+
+    private double resolveConservativeAuctionSellUnitPrice(UnifiedFlipInputSnapshot.AuctionQuote quote) {
+        if (quote == null) {
+            return 0D;
+        }
+        if (quote.p25ObservedPrice() > 0D && quote.secondLowestStartingBid() > 0L) {
+            return Math.min(quote.p25ObservedPrice(), quote.secondLowestStartingBid());
+        }
+        if (quote.p25ObservedPrice() > 0D) {
+            return quote.p25ObservedPrice();
+        }
+        if (quote.secondLowestStartingBid() > 0L && quote.medianObservedPrice() > 0D) {
+            return Math.min(quote.secondLowestStartingBid(), quote.medianObservedPrice() * 0.97D);
+        }
+        if (quote.secondLowestStartingBid() > 0L) {
+            return quote.secondLowestStartingBid();
+        }
+        if (quote.medianObservedPrice() > 0D) {
+            return quote.medianObservedPrice() * 0.97D;
+        }
+        if (quote.averageObservedPrice() > 0D) {
+            return quote.averageObservedPrice() * 0.95D;
+        }
+        return quote.highestObservedBid() > 0L ? quote.highestObservedBid() : 0D;
     }
 
     private double computeFillTimeHours(UnifiedFlipInputSnapshot.BazaarQuote bazaarQuote,
