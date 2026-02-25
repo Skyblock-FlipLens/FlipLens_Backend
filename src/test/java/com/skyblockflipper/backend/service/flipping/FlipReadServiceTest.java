@@ -277,14 +277,24 @@ class FlipReadServiceTest {
         Flip flipA = mock(Flip.class);
         Flip flipB = mock(Flip.class);
         Flip flipC = mock(Flip.class);
+        UUID idA = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        UUID idB = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        UUID idC = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        when(flipA.getId()).thenReturn(idA);
+        when(flipB.getId()).thenReturn(idB);
+        when(flipC.getId()).thenReturn(idC);
 
-        when(flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotTimestamp.toEpochMilli(), Pageable.unpaged()))
-                .thenReturn(new PageImpl<>(List.of(flipA, flipB, flipC)));
+        stubLegacyPagedBySnapshot(
+                flipRepository,
+                snapshotTimestamp.toEpochMilli(),
+                List.of(idA, idB, idC),
+                List.of(flipA, flipB, flipC)
+        );
         when(contextService.loadContextAsOf(snapshotTimestamp)).thenReturn(context);
 
-        when(mapper.toDto(flipA, context)).thenReturn(sampleScoredDto(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), 95.0D, 10.0D, 2_000_000L));
-        when(mapper.toDto(flipB, context)).thenReturn(sampleScoredDto(UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), 80.0D, 50.0D, 1_000_000L));
-        when(mapper.toDto(flipC, context)).thenReturn(sampleScoredDto(UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc"), 92.0D, 12.0D, 3_000_000L));
+        when(mapper.toDto(flipA, context)).thenReturn(sampleScoredDto(idA, 95.0D, 10.0D, 2_000_000L));
+        when(mapper.toDto(flipB, context)).thenReturn(sampleScoredDto(idB, 80.0D, 50.0D, 1_000_000L));
+        when(mapper.toDto(flipC, context)).thenReturn(sampleScoredDto(idC, 92.0D, 12.0D, 3_000_000L));
 
         Page<UnifiedFlipDto> result = service.filterFlips(
                 null,
@@ -316,11 +326,14 @@ class FlipReadServiceTest {
 
         Flip flipA = mock(Flip.class);
         Flip flipB = mock(Flip.class);
-        when(flipRepository.findAllByFlipType(FlipType.AUCTION, Pageable.unpaged()))
-                .thenReturn(new PageImpl<>(List.of(flipA, flipB)));
+        UUID idA = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        UUID idB = UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        when(flipA.getId()).thenReturn(idA);
+        when(flipB.getId()).thenReturn(idB);
+        stubLegacyPagedByType(flipRepository, FlipType.AUCTION, List.of(idA, idB), List.of(flipA, flipB));
         when(contextService.loadCurrentContext()).thenReturn(context);
-        when(mapper.toDto(flipA, context)).thenReturn(sampleScoredDto(UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd"), 70.0D, 15.0D, 1_500_000L));
-        when(mapper.toDto(flipB, context)).thenReturn(sampleScoredDto(UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), 90.0D, 25.0D, 1_500_000L));
+        when(mapper.toDto(flipA, context)).thenReturn(sampleScoredDto(idA, 70.0D, 15.0D, 1_500_000L));
+        when(mapper.toDto(flipB, context)).thenReturn(sampleScoredDto(idB, 90.0D, 25.0D, 1_500_000L));
 
         Page<UnifiedFlipDto> result = service.topLiquidityFlips(FlipType.AUCTION, null, PageRequest.of(0, 10));
 
@@ -339,11 +352,14 @@ class FlipReadServiceTest {
 
         Flip flipA = mock(Flip.class);
         Flip flipB = mock(Flip.class);
-        when(flipRepository.findAllByFlipType(FlipType.BAZAAR, Pageable.unpaged()))
-                .thenReturn(new PageImpl<>(List.of(flipA, flipB)));
+        UUID idA = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        UUID idB = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        when(flipA.getId()).thenReturn(idA);
+        when(flipB.getId()).thenReturn(idB);
+        stubLegacyPagedByType(flipRepository, FlipType.BAZAAR, List.of(idA, idB), List.of(flipA, flipB));
         when(contextService.loadCurrentContext()).thenReturn(context);
-        when(mapper.toDto(flipA, context)).thenReturn(sampleScoredDto(UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"), 60.0D, 8.0D, 1_500_000L));
-        when(mapper.toDto(flipB, context)).thenReturn(sampleScoredDto(UUID.fromString("99999999-9999-9999-9999-999999999999"), 95.0D, 4.0D, 1_500_000L));
+        when(mapper.toDto(flipA, context)).thenReturn(sampleScoredDto(idA, 60.0D, 8.0D, 1_500_000L));
+        when(mapper.toDto(flipB, context)).thenReturn(sampleScoredDto(idB, 95.0D, 4.0D, 1_500_000L));
 
         Page<UnifiedFlipDto> result = service.lowestRiskFlips(FlipType.BAZAAR, null, PageRequest.of(0, 10));
 
@@ -920,15 +936,19 @@ class FlipReadServiceTest {
 
         Flip inflatedMissingInput = mock(Flip.class);
         Flip actionable = mock(Flip.class);
-        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(inflatedMissingInput, actionable)));
+        UUID inflatedId = UUID.fromString("60606060-6060-6060-6060-606060606060");
+        UUID actionableId = UUID.fromString("70707070-7070-7070-7070-707070707070");
+        when(inflatedMissingInput.getId()).thenReturn(inflatedId);
+        when(actionable.getId()).thenReturn(actionableId);
+        stubLegacyPagedAll(flipRepository, List.of(inflatedId, actionableId), List.of(inflatedMissingInput, actionable));
         when(contextService.loadCurrentContext()).thenReturn(context);
 
         when(mapper.toDto(inflatedMissingInput, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("60606060-6060-6060-6060-606060606060"),
+                inflatedId,
                 2000.0D, 200_000_000L, 90.0D, 10.0D, true, List.of("MISSING_INPUT_PRICE_AUCTION:METAL_HEART")
         ));
         when(mapper.toDto(actionable, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("70707070-7070-7070-7070-707070707070"),
+                actionableId,
                 2.0D, 2_000_000L, 70.0D, 25.0D, false, List.of()
         ));
 
@@ -961,15 +981,19 @@ class FlipReadServiceTest {
 
         Flip shallowInputFlip = mock(Flip.class);
         Flip actionable = mock(Flip.class);
-        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(shallowInputFlip, actionable)));
+        UUID shallowId = UUID.fromString("71717171-7171-7171-7171-717171717171");
+        UUID actionableId = UUID.fromString("72727272-7272-7272-7272-727272727272");
+        when(shallowInputFlip.getId()).thenReturn(shallowId);
+        when(actionable.getId()).thenReturn(actionableId);
+        stubLegacyPagedAll(flipRepository, List.of(shallowId, actionableId), List.of(shallowInputFlip, actionable));
         when(contextService.loadCurrentContext()).thenReturn(context);
 
         when(mapper.toDto(shallowInputFlip, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("71717171-7171-7171-7171-717171717171"),
+                shallowId,
                 25.0D, 25_000_000L, 85.0D, 15.0D, true, List.of("INSUFFICIENT_INPUT_DEPTH:DEPTH_ITEM")
         ));
         when(mapper.toDto(actionable, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("72727272-7272-7272-7272-727272727272"),
+                actionableId,
                 2.0D, 1_500_000L, 70.0D, 25.0D, false, List.of()
         ));
 
@@ -1046,15 +1070,19 @@ class FlipReadServiceTest {
 
         Flip lowConfidence = mock(Flip.class);
         Flip good = mock(Flip.class);
-        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(lowConfidence, good)));
+        UUID lowConfidenceId = UUID.fromString("75757575-7575-7575-7575-757575757575");
+        UUID goodId = UUID.fromString("76767676-7676-7676-7676-767676767676");
+        when(lowConfidence.getId()).thenReturn(lowConfidenceId);
+        when(good.getId()).thenReturn(goodId);
+        stubLegacyPagedAll(flipRepository, List.of(lowConfidenceId, goodId), List.of(lowConfidence, good));
         when(contextService.loadCurrentContext()).thenReturn(context);
 
         when(mapper.toDto(lowConfidence, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("75757575-7575-7575-7575-757575757575"),
+                lowConfidenceId,
                 2.0D, 2_000_000L, 70.0D, 25.0D, true, List.of("INSUFFICIENT_OUTPUT_DEPTH:ITEM")
         ));
         when(mapper.toDto(good, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("76767676-7676-7676-7676-767676767676"),
+                goodId,
                 2.0D, 2_000_000L, 70.0D, 25.0D, false, List.of()
         ));
 

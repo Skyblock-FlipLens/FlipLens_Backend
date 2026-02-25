@@ -170,6 +170,22 @@ public class FlipReadService {
             );
             return hydrateCurrentUnifiedPage(paginateUnified(ranked, pageable));
         }
+        if (!useOnDemandSnapshot(snapshotTimestamp) && pageable != null && pageable.isPaged()) {
+            return filterLegacyPaged(
+                    flipType,
+                    snapshotTimestamp,
+                    minLiquidityScore,
+                    maxRiskScore,
+                    minExpectedProfit,
+                    minRoi,
+                    minRoiPerHour,
+                    maxRequiredCapital,
+                    partial,
+                    sortBy,
+                    sortDirection,
+                    pageable
+            );
+        }
 
         List<UnifiedFlipDto> mapped = filterFlipsAsList(
                 flipType,
@@ -662,6 +678,72 @@ public class FlipReadService {
         List<Flip> fetched = new ArrayList<>(flipRepository.findAllByIdInWithDetails(ids));
         fetched.sort(Comparator.comparingInt(flip -> orderById.getOrDefault(flip.getId(), Integer.MAX_VALUE)));
         return new PageImpl<>(fetched, pageable, idPage.getTotalElements());
+    }
+
+    private Page<UnifiedFlipDto> filterLegacyPaged(FlipType flipType,
+                                                   Instant snapshotTimestamp,
+                                                   Double minLiquidityScore,
+                                                   Double maxRiskScore,
+                                                   Long minExpectedProfit,
+                                                   Double minRoi,
+                                                   Double minRoiPerHour,
+                                                   Long maxRequiredCapital,
+                                                   Boolean partial,
+                                                   FlipSortBy sortBy,
+                                                   Sort.Direction sortDirection,
+                                                   Pageable pageable) {
+        Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
+        FlipCalculationContext context = snapshotEpochMillis == null
+                ? flipCalculationContextService.loadCurrentContext()
+                : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
+
+        Comparator<UnifiedFlipDto> rankingOrder = comparatorFor(
+                sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy,
+                sortDirection == null ? Sort.Direction.DESC : sortDirection
+        );
+        int requiredEntries = requiredRankingEntries(pageable);
+        PriorityQueue<UnifiedFlipDto> top = new PriorityQueue<>(requiredEntries, rankingOrder.reversed());
+        long totalMatched = 0L;
+
+        Page<Flip> page = queryFlips(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
+        while (true) {
+            for (Flip flip : page.getContent()) {
+                UnifiedFlipDto dto = unifiedFlipDtoMapper.toDto(flip, context);
+                if (!matchesFilters(
+                        dto,
+                        minLiquidityScore,
+                        maxRiskScore,
+                        minExpectedProfit,
+                        minRoi,
+                        minRoiPerHour,
+                        maxRequiredCapital,
+                        partial
+                )) {
+                    continue;
+                }
+                totalMatched++;
+                if (top.size() < requiredEntries) {
+                    top.offer(dto);
+                    continue;
+                }
+                UnifiedFlipDto worstTopEntry = top.peek();
+                if (worstTopEntry != null && rankingOrder.compare(dto, worstTopEntry) < 0) {
+                    top.poll();
+                    top.offer(dto);
+                }
+            }
+            if (!page.hasNext()) {
+                break;
+            }
+            page = queryFlips(flipType, snapshotEpochMillis, page.nextPageable());
+        }
+
+        List<UnifiedFlipDto> ranked = new ArrayList<>(top);
+        ranked.sort(rankingOrder);
+        int fromIndex = (int) Math.min(pageable.getOffset(), ranked.size());
+        int toIndex = Math.min(fromIndex + pageable.getPageSize(), ranked.size());
+        List<UnifiedFlipDto> pageContent = ranked.subList(fromIndex, toIndex);
+        return new PageImpl<>(pageContent, pageable, totalMatched);
     }
 
     private Page<UUID> queryFlipIds(FlipType flipType, Long snapshotEpochMillis, Pageable pageable) {
