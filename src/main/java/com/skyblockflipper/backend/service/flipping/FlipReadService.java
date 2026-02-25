@@ -38,6 +38,8 @@ public class FlipReadService {
     private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
     private static final int LEGACY_READ_PAGE_SIZE = 500;
     private static final int TOP_QUEUE_INITIAL_CAP = 10_000;
+    private static final int MAX_RANKING_ENTRIES = 10_000;
+    private static final int MAX_TOP_N = 10_000;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
     private static final String INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_INPUT_DEPTH";
     private static final String MISSING_OUTPUT_PRICE_REASON_PREFIX = "MISSING_OUTPUT_PRICE";
@@ -157,6 +159,24 @@ public class FlipReadService {
                                             Sort.Direction sortDirection,
                                             Pageable pageable) {
         if (useCurrentStorage(snapshotTimestamp)) {
+            if (pageable != null && pageable.isPaged() && !flippingModelProperties.isRecommendationGatesEnabled()) {
+                Pageable sqlPageable = OffsetLimitPageRequest.of(
+                        Math.max(0L, pageable.getOffset()),
+                        Math.max(1, pageable.getPageSize()),
+                        currentStorageSort(sortBy, sortDirection)
+                );
+                return unifiedFlipCurrentReadService.listCurrentFilteredPage(
+                        flipType,
+                        minLiquidityScore,
+                        maxRiskScore,
+                        minExpectedProfit,
+                        minRoi,
+                        minRoiPerHour,
+                        maxRequiredCapital,
+                        partial,
+                        sqlPageable
+                );
+            }
             List<UnifiedFlipDto> ranked = applyFiltersAndSort(
                     unifiedFlipCurrentReadService.listCurrentScoringDtos(flipType),
                     minLiquidityScore,
@@ -214,8 +234,26 @@ public class FlipReadService {
                                          Long maxRequiredCapital,
                                          Boolean partial,
                                          int limit) {
-        int safeLimit = Math.max(1, limit);
+        int safeLimit = sanitizeTopLimit(limit);
         if (useCurrentStorage(snapshotTimestamp)) {
+            if (!flippingModelProperties.isRecommendationGatesEnabled()) {
+                Pageable sqlPageable = OffsetLimitPageRequest.of(
+                        0L,
+                        safeLimit,
+                        currentStorageSort(FlipSortBy.EXPECTED_PROFIT, Sort.Direction.DESC)
+                );
+                return unifiedFlipCurrentReadService.listCurrentFilteredPage(
+                        flipType,
+                        minLiquidityScore,
+                        maxRiskScore,
+                        minExpectedProfit,
+                        minRoi,
+                        minRoiPerHour,
+                        maxRequiredCapital,
+                        partial,
+                        sqlPageable
+                ).getContent();
+            }
             List<UnifiedFlipDto> ranked = applyFiltersAndSort(
                     unifiedFlipCurrentReadService.listCurrentScoringDtos(flipType),
                     minLiquidityScore,
@@ -927,7 +965,7 @@ public class FlipReadService {
     private CachedGoodnessRanking computeBoundedGoodnessRanking(FlipType flipType,
                                                                 Long snapshotEpochMillis,
                                                                 int maxEntries) {
-        int safeMaxEntries = Math.max(1, maxEntries);
+        int safeMaxEntries = sanitizeRankingEntries(maxEntries);
         FlipCalculationContext context = snapshotEpochMillis == null
                 ? flipCalculationContextService.loadCurrentContext()
                 : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
@@ -974,9 +1012,9 @@ public class FlipReadService {
             return GOODNESS_PAGE_SIZE;
         }
         if (required > Integer.MAX_VALUE) {
-            return Integer.MAX_VALUE;
+            return MAX_RANKING_ENTRIES;
         }
-        return (int) required;
+        return sanitizeRankingEntries((int) required);
     }
 
     private void trimGoodnessRankingCache() {
@@ -1125,13 +1163,14 @@ public class FlipReadService {
                                                 Long maxRequiredCapital,
                                                 Boolean partial,
                                                 int limit) {
+        int effectiveLimit = sanitizeTopLimit(limit);
         Long snapshotEpochMillis = resolveSnapshotEpochMillis(snapshotTimestamp);
         FlipCalculationContext context = snapshotEpochMillis == null
                 ? flipCalculationContextService.loadCurrentContext()
                 : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
 
         Comparator<UnifiedFlipDto> rankingOrder = comparatorFor(FlipSortBy.EXPECTED_PROFIT, Sort.Direction.DESC);
-        PriorityQueue<UnifiedFlipDto> top = new PriorityQueue<>(limit, rankingOrder.reversed());
+        PriorityQueue<UnifiedFlipDto> top = new PriorityQueue<>(effectiveLimit, rankingOrder.reversed());
 
         Page<Flip> page = queryFlips(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
         while (true) {
@@ -1149,7 +1188,7 @@ public class FlipReadService {
                 )) {
                     continue;
                 }
-                if (top.size() < limit) {
+                if (top.size() < effectiveLimit) {
                     top.offer(dto);
                     continue;
                 }
@@ -1168,6 +1207,23 @@ public class FlipReadService {
         List<UnifiedFlipDto> result = new ArrayList<>(top);
         result.sort(rankingOrder);
         return List.copyOf(result);
+    }
+
+    private int sanitizeRankingEntries(int requestedEntries) {
+        return Math.max(1, Math.min(requestedEntries, MAX_RANKING_ENTRIES));
+    }
+
+    private int sanitizeTopLimit(int requestedLimit) {
+        return Math.max(1, Math.min(requestedLimit, MAX_TOP_N));
+    }
+
+    private Sort currentStorageSort(FlipSortBy sortBy, Sort.Direction sortDirection) {
+        FlipSortBy resolvedSortBy = sortBy == null ? FlipSortBy.EXPECTED_PROFIT : sortBy;
+        Sort.Direction resolvedDirection = sortDirection == null ? Sort.Direction.DESC : sortDirection;
+        return Sort.by(
+                new Sort.Order(resolvedDirection, resolvedSortBy.toFieldName()),
+                new Sort.Order(Sort.Direction.ASC, "stableFlipId")
+        );
     }
 
     private boolean matchesFilters(UnifiedFlipDto dto,

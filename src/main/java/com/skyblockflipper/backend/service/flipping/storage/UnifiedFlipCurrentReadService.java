@@ -63,11 +63,60 @@ public class UnifiedFlipCurrentReadService {
         if (page.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, page.getTotalElements());
         }
-        List<UnifiedFlipDto> content = page.getContent().stream()
-                .map(row -> storedFlipDtoMapper.toDto(row.getCurrent(), row.getDefinition()))
-                .filter(Objects::nonNull)
-                .toList();
-        return new PageImpl<>(content, pageable, page.getTotalElements());
+        List<UnifiedFlipDto> content = new ArrayList<>(page.getNumberOfElements());
+        long filteredNulls = 0L;
+        for (FlipCurrentRepository.CurrentDefinitionProjection row : page.getContent()) {
+            UnifiedFlipDto dto = storedFlipDtoMapper.toDto(row.getCurrent(), row.getDefinition());
+            if (dto == null) {
+                filteredNulls++;
+                continue;
+            }
+            content.add(dto);
+        }
+        long correctedTotal = Math.max(0L, page.getTotalElements() - filteredNulls);
+        return new PageImpl<>(List.copyOf(content), pageable, correctedTotal);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<UnifiedFlipDto> listCurrentFilteredPage(FlipType flipType,
+                                                        Double minLiquidityScore,
+                                                        Double maxRiskScore,
+                                                        Long minExpectedProfit,
+                                                        Double minRoi,
+                                                        Double minRoiPerHour,
+                                                        Long maxRequiredCapital,
+                                                        Boolean partial,
+                                                        Pageable pageable) {
+        if (pageable == null || pageable.isUnpaged()) {
+            return new PageImpl<>(List.of());
+        }
+        Page<FlipCurrentRepository.CurrentDefinitionProjection> page = flipCurrentRepository.findFilteredWithDefinition(
+                flipType,
+                minLiquidityScore,
+                maxRiskScore,
+                minExpectedProfit,
+                minRoi,
+                minRoiPerHour,
+                maxRequiredCapital,
+                partial,
+                pageable
+        );
+        if (page.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, page.getTotalElements());
+        }
+
+        List<UnifiedFlipDto> content = new ArrayList<>(page.getNumberOfElements());
+        long filteredNulls = 0L;
+        for (FlipCurrentRepository.CurrentDefinitionProjection row : page.getContent()) {
+            UnifiedFlipDto dto = storedFlipDtoMapper.toDto(row.getCurrent(), row.getDefinition());
+            if (dto == null) {
+                filteredNulls++;
+                continue;
+            }
+            content.add(dto);
+        }
+        long correctedTotal = Math.max(0L, page.getTotalElements() - filteredNulls);
+        return new PageImpl<>(List.copyOf(content), pageable, correctedTotal);
     }
 
     @Transactional(readOnly = true)
@@ -119,7 +168,15 @@ public class UnifiedFlipCurrentReadService {
         if (stableFlipIds == null || stableFlipIds.isEmpty()) {
             return List.of();
         }
-        List<UUID> uniqueIds = new ArrayList<>(new LinkedHashSet<>(stableFlipIds));
+        List<UUID> uniqueIds = stableFlipIds.stream()
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.collectingAndThen(
+                        java.util.stream.Collectors.toCollection(LinkedHashSet::new),
+                        ArrayList::new
+                ));
+        if (uniqueIds.isEmpty()) {
+            return List.of();
+        }
         Map<UUID, UnifiedFlipDto> byStableId = new LinkedHashMap<>();
         for (FlipCurrentRepository.CurrentDefinitionProjection row
                 : flipCurrentRepository.findAllWithDefinitionByStableFlipIds(uniqueIds)) {

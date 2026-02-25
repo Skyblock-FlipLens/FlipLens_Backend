@@ -595,6 +595,41 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsWithHugeOffsetAndLimitKeepsTotalsAndBoundsPageSize() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        List<Flip> flips = new ArrayList<>();
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            flips.add(mock(Flip.class));
+            ids.add(UUID.fromString(String.format("%08d-0000-0000-0000-000000000000", i + 1)));
+        }
+        for (int i = 0; i < flips.size(); i++) {
+            when(flips.get(i).getId()).thenReturn(ids.get(i));
+        }
+        stubLegacyPagedAll(flipRepository, ids, flips);
+        when(contextService.loadCurrentContext()).thenReturn(context);
+        for (int i = 0; i < flips.size(); i++) {
+            Flip flip = flips.get(i);
+            long profit = i + 1L;
+            UUID id = ids.get(i);
+            when(mapper.toDto(flip, context)).thenReturn(sampleGoodnessDto(id, 1.0D, profit, 50.0D, 50.0D, false));
+        }
+
+        Pageable requested = OffsetLimitPageRequest.of(50_000L, Integer.MAX_VALUE, Sort.by("id").ascending());
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, requested);
+
+        assertEquals(30, result.getTotalElements());
+        assertEquals(10, result.getSize());
+        assertEquals(50_000L, result.getPageable().getOffset());
+        assertTrue(result.getContent().isEmpty());
+    }
+
+    @Test
     void topGoodnessFlipsCurrentStorageHydratesPagedEntries() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
@@ -750,32 +785,36 @@ class FlipReadServiceTest {
         );
 
         UUID highId = UUID.fromString("88888888-8888-8888-8888-888888888888");
-        UUID lowId = UUID.fromString("89898989-8989-8989-8989-898989898989");
-        UnifiedFlipDto highScore = sampleGoodnessDto(highId, 3.0D, 3_000_000L, 80.0D, 10.0D, false);
-        UnifiedFlipDto lowScore = sampleGoodnessDto(lowId, 1.0D, 1_000_000L, 75.0D, 15.0D, false);
-        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(null)).thenReturn(List.of(lowScore, highScore));
-
         UnifiedFlipDto hydratedHigh = new UnifiedFlipDto(
                 highId,
                 FlipType.BAZAAR,
                 List.of(new UnifiedFlipDto.ItemStackDto("RAW_FISH", 16)),
                 List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_RAW_FISH", 1)),
-                highScore.requiredCapital(),
-                highScore.expectedProfit(),
-                highScore.roi(),
-                highScore.roiPerHour(),
-                highScore.durationSeconds(),
-                highScore.fees(),
-                highScore.liquidityScore(),
-                highScore.riskScore(),
-                highScore.snapshotTimestamp(),
-                highScore.partial(),
-                highScore.partialReasons(),
+                1_000_000L,
+                3_000_000L,
+                3.0D,
+                80.0D,
+                60L,
+                10_000L,
+                80.0D,
+                10.0D,
+                Instant.parse("2026-02-25T12:00:00Z"),
+                false,
+                List.of(),
                 List.of(),
                 List.of()
         );
-        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(highId)))
-                .thenReturn(List.of(hydratedHigh));
+        when(unifiedFlipCurrentReadService.listCurrentFilteredPage(
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(hydratedHigh), PageRequest.of(0, 1), 2));
 
         Page<UnifiedFlipDto> result = service.filterFlips(
                 null,
@@ -796,8 +835,17 @@ class FlipReadServiceTest {
         assertEquals(1, result.getContent().size());
         assertEquals(highId, result.getContent().getFirst().id());
         assertEquals("ENCHANTED_RAW_FISH", result.getContent().getFirst().outputItems().getFirst().itemId());
-        verify(unifiedFlipCurrentReadService).listCurrentScoringDtos(null);
-        verify(unifiedFlipCurrentReadService).listCurrentByStableFlipIds(List.of(highId));
+        verify(unifiedFlipCurrentReadService).listCurrentFilteredPage(
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
         verifyNoInteractions(flipRepository);
     }
 
@@ -821,32 +869,36 @@ class FlipReadServiceTest {
         );
 
         UUID firstId = UUID.fromString("8a8a8a8a-8a8a-8a8a-8a8a-8a8a8a8a8a8a");
-        UUID secondId = UUID.fromString("8b8b8b8b-8b8b-8b8b-8b8b-8b8b8b8b8b8b");
-        UnifiedFlipDto firstScore = sampleGoodnessDto(firstId, 3.0D, 3_000_000L, 80.0D, 10.0D, false);
-        UnifiedFlipDto secondScore = sampleGoodnessDto(secondId, 2.0D, 2_000_000L, 70.0D, 15.0D, false);
-        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(FlipType.BAZAAR)).thenReturn(List.of(secondScore, firstScore));
-
         UnifiedFlipDto hydratedFirst = new UnifiedFlipDto(
                 firstId,
                 FlipType.BAZAAR,
                 List.of(new UnifiedFlipDto.ItemStackDto("GOLD_INGOT", 64)),
                 List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_GOLD", 1)),
-                firstScore.requiredCapital(),
-                firstScore.expectedProfit(),
-                firstScore.roi(),
-                firstScore.roiPerHour(),
-                firstScore.durationSeconds(),
-                firstScore.fees(),
-                firstScore.liquidityScore(),
-                firstScore.riskScore(),
-                firstScore.snapshotTimestamp(),
-                firstScore.partial(),
-                firstScore.partialReasons(),
+                1_000_000L,
+                3_000_000L,
+                3.0D,
+                80.0D,
+                60L,
+                10_000L,
+                80.0D,
+                10.0D,
+                Instant.parse("2026-02-25T12:00:00Z"),
+                false,
+                List.of(),
                 List.of(),
                 List.of()
         );
-        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(firstId)))
-                .thenReturn(List.of(hydratedFirst));
+        when(unifiedFlipCurrentReadService.listCurrentFilteredPage(
+                org.mockito.ArgumentMatchers.eq(FlipType.BAZAAR),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(hydratedFirst), PageRequest.of(0, 1), 1));
 
         List<UnifiedFlipDto> result = service.topFlips(
                 FlipType.BAZAAR,
@@ -864,13 +916,22 @@ class FlipReadServiceTest {
         assertEquals(1, result.size());
         assertEquals(firstId, result.getFirst().id());
         assertEquals("ENCHANTED_GOLD", result.getFirst().outputItems().getFirst().itemId());
-        verify(unifiedFlipCurrentReadService).listCurrentScoringDtos(FlipType.BAZAAR);
-        verify(unifiedFlipCurrentReadService).listCurrentByStableFlipIds(List.of(firstId));
+        verify(unifiedFlipCurrentReadService).listCurrentFilteredPage(
+                org.mockito.ArgumentMatchers.eq(FlipType.BAZAAR),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
         verifyNoInteractions(flipRepository);
     }
 
     @Test
-    void topFlipsCurrentStoragePreservesEntriesWithNullIdDuringHydration() {
+    void topFlipsCurrentStorageClampsHugeLimitBeforePageAllocation() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
         FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
@@ -886,6 +947,69 @@ class FlipReadServiceTest {
                 unifiedFlipCurrentReadService,
                 onDemandFlipSnapshotService,
                 flipStorageProperties
+        );
+
+        when(unifiedFlipCurrentReadService.listCurrentFilteredPage(
+                org.mockito.ArgumentMatchers.eq(FlipType.BAZAAR),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.topFlips(
+                FlipType.BAZAAR,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Integer.MAX_VALUE
+        );
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(unifiedFlipCurrentReadService).listCurrentFilteredPage(
+                org.mockito.ArgumentMatchers.eq(FlipType.BAZAAR),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                pageableCaptor.capture()
+        );
+        assertEquals(10_000, pageableCaptor.getValue().getPageSize());
+        assertEquals(0L, pageableCaptor.getValue().getOffset());
+    }
+
+    @Test
+    void topFlipsCurrentStoragePreservesEntriesWithNullIdDuringHydration() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlippingModelProperties flippingModelProperties = new FlippingModelProperties();
+        flippingModelProperties.setRecommendationGatesEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties,
+                flippingModelProperties
         );
 
         UUID stableId = UUID.fromString("0f0f0f0f-1111-2222-3333-444444444444");

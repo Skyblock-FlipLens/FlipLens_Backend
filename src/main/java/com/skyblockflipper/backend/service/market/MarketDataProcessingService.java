@@ -198,9 +198,8 @@ public class MarketDataProcessingService {
     }
 
     private PollPayload pollPayload() {
-        long now = System.currentTimeMillis();
-        maybeRefreshAuctions(now);
-        maybeRefreshBazaar(now);
+        maybeRefreshAuctions(System.currentTimeMillis());
+        maybeRefreshBazaar(System.currentTimeMillis());
         synchronized (pollStateLock) {
             return new PollPayload(cachedAuctionResponse, cachedBazaarResponse);
         }

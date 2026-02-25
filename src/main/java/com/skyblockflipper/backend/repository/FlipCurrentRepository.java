@@ -72,6 +72,47 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
             @Param("stableFlipIds") List<UUID> stableFlipIds
     );
 
+    @Query(value = """
+            select fc as current, fd as definition
+            from FlipCurrentEntity fc
+            join FlipDefinitionEntity fd on fd.flipKey = fc.flipKey
+            where (:flipType is null or fc.flipType = :flipType)
+              and (:minLiquidityScore is null or fc.liquidityScore >= :minLiquidityScore)
+              and (:maxRiskScore is null or fc.riskScore <= :maxRiskScore)
+              and (:minExpectedProfit is null or fc.expectedProfit >= :minExpectedProfit)
+              and (:minRoi is null or fc.roi >= :minRoi)
+              and (:minRoiPerHour is null or fc.roiPerHour >= :minRoiPerHour)
+              and (:maxRequiredCapital is null or fc.requiredCapital <= :maxRequiredCapital)
+              and (:partial is null or fc.partial = :partial)
+              and fc.partialReasonsJson not like '%MISSING_INPUT_PRICE%'
+              and fc.partialReasonsJson not like '%INSUFFICIENT_INPUT_DEPTH%'
+            """,
+            countQuery = """
+            select count(fc)
+            from FlipCurrentEntity fc
+            where (:flipType is null or fc.flipType = :flipType)
+              and (:minLiquidityScore is null or fc.liquidityScore >= :minLiquidityScore)
+              and (:maxRiskScore is null or fc.riskScore <= :maxRiskScore)
+              and (:minExpectedProfit is null or fc.expectedProfit >= :minExpectedProfit)
+              and (:minRoi is null or fc.roi >= :minRoi)
+              and (:minRoiPerHour is null or fc.roiPerHour >= :minRoiPerHour)
+              and (:maxRequiredCapital is null or fc.requiredCapital <= :maxRequiredCapital)
+              and (:partial is null or fc.partial = :partial)
+              and fc.partialReasonsJson not like '%MISSING_INPUT_PRICE%'
+              and fc.partialReasonsJson not like '%INSUFFICIENT_INPUT_DEPTH%'
+            """)
+    Page<CurrentDefinitionProjection> findFilteredWithDefinition(
+            @Param("flipType") FlipType flipType,
+            @Param("minLiquidityScore") Double minLiquidityScore,
+            @Param("maxRiskScore") Double maxRiskScore,
+            @Param("minExpectedProfit") Long minExpectedProfit,
+            @Param("minRoi") Double minRoi,
+            @Param("minRoiPerHour") Double minRoiPerHour,
+            @Param("maxRequiredCapital") Long maxRequiredCapital,
+            @Param("partial") Boolean partial,
+            Pageable pageable
+    );
+
     boolean existsBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
 
     void deleteBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);

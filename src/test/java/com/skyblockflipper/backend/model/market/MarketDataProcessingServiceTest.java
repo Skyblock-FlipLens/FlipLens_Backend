@@ -105,6 +105,43 @@ class MarketDataProcessingServiceTest {
     }
 
     @Test
+    void captureCurrentSnapshotAndPrepareInputUsesFreshDecisionTimePerEndpoint() {
+        HypixelClient client = mock(HypixelClient.class);
+        HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
+        MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketDataProcessingService service = new MarketDataProcessingService(client, snapshotMapper, persistenceService, inputMapper);
+
+        Auction auction = new Auction(
+                "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
+                "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
+                100L, false, List.of(), 120L, List.of()
+        );
+        auction.setBin(true);
+        AuctionResponse auctionResponse = new AuctionResponse(true, 0, 1, 1, 10_000L, List.of(auction));
+
+        BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
+        BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
+        BazaarResponse staleCachedBazaar = new BazaarResponse(true, 9_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
+        BazaarResponse freshBazaar = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
+
+        when(client.fetchAllAuctionPages()).thenAnswer(invocation -> {
+            Thread.sleep(40L);
+            return auctionResponse;
+        });
+        when(client.fetchBazaar()).thenReturn(freshBazaar);
+        when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReflectionTestUtils.setField(service, "cachedBazaarResponse", staleCachedBazaar);
+        ReflectionTestUtils.setField(service, "nextBazaarFetchAtMillis", System.currentTimeMillis() + 20L);
+
+        service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
+
+        verify(client, times(1)).fetchBazaar();
+    }
+
+    @Test
     void captureCurrentSnapshotAndPrepareInputDoesNotRegressSourceWatermarks() throws InterruptedException {
         HypixelClient client = mock(HypixelClient.class);
         HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();

@@ -20,6 +20,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class UnifiedFlipCurrentReadServiceTest {
@@ -200,6 +201,78 @@ class UnifiedFlipCurrentReadServiceTest {
         assertEquals(2, result.size());
         assertEquals(secondId, result.get(0).id());
         assertEquals(firstId, result.get(1).id());
+    }
+
+    @Test
+    void listCurrentByStableFlipIdsFiltersNullIdsBeforeQuerying() {
+        FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
+        StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
+        UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
+                currentRepository,
+                dtoMapper
+        );
+
+        UUID firstId = UUID.fromString("12121212-3434-5656-7878-909090909090");
+        UUID secondId = UUID.fromString("abababab-cdcd-efef-0101-232323232323");
+
+        FlipCurrentEntity currentFirst = current("key-first", FlipType.BAZAAR, firstId.toString());
+        FlipCurrentEntity currentSecond = current("key-second", FlipType.BAZAAR, secondId.toString());
+        FlipDefinitionEntity definitionFirst = definition("key-first", FlipType.BAZAAR, firstId);
+        FlipDefinitionEntity definitionSecond = definition("key-second", FlipType.BAZAAR, secondId);
+
+        UnifiedFlipDto firstDto = dto(firstId, FlipType.BAZAAR);
+        UnifiedFlipDto secondDto = dto(secondId, FlipType.BAZAAR);
+
+        when(currentRepository.findAllWithDefinitionByStableFlipIds(List.of(firstId, secondId)))
+                .thenReturn(List.of(
+                        currentDefinitionProjection(currentFirst, definitionFirst),
+                        currentDefinitionProjection(currentSecond, definitionSecond)
+                ));
+        when(dtoMapper.toDto(currentFirst, definitionFirst)).thenReturn(firstDto);
+        when(dtoMapper.toDto(currentSecond, definitionSecond)).thenReturn(secondDto);
+
+        List<UnifiedFlipDto> result = service.listCurrentByStableFlipIds(java.util.Arrays.asList(null, firstId, null, secondId, firstId));
+
+        assertEquals(2, result.size());
+        assertEquals(firstId, result.get(0).id());
+        assertEquals(secondId, result.get(1).id());
+        verify(currentRepository).findAllWithDefinitionByStableFlipIds(List.of(firstId, secondId));
+    }
+
+    @Test
+    void listCurrentPageAdjustsTotalWhenMapperReturnsNull() {
+        FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
+        StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
+        UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
+                currentRepository,
+                dtoMapper
+        );
+
+        UUID firstId = UUID.fromString("01010101-0202-0303-0404-050505050505");
+        UUID secondId = UUID.fromString("06060606-0707-0808-0909-101010101010");
+        FlipCurrentEntity currentFirst = current("key-1", FlipType.BAZAAR, firstId.toString());
+        FlipCurrentEntity currentSecond = current("key-2", FlipType.BAZAAR, secondId.toString());
+        FlipDefinitionEntity definitionFirst = definition("key-1", FlipType.BAZAAR, firstId);
+        FlipDefinitionEntity definitionSecond = definition("key-2", FlipType.BAZAAR, secondId);
+
+        Pageable pageable = PageRequest.of(0, 2);
+        Page<FlipCurrentRepository.CurrentDefinitionProjection> page = new PageImpl<>(
+                List.of(
+                        currentDefinitionProjection(currentFirst, definitionFirst),
+                        currentDefinitionProjection(currentSecond, definitionSecond)
+                ),
+                pageable,
+                2L
+        );
+        when(currentRepository.findAllWithDefinitionByFlipType(FlipType.BAZAAR, pageable)).thenReturn(page);
+        when(dtoMapper.toDto(currentFirst, definitionFirst)).thenReturn(dto(firstId, FlipType.BAZAAR));
+        when(dtoMapper.toDto(currentSecond, definitionSecond)).thenReturn(null);
+
+        Page<UnifiedFlipDto> result = service.listCurrentPage(FlipType.BAZAAR, pageable);
+
+        assertEquals(1L, result.getTotalElements());
+        assertEquals(1, result.getContent().size());
+        assertEquals(firstId, result.getContent().getFirst().id());
     }
 
     private FlipCurrentEntity current(String key, FlipType flipType, String stableId) {
