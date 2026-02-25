@@ -75,7 +75,8 @@ public class UnifiedFlipDtoMapper {
             partialReasons.add("MISSING_ELECTION_DATA");
         }
 
-        PricingComputation pricing = computePricing(flip, snapshot, safeContext, partialReasons);
+        StepParseCache stepParseCache = StepParseCache.create();
+        PricingComputation pricing = computePricing(flip, snapshot, safeContext, partialReasons, stepParseCache);
         long minCapitalConstraint = resolveMinCapitalConstraint(flip.getConstraints());
         long requiredCapital = flipEconomicsService.computeRequiredCapital(
                 minCapitalConstraint,
@@ -95,8 +96,8 @@ public class UnifiedFlipDtoMapper {
         return new UnifiedFlipDto(
                 flip.getId(),
                 flip.getFlipType(),
-                mapInputItems(flip.getSteps()),
-                mapOutputItems(flip),
+                mapInputItems(flip.getSteps(), stepParseCache),
+                mapOutputItems(flip, stepParseCache),
                 requiredCapital,
                 expectedProfit,
                 roi,
@@ -113,7 +114,7 @@ public class UnifiedFlipDtoMapper {
         );
     }
 
-    private List<UnifiedFlipDto.ItemStackDto> mapInputItems(List<Step> steps) {
+    private List<UnifiedFlipDto.ItemStackDto> mapInputItems(List<Step> steps, StepParseCache stepParseCache) {
         if (steps == null || steps.isEmpty()) {
             return List.of();
         }
@@ -123,7 +124,7 @@ public class UnifiedFlipDtoMapper {
             if (step == null || step.getType() != StepType.BUY) {
                 continue;
             }
-            ParsedItemStack parsed = parseItemStack(step.getParamsJson());
+            ParsedItemStack parsed = parseItemStack(step, stepParseCache);
             if (parsed != null) {
                 itemCounts.merge(parsed.itemId(), parsed.amount(), Integer::sum);
             }
@@ -131,7 +132,7 @@ public class UnifiedFlipDtoMapper {
         return toItemStackList(itemCounts);
     }
 
-    private List<UnifiedFlipDto.ItemStackDto> mapOutputItems(Flip flip) {
+    private List<UnifiedFlipDto.ItemStackDto> mapOutputItems(Flip flip, StepParseCache stepParseCache) {
         Map<String, Integer> itemCounts = new LinkedHashMap<>();
         List<Step> steps = flip.getSteps();
         if (steps != null) {
@@ -139,7 +140,7 @@ public class UnifiedFlipDtoMapper {
                 if (step == null || step.getType() != StepType.SELL) {
                     continue;
                 }
-                ParsedItemStack parsed = parseItemStack(step.getParamsJson());
+                ParsedItemStack parsed = parseItemStack(step, stepParseCache);
                 if (parsed != null) {
                     itemCounts.merge(parsed.itemId(), parsed.amount(), Integer::sum);
                 }
@@ -208,7 +209,8 @@ public class UnifiedFlipDtoMapper {
     private PricingComputation computePricing(Flip flip,
                                               UnifiedFlipInputSnapshot snapshot,
                                               FlipCalculationContext context,
-                                              LinkedHashSet<String> partialReasons) {
+                                              LinkedHashSet<String> partialReasons,
+                                              StepParseCache stepParseCache) {
         List<Double> inputLegLiquidityScores = new ArrayList<>();
         List<Double> outputLegLiquidityScores = new ArrayList<>();
         List<Double> legExecutionRiskScores = new ArrayList<>();
@@ -232,7 +234,7 @@ public class UnifiedFlipDtoMapper {
             }
 
             if (step.getType() == StepType.BUY) {
-                ParsedItemStack parsed = parseItemStack(step.getParamsJson());
+                ParsedItemStack parsed = parseItemStack(step, stepParseCache);
                 if (parsed == null) {
                     partialReasons.add("INVALID_BUY_PARAMS");
                     continue;
@@ -269,7 +271,7 @@ public class UnifiedFlipDtoMapper {
 
             if (step.getType() == StepType.SELL) {
                 hasExplicitSellStep = true;
-                ParsedItemStack parsed = parseItemStack(step.getParamsJson());
+                ParsedItemStack parsed = parseItemStack(step, stepParseCache);
                 if (parsed == null) {
                     partialReasons.add("INVALID_SELL_PARAMS");
                     continue;
@@ -816,6 +818,22 @@ public class UnifiedFlipDtoMapper {
         }
     }
 
+    private ParsedItemStack parseItemStack(Step step, StepParseCache stepParseCache) {
+        if (step == null) {
+            return null;
+        }
+        if (stepParseCache == null) {
+            return parseItemStack(step.getParamsJson());
+        }
+        Optional<ParsedItemStack> cached = stepParseCache.parsedItemStacks().get(step);
+        if (cached != null) {
+            return cached.orElse(null);
+        }
+        ParsedItemStack parsed = parseItemStack(step.getParamsJson());
+        stepParseCache.parsedItemStacks().put(step, Optional.ofNullable(parsed));
+        return parsed;
+    }
+
     private MarketPreference parseMarketPreference(JsonNode node) {
         String market = "";
         JsonNode marketNode = node.path("market");
@@ -919,6 +937,14 @@ public class UnifiedFlipDtoMapper {
     ) {
         private static ParsedItemStack implicitSell(String itemId) {
             return new ParsedItemStack(itemId, 1, MarketPreference.ANY, null);
+        }
+    }
+
+    private record StepParseCache(
+            Map<Step, Optional<ParsedItemStack>> parsedItemStacks
+    ) {
+        private static StepParseCache create() {
+            return new StepParseCache(new IdentityHashMap<>());
         }
     }
 }

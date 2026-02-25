@@ -19,6 +19,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 class UnifiedFlipDtoMapperTest {
 
@@ -363,6 +367,32 @@ class UnifiedFlipDtoMapperTest {
 
         assertTrue(shallowDto.partialReasons().contains("INSUFFICIENT_OUTPUT_DEPTH:DEPTH_ITEM"));
         assertTrue(shallowDto.expectedProfit() < deepDto.expectedProfit());
+    }
+
+    @Test
+    void toDtoParsesStepJsonOncePerStepWithinSingleMapping() throws Exception {
+        ObjectMapper spyMapper = spy(new ObjectMapper());
+        UnifiedFlipDtoMapper localMapper = new UnifiedFlipDtoMapper(spyMapper, new FlipRiskScorer());
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.CRAFTING,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"INPUT\",\"amount\":2,\"market\":\"BAZAAR\"}"),
+                        Step.forSellMarketBased(15L, "{\"itemId\":\"OUTPUT\",\"amount\":1,\"market\":\"AUCTION\",\"durationHours\":12}")
+                ),
+                "OUTPUT",
+                List.of()
+        );
+
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T13:00:00Z"),
+                Map.of("INPUT", new UnifiedFlipInputSnapshot.BazaarQuote(100D, 95D, 10_000L, 10_000L, 840_000L, 840_000L, 80, 80)),
+                Map.of("OUTPUT", new UnifiedFlipInputSnapshot.AuctionQuote(10_000L, 12_000L, 11_000D, 12))
+        );
+
+        localMapper.toDto(flip, FlipCalculationContext.standard(snapshot));
+
+        verify(spyMapper, times(3)).readTree(anyString());
     }
 
 }
