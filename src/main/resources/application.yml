@@ -24,6 +24,8 @@ config:
       dual-write-enabled: ${CONFIG_FLIP_STORAGE_DUAL_WRITE_ENABLED:true}
       read-from-new: ${CONFIG_FLIP_STORAGE_READ_FROM_NEW:false}
       legacy-write-enabled: ${CONFIG_FLIP_STORAGE_LEGACY_WRITE_ENABLED:true}
+      top-snapshot-materialization-enabled: ${CONFIG_FLIP_STORAGE_TOP_SNAPSHOT_MATERIALIZATION_ENABLED:false}
+      snapshot-item-state-capture-enabled: ${CONFIG_FLIP_STORAGE_SNAPSHOT_ITEM_STATE_CAPTURE_ENABLED:false}
       trend-relative-threshold: ${CONFIG_FLIP_STORAGE_TREND_RELATIVE_THRESHOLD:0.05}
       trend-score-delta-threshold: ${CONFIG_FLIP_STORAGE_TREND_SCORE_DELTA_THRESHOLD:3.0}
       parity-sample-size: ${CONFIG_FLIP_STORAGE_PARITY_SAMPLE_SIZE:20}

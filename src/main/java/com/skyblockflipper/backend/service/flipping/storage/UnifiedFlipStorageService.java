@@ -200,6 +200,8 @@ public class UnifiedFlipStorageService {
         flipDefinitionRepository.saveAll(definitionsToSave);
         flipCurrentRepository.saveAll(currentToSave);
         flipTrendSegmentRepository.saveAll(segmentsToSave);
+        maybeMaterializeTopSnapshot();
+        maybeCaptureSnapshotItemState();
     }
 
     private Map<String, FlipDefinitionEntity> toMap(List<FlipDefinitionEntity> entities) {
@@ -283,6 +285,20 @@ public class UnifiedFlipStorageService {
         } catch (Exception e) {
             return "[]";
         }
+    }
+
+    private void maybeMaterializeTopSnapshot() {
+        if (!flipStorageProperties.isTopSnapshotMaterializationEnabled()) {
+            return;
+        }
+        // Optional-history scaffold: keep default-off with no active write path changes.
+    }
+
+    private void maybeCaptureSnapshotItemState() {
+        if (!flipStorageProperties.isSnapshotItemStateCaptureEnabled()) {
+            return;
+        }
+        // Optional-history scaffold: keep default-off with no active write path changes.
     }
 
     private record ComputedFlip(

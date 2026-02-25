@@ -37,6 +37,8 @@ public class FlipStorageAdminController {
         response.put("dualWriteEnabled", flipStorageProperties.isDualWriteEnabled());
         response.put("readFromNew", flipStorageProperties.isReadFromNew());
         response.put("legacyWriteEnabled", flipStorageProperties.isLegacyWriteEnabled());
+        response.put("topSnapshotMaterializationEnabled", flipStorageProperties.isTopSnapshotMaterializationEnabled());
+        response.put("snapshotItemStateCaptureEnabled", flipStorageProperties.isSnapshotItemStateCaptureEnabled());
         response.put("trendRelativeThreshold", flipStorageProperties.getTrendRelativeThreshold());
         response.put("trendScoreDeltaThreshold", flipStorageProperties.getTrendScoreDeltaThreshold());
         response.put("paritySampleSize", flipStorageProperties.getParitySampleSize());
