@@ -1,10 +1,7 @@
 package com.skyblockflipper.backend.config.Jobs;
 
-import com.skyblockflipper.backend.NEU.NEUClient;
-import com.skyblockflipper.backend.NEU.NEUItemMapper;
-import com.skyblockflipper.backend.NEU.model.Item;
-import com.skyblockflipper.backend.NEU.repository.ItemRepository;
 import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
+import com.skyblockflipper.backend.service.item.NeuRepoIngestionService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -12,29 +9,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
 
 import java.io.IOException;
-import java.util.List;
 
 @Component
 @Slf4j
 public class SourceJobs {
-    private final NEUClient neuClient;
-    private final NEUItemMapper neuItemMapper;
-    private final ItemRepository itemRepository;
+    private final NeuRepoIngestionService neuRepoIngestionService;
     private final MarketDataProcessingService marketDataProcessingService;
     private final FlipGenerationService flipGenerationService;
 
     @Autowired
-    public SourceJobs(NEUClient neuClient,
-                      NEUItemMapper neuItemMapper,
-                      ItemRepository itemRepository,
+    public SourceJobs(NeuRepoIngestionService neuRepoIngestionService,
                       MarketDataProcessingService marketDataProcessingService,
                       FlipGenerationService flipGenerationService){
-        this.neuClient = neuClient;
-        this.neuItemMapper = neuItemMapper;
-        this.itemRepository = itemRepository;
+        this.neuRepoIngestionService = neuRepoIngestionService;
         this.marketDataProcessingService = marketDataProcessingService;
         this.flipGenerationService = flipGenerationService;
     }
@@ -69,9 +58,7 @@ public class SourceJobs {
     private void runCopyRepoDaily() {
         long startedAtMillis = System.currentTimeMillis();
         try {
-            List<JsonNode> nodes = neuClient.loadItemJsons();
-            List<Item> items = neuItemMapper.fromJson(nodes);
-            itemRepository.saveAll(items);
+            int savedItems = neuRepoIngestionService.ingestLatestFilteredItems();
             marketDataProcessingService.latestMarketSnapshot()
                     .ifPresent(snapshot -> {
                         var result = flipGenerationService.regenerateForSnapshot(snapshot.snapshotTimestamp());
@@ -80,7 +67,7 @@ public class SourceJobs {
                                 result.generatedCount(),
                                 result.skippedCount());
                     });
-            log.info("copyRepoDaily completed in {} ms (saved {} NEU items)", System.currentTimeMillis() - startedAtMillis, items.size());
+            log.info("copyRepoDaily completed in {} ms (saved {} NEU items)", System.currentTimeMillis() - startedAtMillis, savedItems);
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();

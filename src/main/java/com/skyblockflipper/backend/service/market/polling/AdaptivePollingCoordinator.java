@@ -9,6 +9,7 @@ import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarQuickStatus;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
 import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
+import com.skyblockflipper.backend.service.item.NeuRepoIngestionService;
 import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -23,11 +24,13 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 @Slf4j
@@ -39,9 +42,12 @@ public class AdaptivePollingCoordinator {
     private final MarketDataProcessingService marketDataProcessingService;
     private final FlipGenerationService flipGenerationService;
     private final CycleInstrumentationService cycleInstrumentationService;
+    private final NeuRepoIngestionService neuRepoIngestionService;
     private final ElectionPollFreshnessService electionPollFreshnessService;
     private final String apiUrl;
     private final String apiKey;
+    private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
+    private volatile boolean shutdownRequested = false;
 
     private AdaptivePoller<AuctionResponse> auctionsPoller;
     private AdaptivePoller<BazaarResponse> bazaarPoller;
@@ -52,6 +58,7 @@ public class AdaptivePollingCoordinator {
                                       MarketDataProcessingService marketDataProcessingService,
                                       FlipGenerationService flipGenerationService,
                                       CycleInstrumentationService cycleInstrumentationService,
+                                      NeuRepoIngestionService neuRepoIngestionService,
                                       ElectionPollFreshnessService electionPollFreshnessService,
                                       @Value("${config.hypixel.api-url}") String apiUrl,
                                       @Value("${config.hypixel.api-key:}") String apiKey) {
@@ -61,6 +68,7 @@ public class AdaptivePollingCoordinator {
         this.marketDataProcessingService = marketDataProcessingService;
         this.flipGenerationService = flipGenerationService;
         this.cycleInstrumentationService = cycleInstrumentationService;
+        this.neuRepoIngestionService = neuRepoIngestionService;
         this.electionPollFreshnessService = electionPollFreshnessService;
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
@@ -72,16 +80,54 @@ public class AdaptivePollingCoordinator {
             log.info("Adaptive polling disabled via config.hypixel.adaptive.enabled=false");
             return;
         }
+        scheduleStartAttemptNow();
+    }
 
-        GlobalRequestLimiter globalLimiter = new GlobalRequestLimiter(adaptivePollingProperties.getGlobalMaxRequestsPerSecond());
-        auctionsPoller = buildAuctionsPoller(globalLimiter);
-        bazaarPoller = buildBazaarPoller(globalLimiter);
-        auctionsPoller.start();
-        bazaarPoller.start();
+    private void scheduleStartAttemptNow() {
+        scheduleStartAttempt(Instant.now());
+    }
+
+    private void scheduleStartAttempt(Instant when) {
+        if (shutdownRequested) {
+            return;
+        }
+        if (!startScheduledOrRunning.compareAndSet(false, true)) {
+            return;
+        }
+        taskScheduler.schedule(this::attemptStart, when);
+    }
+
+    private void attemptStart() {
+        Instant retryAt = null;
+        try {
+            if (shutdownRequested || auctionsPoller != null || bazaarPoller != null) {
+                return;
+            }
+            int savedItems = neuRepoIngestionService.ingestLatestFilteredItems();
+            log.info("Initial NEU ingestion complete (saved {} items). Starting adaptive pollers.", savedItems);
+            GlobalRequestLimiter globalLimiter = new GlobalRequestLimiter(adaptivePollingProperties.getGlobalMaxRequestsPerSecond());
+            auctionsPoller = buildAuctionsPoller(globalLimiter);
+            bazaarPoller = buildBazaarPoller(globalLimiter);
+            auctionsPoller.start();
+            bazaarPoller.start();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Adaptive polling start deferred: NEU ingestion interrupted. Retrying in 30s.");
+            retryAt = Instant.now().plusSeconds(30);
+        } catch (Exception e) {
+            log.warn("Adaptive polling start deferred: NEU ingestion failed ({}). Retrying in 30s.", e.getMessage());
+            retryAt = Instant.now().plusSeconds(30);
+        } finally {
+            startScheduledOrRunning.set(false);
+        }
+        if (retryAt != null) {
+            scheduleStartAttempt(retryAt);
+        }
     }
 
     @PreDestroy
     public void stop() {
+        shutdownRequested = true;
         if (auctionsPoller != null) {
             auctionsPoller.stop();
         }

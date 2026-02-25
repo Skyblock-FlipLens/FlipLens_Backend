@@ -154,7 +154,11 @@ public class MarketDataProcessingService {
             return Optional.empty();
         }
         if (auctionResponse == null || bazaarResponse == null) {
-            log.info("Partial data available: auctions={}, bazaar={} cycleId={}", auctionResponse != null, bazaarResponse != null, cycleId);
+            log.info("Skipping snapshot build due to partial data: auctions={}, bazaar={} cycleId={}",
+                    auctionResponse != null,
+                    bazaarResponse != null,
+                    cycleId);
+            return Optional.empty();
         }
 
         long normalizeStart = cycleInstrumentationService.startPhase();
