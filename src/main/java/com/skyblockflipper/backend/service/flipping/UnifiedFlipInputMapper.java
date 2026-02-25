@@ -1,10 +1,12 @@
 package com.skyblockflipper.backend.service.flipping;
 
+import com.skyblockflipper.backend.config.properties.FlippingModelProperties;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.AuctionComparableKey;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -20,6 +22,18 @@ import java.util.regex.Pattern;
 public class UnifiedFlipInputMapper {
     private static final Pattern PET_LEVEL_PATTERN = Pattern.compile("^\\[Lvl\\s*(\\d+)]\\s*(.+)$");
     private static final Pattern INTERNAL_NAME_PATTERN = Pattern.compile("\"(?:internalname|id|item_id|itemId)\"\\s*:\\s*\"([^\"]+)\"", Pattern.CASE_INSENSITIVE);
+    private final FlippingModelProperties flippingModelProperties;
+
+    public UnifiedFlipInputMapper() {
+        this(new FlippingModelProperties());
+    }
+
+    @Autowired
+    public UnifiedFlipInputMapper(FlippingModelProperties flippingModelProperties) {
+        this.flippingModelProperties = flippingModelProperties == null
+                ? new FlippingModelProperties()
+                : flippingModelProperties;
+    }
 
     public UnifiedFlipInputSnapshot map(MarketSnapshot marketSnapshot) {
         if (marketSnapshot == null) {
@@ -62,6 +76,10 @@ public class UnifiedFlipInputMapper {
         if (auctions == null || auctions.isEmpty()) {
             return Map.of();
         }
+        if (!flippingModelProperties.isAuctionModelV2Enabled()) {
+            return mapAuctionQuotesLegacy(auctions);
+        }
+
         Map<AuctionComparableKey, AuctionAccumulator> byComparableKey = new LinkedHashMap<>();
         Map<AuctionComparableKey, String> representativeItemNames = new LinkedHashMap<>();
         for (AuctionMarketRecord record : auctions) {
@@ -86,6 +104,39 @@ public class UnifiedFlipInputMapper {
             String preferredKey = representativeItemNames.getOrDefault(entry.getKey(), entry.getKey().baseId());
             String outputKey = uniqueOutputKey(result, preferredKey, entry.getKey());
             result.put(outputKey, new UnifiedFlipInputSnapshot.AuctionQuote(
+                    acc.lowestStartingBid,
+                    acc.secondLowestStartingBid(),
+                    acc.highestObservedBid,
+                    acc.averageObservedPrice(),
+                    acc.medianObservedPrice(),
+                    acc.p25ObservedPrice(),
+                    acc.sampleSize
+            ));
+        }
+        return result;
+    }
+
+    private Map<String, UnifiedFlipInputSnapshot.AuctionQuote> mapAuctionQuotesLegacy(List<AuctionMarketRecord> auctions) {
+        Map<String, AuctionAccumulator> byItem = new LinkedHashMap<>();
+        for (AuctionMarketRecord record : auctions) {
+            if (record == null || record.itemName() == null || record.itemName().isBlank() || !record.bin()) {
+                continue;
+            }
+            String key = normalizeIdentifier(record.itemName());
+            if (key.isBlank()) {
+                key = "UNKNOWN";
+            }
+            byItem.computeIfAbsent(key, ignored -> new AuctionAccumulator())
+                    .accept(record.startingBid());
+        }
+
+        Map<String, UnifiedFlipInputSnapshot.AuctionQuote> result = new LinkedHashMap<>();
+        for (Map.Entry<String, AuctionAccumulator> entry : byItem.entrySet()) {
+            AuctionAccumulator acc = entry.getValue();
+            if (acc.sampleSize == 0) {
+                continue;
+            }
+            result.put(entry.getKey(), new UnifiedFlipInputSnapshot.AuctionQuote(
                     acc.lowestStartingBid,
                     acc.secondLowestStartingBid(),
                     acc.highestObservedBid,

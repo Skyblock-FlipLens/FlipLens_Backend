@@ -8,6 +8,7 @@ import com.skyblockflipper.backend.api.FlipTypesDto;
 import com.skyblockflipper.backend.api.FlipSummaryStatsDto;
 import com.skyblockflipper.backend.api.OffsetLimitPageRequest;
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.config.properties.FlippingModelProperties;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.repository.FlipRepository;
@@ -31,6 +32,7 @@ public class FlipReadService {
 
     private static final int GOODNESS_PAGE_SIZE = 10;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
+    private static final String MISSING_ELECTION_DATA_REASON = "MISSING_ELECTION_DATA";
     private static final List<FlipType> COVERED_FLIP_TYPES = List.of(
             FlipType.AUCTION,
             FlipType.BAZAAR,
@@ -45,11 +47,29 @@ public class FlipReadService {
     private final UnifiedFlipCurrentReadService unifiedFlipCurrentReadService;
     private final OnDemandFlipSnapshotService onDemandFlipSnapshotService;
     private final FlipStorageProperties flipStorageProperties;
+    private final FlippingModelProperties flippingModelProperties;
 
     public FlipReadService(FlipRepository flipRepository,
                            UnifiedFlipDtoMapper unifiedFlipDtoMapper,
                            FlipCalculationContextService flipCalculationContextService) {
-        this(flipRepository, unifiedFlipDtoMapper, flipCalculationContextService, null, null, null);
+        this(flipRepository, unifiedFlipDtoMapper, flipCalculationContextService, null, null, null, null);
+    }
+
+    public FlipReadService(FlipRepository flipRepository,
+                           UnifiedFlipDtoMapper unifiedFlipDtoMapper,
+                           FlipCalculationContextService flipCalculationContextService,
+                           UnifiedFlipCurrentReadService unifiedFlipCurrentReadService,
+                           OnDemandFlipSnapshotService onDemandFlipSnapshotService,
+                           FlipStorageProperties flipStorageProperties) {
+        this(
+                flipRepository,
+                unifiedFlipDtoMapper,
+                flipCalculationContextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties,
+                null
+        );
     }
 
     @Autowired
@@ -58,13 +78,15 @@ public class FlipReadService {
                            FlipCalculationContextService flipCalculationContextService,
                            UnifiedFlipCurrentReadService unifiedFlipCurrentReadService,
                            OnDemandFlipSnapshotService onDemandFlipSnapshotService,
-                           FlipStorageProperties flipStorageProperties) {
+                           FlipStorageProperties flipStorageProperties,
+                           FlippingModelProperties flippingModelProperties) {
         this.flipRepository = flipRepository;
         this.unifiedFlipDtoMapper = unifiedFlipDtoMapper;
         this.flipCalculationContextService = flipCalculationContextService;
         this.unifiedFlipCurrentReadService = unifiedFlipCurrentReadService;
         this.onDemandFlipSnapshotService = onDemandFlipSnapshotService;
         this.flipStorageProperties = flipStorageProperties;
+        this.flippingModelProperties = flippingModelProperties == null ? new FlippingModelProperties() : flippingModelProperties;
     }
 
     public Page<UnifiedFlipDto> listFlips(FlipType flipType, Pageable pageable) {
@@ -715,7 +737,7 @@ public class FlipReadService {
         double profitScore = profitScore(dto.expectedProfit());
         double liquidityScore = clamp(nullableDouble(dto.liquidityScore()), 0D, 100D);
         double inverseRiskScore = 100D - clamp(nullableDouble(dto.riskScore()), 0D, 100D);
-        boolean partialPenaltyApplied = dto.partial();
+        boolean partialPenaltyApplied = shouldApplyPartialPenalty(dto);
 
         double weighted = (0.35D * roiPerHourScore)
                 + (0.25D * profitScore)
@@ -774,6 +796,28 @@ public class FlipReadService {
             }
         }
         return true;
+    }
+
+    private boolean shouldApplyPartialPenalty(UnifiedFlipDto dto) {
+        if (dto == null || !dto.partial()) {
+            return false;
+        }
+        if (!flippingModelProperties.isElectionPenaltySoftened()) {
+            return true;
+        }
+        List<String> partialReasons = dto.partialReasons();
+        if (partialReasons == null || partialReasons.isEmpty()) {
+            return true;
+        }
+        for (String reason : partialReasons) {
+            if (reason == null || reason.isBlank()) {
+                continue;
+            }
+            if (!MISSING_ELECTION_DATA_REASON.equals(reason)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private double clamp(double value, double min, double max) {

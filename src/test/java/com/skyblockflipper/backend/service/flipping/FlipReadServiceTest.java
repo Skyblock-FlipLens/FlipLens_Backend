@@ -408,6 +408,50 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsDoesNotApplyPenaltyForElectionOnlyPartial() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip electionOnlyPartialFlip = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(electionOnlyPartialFlip)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+        when(mapper.toDto(electionOnlyPartialFlip, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("51515151-5151-5151-5151-515151515151"),
+                2.0D, 1_000_000L, 80.0D, 20.0D, true, List.of("MISSING_ELECTION_DATA")
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(1, result.getTotalElements());
+        assertFalse(result.getContent().getFirst().breakdown().partialPenaltyApplied());
+    }
+
+    @Test
+    void topGoodnessFlipsKeepsPenaltyForMarketRelatedPartial() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip marketPartialFlip = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(marketPartialFlip)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+        when(mapper.toDto(marketPartialFlip, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("52525252-5252-5252-5252-525252525252"),
+                2.0D, 1_000_000L, 80.0D, 20.0D, true, List.of("MISSING_ELECTION_DATA", "MISSING_OUTPUT_PRICE:ITEM")
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(1, result.getTotalElements());
+        assertTrue(result.getContent().getFirst().breakdown().partialPenaltyApplied());
+    }
+
+    @Test
     void topGoodnessFlipsUsesFixedPageSizeTen() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.model.market;
 
+import com.skyblockflipper.backend.config.properties.FlippingModelProperties;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipInputMapper;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +73,27 @@ class UnifiedFlipInputMapperTest {
         UnifiedFlipInputSnapshot.AuctionQuote quote = input.auctionQuotesByItem().values().stream().findFirst().orElseThrow();
         assertEquals(100_000L, quote.lowestStartingBid());
         assertEquals(110_000L, quote.secondLowestStartingBid());
+        assertEquals(2, quote.sampleSize());
+    }
+
+    @Test
+    void mapUsesLegacyAuctionGroupingWhenAuctionModelV2Disabled() {
+        FlippingModelProperties properties = new FlippingModelProperties();
+        properties.setAuctionModelV2Enabled(false);
+        UnifiedFlipInputMapper legacyMapper = new UnifiedFlipInputMapper(properties);
+
+        Instant timestamp = Instant.parse("2026-02-15T12:30:00Z");
+        List<AuctionMarketRecord> auctions = List.of(
+                new AuctionMarketRecord("a1", "[Lvl 1] Squid", "pet", "EPIC", 100_000L, 0L, 1L, 2L, false, true, null, "{\"internalname\":\"SQUID;1\"}"),
+                new AuctionMarketRecord("a2", "[Lvl 50] Squid", "pet", "EPIC", 180_000L, 0L, 1L, 2L, false, true, null, "{\"internalname\":\"SQUID;1\"}")
+        );
+
+        UnifiedFlipInputSnapshot input = legacyMapper.map(new MarketSnapshot(timestamp, auctions, Map.of()));
+
+        assertEquals(1, input.auctionQuotesByItem().size());
+        UnifiedFlipInputSnapshot.AuctionQuote quote = input.auctionQuotesByItem().values().iterator().next();
+        assertEquals(100_000L, quote.lowestStartingBid());
+        assertEquals(180_000L, quote.secondLowestStartingBid());
         assertEquals(2, quote.sampleSize());
     }
 }

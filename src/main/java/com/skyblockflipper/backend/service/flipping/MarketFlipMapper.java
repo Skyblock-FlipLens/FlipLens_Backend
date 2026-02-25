@@ -5,6 +5,8 @@ import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.Flipping.Policy.FlipEligibilityPolicy;
 import com.skyblockflipper.backend.model.Flipping.Step;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -20,6 +22,7 @@ public class MarketFlipMapper {
     private static final long DEFAULT_MARKET_STEP_SECONDS = 30L;
     private static final int DEFAULT_AUCTION_DURATION_HOURS = 12;
     private static final int DEFAULT_STACK_AMOUNT = 1;
+    private static final Logger log = LoggerFactory.getLogger(MarketFlipMapper.class);
 
     private final ObjectMapper objectMapper;
     private final FlipEligibilityPolicy flipEligibilityPolicy;
@@ -76,7 +79,16 @@ public class MarketFlipMapper {
         if (itemId == null || itemId.isBlank()) {
             return null;
         }
-        if (!flipEligibilityPolicy.isAuctionFlipEligible(quote)) {
+        String ineligibilityReason = flipEligibilityPolicy.auctionIneligibilityReason(quote);
+        if (ineligibilityReason != null) {
+            log.debug("Rejected auction flip candidate itemId={} reason={} lowest={} secondLowest={} median={} p25={} sampleSize={}",
+                    itemId,
+                    ineligibilityReason,
+                    quote == null ? null : quote.lowestStartingBid(),
+                    quote == null ? null : quote.secondLowestStartingBid(),
+                    quote == null ? null : quote.medianObservedPrice(),
+                    quote == null ? null : quote.p25ObservedPrice(),
+                    quote == null ? null : quote.sampleSize());
             return null;
         }
 

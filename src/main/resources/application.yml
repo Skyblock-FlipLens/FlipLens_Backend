@@ -18,6 +18,12 @@ spring:
 server:
   port: ${SERVER_PORT:1880}
 
+flipping:
+  auction-model-v2-enabled: ${FLIPPING_AUCTION_MODEL_V2_ENABLED:true}
+  selltime-model-enabled: ${FLIPPING_SELLTIME_MODEL_ENABLED:false}
+  scoring-v2-enabled: ${FLIPPING_SCORING_V2_ENABLED:false}
+  election-penalty-softened: ${FLIPPING_ELECTION_PENALTY_SOFTENED:true}
+
 config:
   flip:
     storage:

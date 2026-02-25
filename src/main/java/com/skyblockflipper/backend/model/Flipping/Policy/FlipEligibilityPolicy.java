@@ -1,6 +1,8 @@
 package com.skyblockflipper.backend.model.Flipping.Policy;
 
+import com.skyblockflipper.backend.config.properties.FlippingModelProperties;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -9,6 +11,20 @@ public class FlipEligibilityPolicy {
     private static final double MIN_BAZAAR_EDGE_RATIO = 1.015D;
     private static final double MIN_AUCTION_EDGE_RATIO = 1.10D;
     private static final int MIN_AUCTION_SAMPLE_SIZE = 10;
+    private static final double LEGACY_MIN_AUCTION_EDGE_RATIO = 1.05D;
+    private static final int LEGACY_MIN_AUCTION_SAMPLE_SIZE = 3;
+    private final FlippingModelProperties flippingModelProperties;
+
+    public FlipEligibilityPolicy() {
+        this(new FlippingModelProperties());
+    }
+
+    @Autowired
+    public FlipEligibilityPolicy(FlippingModelProperties flippingModelProperties) {
+        this.flippingModelProperties = flippingModelProperties == null
+                ? new FlippingModelProperties()
+                : flippingModelProperties;
+    }
 
     public boolean isBazaarFlipEligible(UnifiedFlipInputSnapshot.BazaarQuote quote) {
         if (quote == null) {
@@ -21,20 +37,41 @@ public class FlipEligibilityPolicy {
     }
 
     public boolean isAuctionFlipEligible(UnifiedFlipInputSnapshot.AuctionQuote quote) {
+        return auctionIneligibilityReason(quote) == null;
+    }
+
+    public String auctionIneligibilityReason(UnifiedFlipInputSnapshot.AuctionQuote quote) {
         if (quote == null) {
-            return false;
+            return "QUOTE_NULL";
         }
         if (quote.lowestStartingBid() <= 0L) {
-            return false;
+            return "NON_POSITIVE_LOWEST_STARTING_BID";
         }
-        if (quote.sampleSize() < MIN_AUCTION_SAMPLE_SIZE) {
-            return false;
+        if (flippingModelProperties.isAuctionModelV2Enabled()) {
+            if (quote.sampleSize() < MIN_AUCTION_SAMPLE_SIZE) {
+                return "INSUFFICIENT_AUCTION_SAMPLE_SIZE";
+            }
+            double conservativeSellAnchor = resolveConservativeSellAnchor(quote);
+            if (conservativeSellAnchor <= 0D) {
+                return "NON_POSITIVE_SELL_ANCHOR";
+            }
+            return (conservativeSellAnchor / quote.lowestStartingBid()) >= MIN_AUCTION_EDGE_RATIO
+                    ? null
+                    : "INSUFFICIENT_AUCTION_EDGE";
         }
-        double conservativeSellAnchor = resolveConservativeSellAnchor(quote);
-        if (conservativeSellAnchor <= 0D) {
-            return false;
+
+        if (quote.sampleSize() < LEGACY_MIN_AUCTION_SAMPLE_SIZE) {
+            return "INSUFFICIENT_AUCTION_SAMPLE_SIZE";
         }
-        return (conservativeSellAnchor / quote.lowestStartingBid()) >= MIN_AUCTION_EDGE_RATIO;
+        double legacyAnchor = quote.averageObservedPrice() > 0D
+                ? quote.averageObservedPrice()
+                : Math.max(quote.secondLowestStartingBid(), quote.highestObservedBid());
+        if (legacyAnchor <= 0D) {
+            return "NON_POSITIVE_SELL_ANCHOR";
+        }
+        return (legacyAnchor / quote.lowestStartingBid()) >= LEGACY_MIN_AUCTION_EDGE_RATIO
+                ? null
+                : "INSUFFICIENT_AUCTION_EDGE";
     }
 
     private double resolveConservativeSellAnchor(UnifiedFlipInputSnapshot.AuctionQuote quote) {
