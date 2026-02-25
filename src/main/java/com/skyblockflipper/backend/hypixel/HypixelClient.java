@@ -23,6 +23,7 @@ import java.util.List;
 public class HypixelClient {
     // Base URL already contains /v2 (see config.hypixel.api-url), so this stays resource-relative.
     private static final String ELECTION_RESOURCE_PATH = "/resources/skyblock/election";
+    private static final int MAX_AUCTION_PREALLOC = 100_000;
 
     private final RestClient restClient;
     private final String apiKey;
@@ -65,7 +66,7 @@ public class HypixelClient {
             throw new IllegalStateException("Failed to fetch auctions page 0 from Hypixel API.");
         }
 
-        int expectedSize = Math.max(0, firstPage.getTotalAuctions());
+        int expectedSize = Math.min(Math.max(0, firstPage.getTotalAuctions()), MAX_AUCTION_PREALLOC);
         List<Auction> allAuctions = new ArrayList<>(expectedSize);
         if (firstPage.getAuctions() != null) {
             allAuctions.addAll(firstPage.getAuctions());

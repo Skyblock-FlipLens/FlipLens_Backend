@@ -120,9 +120,6 @@ public class UnifiedFlipCurrentReadService {
             return List.of();
         }
         List<UUID> uniqueIds = new ArrayList<>(new LinkedHashSet<>(stableFlipIds));
-        if (uniqueIds.isEmpty()) {
-            return List.of();
-        }
         Map<UUID, UnifiedFlipDto> byStableId = new LinkedHashMap<>();
         for (FlipCurrentRepository.CurrentDefinitionProjection row
                 : flipCurrentRepository.findAllWithDefinitionByStableFlipIds(uniqueIds)) {
@@ -134,8 +131,8 @@ public class UnifiedFlipCurrentReadService {
         if (byStableId.isEmpty()) {
             return List.of();
         }
-        List<UnifiedFlipDto> ordered = new ArrayList<>(stableFlipIds.size());
-        for (UUID stableId : stableFlipIds) {
+        List<UnifiedFlipDto> ordered = new ArrayList<>(uniqueIds.size());
+        for (UUID stableId : uniqueIds) {
             UnifiedFlipDto dto = byStableId.get(stableId);
             if (dto != null) {
                 ordered.add(dto);

@@ -37,6 +37,7 @@ public class FlipReadService {
     private static final int GOODNESS_CACHE_MAX_ENTRIES = 8;
     private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
     private static final int LEGACY_READ_PAGE_SIZE = 500;
+    private static final int TOP_QUEUE_INITIAL_CAP = 10_000;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
     private static final String INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_INPUT_DEPTH";
     private static final String MISSING_OUTPUT_PRICE_REASON_PREFIX = "MISSING_OUTPUT_PRICE";
@@ -718,7 +719,8 @@ public class FlipReadService {
                 sortDirection == null ? Sort.Direction.DESC : sortDirection
         );
         int requiredEntries = requiredRankingEntries(pageable);
-        PriorityQueue<UnifiedFlipDto> top = new PriorityQueue<>(requiredEntries, rankingOrder.reversed());
+        int queueInitialCap = Math.max(1, Math.min(requiredEntries, TOP_QUEUE_INITIAL_CAP));
+        PriorityQueue<UnifiedFlipDto> top = new PriorityQueue<>(queueInitialCap, rankingOrder.reversed());
         long totalMatched = 0L;
 
         Page<Flip> page = queryFlips(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
@@ -978,20 +980,19 @@ public class FlipReadService {
     }
 
     private void trimGoodnessRankingCache() {
-        if (goodnessRankingCache.size() <= GOODNESS_CACHE_MAX_ENTRIES) {
-            return;
-        }
-        GoodnessCacheKey oldestKey = null;
-        long oldestTimestamp = Long.MAX_VALUE;
-        for (Map.Entry<GoodnessCacheKey, CachedGoodnessRanking> entry : goodnessRankingCache.entrySet()) {
-            long createdAt = entry.getValue().createdAtEpochMillis();
-            if (createdAt < oldestTimestamp) {
-                oldestTimestamp = createdAt;
-                oldestKey = entry.getKey();
+        while (goodnessRankingCache.size() > GOODNESS_CACHE_MAX_ENTRIES) {
+            GoodnessCacheKey oldestKey = null;
+            long oldestTimestamp = Long.MAX_VALUE;
+            for (Map.Entry<GoodnessCacheKey, CachedGoodnessRanking> entry : goodnessRankingCache.entrySet()) {
+                long createdAt = entry.getValue().createdAtEpochMillis();
+                if (createdAt < oldestTimestamp) {
+                    oldestTimestamp = createdAt;
+                    oldestKey = entry.getKey();
+                }
             }
-        }
-        if (oldestKey != null) {
-            goodnessRankingCache.remove(oldestKey);
+            if (oldestKey == null || goodnessRankingCache.remove(oldestKey) == null) {
+                break;
+            }
         }
     }
 
@@ -1056,6 +1057,7 @@ public class FlipReadService {
         List<UnifiedFlipDto> hydrated = new ArrayList<>(ranked.size());
         for (UnifiedFlipDto entry : ranked) {
             if (entry == null || entry.id() == null) {
+                hydrated.add(entry);
                 continue;
             }
             UnifiedFlipDto full = fullById.get(entry.id());

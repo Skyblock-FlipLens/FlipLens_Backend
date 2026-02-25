@@ -11,7 +11,9 @@ import com.skyblockflipper.backend.service.flipping.UnifiedFlipInputMapper;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -100,5 +102,59 @@ class MarketDataProcessingServiceTest {
         verify(client, times(1)).fetchAllAuctionPages();
         verify(client, times(1)).fetchBazaar();
         verify(persistenceService, times(2)).save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class));
+    }
+
+    @Test
+    void captureCurrentSnapshotAndPrepareInputDoesNotRegressSourceWatermarks() throws InterruptedException {
+        HypixelClient client = mock(HypixelClient.class);
+        HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
+        MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
+                new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
+                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()
+                        )
+                );
+        MarketDataProcessingService service = new MarketDataProcessingService(
+                client,
+                snapshotMapper,
+                persistenceService,
+                inputMapper,
+                instrumentation,
+                Duration.ofMillis(1),
+                Duration.ofMillis(1),
+                1L,
+                Duration.ofMillis(1)
+        );
+
+        Auction auction = new Auction(
+                "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
+                "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
+                100L, false, List.of(), 120L, List.of()
+        );
+        auction.setBin(true);
+        AuctionResponse freshAuction = new AuctionResponse(true, 0, 1, 1, 10_000L, List.of(auction));
+        AuctionResponse staleAuction = new AuctionResponse(true, 0, 1, 1, 9_000L, List.of(auction));
+
+        BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
+        BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
+        BazaarResponse freshBazaar = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
+        BazaarResponse staleBazaar = new BazaarResponse(true, 10_500L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
+
+        when(client.fetchAllAuctionPages()).thenReturn(freshAuction, staleAuction);
+        when(client.fetchBazaar()).thenReturn(freshBazaar, staleBazaar);
+        when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
+        Thread.sleep(5L);
+        service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
+
+        long auctionWatermark = (long) ReflectionTestUtils.getField(service, "lastAuctionLastUpdated");
+        long bazaarWatermark = (long) ReflectionTestUtils.getField(service, "lastBazaarLastUpdated");
+        assertEquals(10_000L, auctionWatermark);
+        assertEquals(11_000L, bazaarWatermark);
     }
 }

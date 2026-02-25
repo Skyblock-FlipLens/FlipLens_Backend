@@ -167,6 +167,41 @@ class UnifiedFlipCurrentReadServiceTest {
         assertEquals(firstId, result.get(1).id());
     }
 
+    @Test
+    void listCurrentByStableFlipIdsDeduplicatesRequestedIds() {
+        FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
+        StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
+        UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
+                currentRepository,
+                dtoMapper
+        );
+
+        UUID firstId = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID secondId = UUID.fromString("66666666-7777-8888-9999-aaaaaaaaaaaa");
+
+        FlipCurrentEntity currentFirst = current("key-first", FlipType.BAZAAR, firstId.toString());
+        FlipCurrentEntity currentSecond = current("key-second", FlipType.BAZAAR, secondId.toString());
+        FlipDefinitionEntity definitionFirst = definition("key-first", FlipType.BAZAAR, firstId);
+        FlipDefinitionEntity definitionSecond = definition("key-second", FlipType.BAZAAR, secondId);
+
+        UnifiedFlipDto firstDto = dto(firstId, FlipType.BAZAAR);
+        UnifiedFlipDto secondDto = dto(secondId, FlipType.BAZAAR);
+
+        when(currentRepository.findAllWithDefinitionByStableFlipIds(List.of(secondId, firstId)))
+                .thenReturn(List.of(
+                        currentDefinitionProjection(currentFirst, definitionFirst),
+                        currentDefinitionProjection(currentSecond, definitionSecond)
+                ));
+        when(dtoMapper.toDto(currentFirst, definitionFirst)).thenReturn(firstDto);
+        when(dtoMapper.toDto(currentSecond, definitionSecond)).thenReturn(secondDto);
+
+        List<UnifiedFlipDto> result = service.listCurrentByStableFlipIds(List.of(secondId, secondId, firstId));
+
+        assertEquals(2, result.size());
+        assertEquals(secondId, result.get(0).id());
+        assertEquals(firstId, result.get(1).id());
+    }
+
     private FlipCurrentEntity current(String key, FlipType flipType, String stableId) {
         FlipCurrentEntity entity = new FlipCurrentEntity();
         entity.setFlipKey(key);

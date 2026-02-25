@@ -870,6 +870,73 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topFlipsCurrentStoragePreservesEntriesWithNullIdDuringHydration() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        UUID stableId = UUID.fromString("0f0f0f0f-1111-2222-3333-444444444444");
+        UnifiedFlipDto nullIdScored = sampleGoodnessDto(null, 3.0D, 4_000_000L, 80.0D, 10.0D, false);
+        UnifiedFlipDto stableScored = sampleGoodnessDto(stableId, 2.0D, 2_000_000L, 70.0D, 15.0D, false);
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(FlipType.BAZAAR))
+                .thenReturn(List.of(stableScored, nullIdScored));
+
+        UnifiedFlipDto hydratedStable = new UnifiedFlipDto(
+                stableId,
+                FlipType.BAZAAR,
+                List.of(new UnifiedFlipDto.ItemStackDto("COBBLESTONE", 160)),
+                List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_COBBLESTONE", 1)),
+                stableScored.requiredCapital(),
+                stableScored.expectedProfit(),
+                stableScored.roi(),
+                stableScored.roiPerHour(),
+                stableScored.durationSeconds(),
+                stableScored.fees(),
+                stableScored.liquidityScore(),
+                stableScored.riskScore(),
+                stableScored.snapshotTimestamp(),
+                stableScored.partial(),
+                stableScored.partialReasons(),
+                List.of(),
+                List.of()
+        );
+        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(stableId)))
+                .thenReturn(List.of(hydratedStable));
+
+        List<UnifiedFlipDto> result = service.topFlips(
+                FlipType.BAZAAR,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                2
+        );
+
+        assertEquals(2, result.size());
+        assertNull(result.get(0).id());
+        assertEquals(stableId, result.get(1).id());
+        verify(unifiedFlipCurrentReadService).listCurrentByStableFlipIds(List.of(stableId));
+        verifyNoInteractions(flipRepository);
+    }
+
+    @Test
     void topFlipsLegacyUsesPagedSelectionAndKeepsTopN() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

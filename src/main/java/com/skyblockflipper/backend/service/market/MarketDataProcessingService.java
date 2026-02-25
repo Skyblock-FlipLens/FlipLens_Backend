@@ -241,7 +241,7 @@ public class MarketDataProcessingService {
                         ? auctionBaseIntervalMillis
                         : growInterval(auctionCurrentIntervalMillis, auctionBaseIntervalMillis, auctionMaxIntervalMillis);
                 if (fetchedLastUpdated > 0L) {
-                    lastAuctionLastUpdated = fetchedLastUpdated;
+                    lastAuctionLastUpdated = Math.max(lastAuctionLastUpdated, fetchedLastUpdated);
                 }
                 nextAuctionFetchAtMillis = decisionNow + auctionCurrentIntervalMillis;
             } finally {
@@ -285,7 +285,7 @@ public class MarketDataProcessingService {
                         ? bazaarBaseIntervalMillis
                         : growInterval(bazaarCurrentIntervalMillis, bazaarBaseIntervalMillis, bazaarMaxIntervalMillis);
                 if (fetchedLastUpdated > 0L) {
-                    lastBazaarLastUpdated = fetchedLastUpdated;
+                    lastBazaarLastUpdated = Math.max(lastBazaarLastUpdated, fetchedLastUpdated);
                 }
                 nextBazaarFetchAtMillis = decisionNow + bazaarCurrentIntervalMillis;
             } finally {
