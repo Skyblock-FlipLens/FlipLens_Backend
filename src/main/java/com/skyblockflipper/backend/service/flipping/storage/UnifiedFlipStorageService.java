@@ -88,7 +88,7 @@ public class UnifiedFlipStorageService {
         long snapshotEpochMillis = snapshotTimestamp.toEpochMilli();
         FlipCalculationContext context = flipCalculationContextService.loadContextAsOf(snapshotTimestamp);
 
-        List<ComputedFlip> computedFlips = new ArrayList<>(flips.size());
+        Map<String, ComputedFlip> computedFlipsByKey = new LinkedHashMap<>(flips.size());
         for (Flip flip : flips) {
             if (flip == null) {
                 continue;
@@ -98,13 +98,14 @@ public class UnifiedFlipStorageService {
             if (dto == null) {
                 continue;
             }
-            computedFlips.add(new ComputedFlip(identity, dto));
+            computedFlipsByKey.putIfAbsent(identity.flipKey(), new ComputedFlip(identity, dto));
         }
-        if (computedFlips.isEmpty()) {
+        if (computedFlipsByKey.isEmpty()) {
             return;
         }
 
-        List<String> flipKeys = computedFlips.stream().map(entry -> entry.identity().flipKey()).toList();
+        List<ComputedFlip> computedFlips = new ArrayList<>(computedFlipsByKey.values());
+        List<String> flipKeys = new ArrayList<>(computedFlipsByKey.keySet());
         Map<String, FlipDefinitionEntity> definitionsByKey = toMap(flipDefinitionRepository.findAllById(flipKeys));
         Map<String, FlipCurrentEntity> currentByKey = toMapCurrent(flipCurrentRepository.findAllById(flipKeys));
         Map<String, FlipTrendSegmentEntity> latestSegmentsByKey = latestSegmentsByFlipKey(flipKeys);

@@ -288,6 +288,61 @@ class UnifiedFlipStorageServiceTest {
         assertEquals(3, latestSegment.getSampleCount());
     }
 
+    @Test
+    void persistSnapshotFlipsDeduplicatesDuplicateFlipKeysInSingleBatch() {
+        FlipDefinitionRepository flipDefinitionRepository = mock(FlipDefinitionRepository.class);
+        FlipCurrentRepository flipCurrentRepository = mock(FlipCurrentRepository.class);
+        FlipTrendSegmentRepository flipTrendSegmentRepository = mock(FlipTrendSegmentRepository.class);
+        FlipIdentityService flipIdentityService = mock(FlipIdentityService.class);
+        UnifiedFlipDtoMapper unifiedFlipDtoMapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipStorageProperties properties = new FlipStorageProperties();
+        properties.setDualWriteEnabled(true);
+        UnifiedFlipStorageService service = new UnifiedFlipStorageService(
+                flipDefinitionRepository,
+                flipCurrentRepository,
+                flipTrendSegmentRepository,
+                flipIdentityService,
+                unifiedFlipDtoMapper,
+                contextService,
+                properties,
+                new ObjectMapper()
+        );
+        Instant snapshotTimestamp = Instant.parse("2026-02-21T12:00:00Z");
+        Flip first = mock(Flip.class);
+        Flip second = mock(Flip.class);
+        FlipIdentityService.Identity duplicateIdentity = new FlipIdentityService.Identity(
+                "key-dupe",
+                UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                FlipType.BAZAAR,
+                "ENCHANTED_SUGAR",
+                "[]",
+                "[]",
+                1
+        );
+
+        when(contextService.loadContextAsOf(snapshotTimestamp)).thenReturn(FlipCalculationContext.standard(null));
+        when(flipIdentityService.derive(first)).thenReturn(duplicateIdentity);
+        when(flipIdentityService.derive(second)).thenReturn(duplicateIdentity);
+        when(unifiedFlipDtoMapper.toDto(any(Flip.class), any(FlipCalculationContext.class))).thenReturn(sampleDto(snapshotTimestamp));
+        when(flipDefinitionRepository.findAllById(List.of("key-dupe"))).thenReturn(List.of());
+        when(flipCurrentRepository.findAllById(List.of("key-dupe"))).thenReturn(List.of());
+        when(flipTrendSegmentRepository.findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(List.of("key-dupe")))
+                .thenReturn(List.of());
+
+        service.persistSnapshotFlips(List.of(first, second), snapshotTimestamp);
+
+        ArgumentCaptor<List<FlipDefinitionEntity>> definitionsCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<FlipCurrentEntity>> currentCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<FlipTrendSegmentEntity>> segmentCaptor = ArgumentCaptor.forClass(List.class);
+        verify(flipDefinitionRepository).saveAll(definitionsCaptor.capture());
+        verify(flipCurrentRepository).saveAll(currentCaptor.capture());
+        verify(flipTrendSegmentRepository).saveAll(segmentCaptor.capture());
+        assertEquals(1, definitionsCaptor.getValue().size());
+        assertEquals(1, currentCaptor.getValue().size());
+        assertEquals(1, segmentCaptor.getValue().size());
+    }
+
     private UnifiedFlipDto sampleDto(Instant snapshotTimestamp) {
         return new UnifiedFlipDto(
                 UUID.fromString("99999999-9999-9999-9999-999999999999"),

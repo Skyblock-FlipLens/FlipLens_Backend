@@ -30,6 +30,7 @@ public class FlipGenerationService {
     private final MarketFlipMapper marketFlipMapper;
     private final UnifiedFlipStorageService unifiedFlipStorageService;
     private final FlipStorageProperties flipStorageProperties;
+    private final Object generationLock = new Object();
 
     public FlipGenerationService(FlipRepository flipRepository,
                                  RecipeRepository recipeRepository,
@@ -77,6 +78,19 @@ public class FlipGenerationService {
 
     @Transactional
     public GenerationResult generateIfMissingForSnapshot(Instant snapshotTimestamp) {
+        synchronized (generationLock) {
+            return generateIfMissingForSnapshotInternal(snapshotTimestamp);
+        }
+    }
+
+    @Transactional
+    public GenerationResult regenerateForSnapshot(Instant snapshotTimestamp) {
+        synchronized (generationLock) {
+            return regenerateForSnapshotInternal(snapshotTimestamp);
+        }
+    }
+
+    private GenerationResult generateIfMissingForSnapshotInternal(Instant snapshotTimestamp) {
         if (snapshotTimestamp == null) {
             return new GenerationResult(0, 0, true);
         }
@@ -84,15 +98,13 @@ public class FlipGenerationService {
         if (existsSnapshotInActiveStorage(snapshotEpochMillis)) {
             return new GenerationResult(0, 0, true);
         }
-        return regenerateForSnapshot(snapshotTimestamp);
+        return regenerateForSnapshotInternal(snapshotTimestamp);
     }
 
-    @Transactional
-    public GenerationResult regenerateForSnapshot(Instant snapshotTimestamp) {
+    private GenerationResult regenerateForSnapshotInternal(Instant snapshotTimestamp) {
         if (snapshotTimestamp == null) {
             return new GenerationResult(0, 0, true);
         }
-
         long snapshotEpochMillis = snapshotTimestamp.toEpochMilli();
         List<Recipe> recipes = recipeRepository.findAll(Sort.by("recipeId").ascending());
         Optional<UnifiedFlipInputSnapshot> marketInputSnapshot = loadMarketInputSnapshot(snapshotTimestamp);
