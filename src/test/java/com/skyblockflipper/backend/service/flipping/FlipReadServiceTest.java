@@ -380,6 +380,34 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsExcludesMissingInputPriceEntries() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip inflatedMissingInput = mock(Flip.class);
+        Flip actionable = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(inflatedMissingInput, actionable)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(inflatedMissingInput, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("40404040-4040-4040-4040-404040404040"),
+                5000.0D, 500_000_000L, 99.0D, 1.0D, true, List.of("MISSING_INPUT_PRICE:WILTED_BERBERIS")
+        ));
+        when(mapper.toDto(actionable, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("50505050-5050-5050-5050-505050505050"),
+                1.5D, 500_000L, 80.0D, 20.0D, false, List.of()
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(UUID.fromString("50505050-5050-5050-5050-505050505050"), result.getContent().getFirst().flip().id());
+    }
+
+    @Test
     void topGoodnessFlipsUsesFixedPageSizeTen() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
@@ -439,6 +467,47 @@ class FlipReadServiceTest {
         assertEquals(5, result.getContent().size());
         assertEquals(UUID.fromString("00000005-0000-0000-0000-000000000000"), result.getContent().getFirst().flip().id());
         assertEquals(Sort.by("id").ascending(), result.getSort());
+    }
+
+    @Test
+    void filterFlipsExcludesMissingInputPriceEntries() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip inflatedMissingInput = mock(Flip.class);
+        Flip actionable = mock(Flip.class);
+        when(flipRepository.findAll(Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(inflatedMissingInput, actionable)));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(inflatedMissingInput, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("60606060-6060-6060-6060-606060606060"),
+                2000.0D, 200_000_000L, 90.0D, 10.0D, true, List.of("MISSING_INPUT_PRICE_AUCTION:METAL_HEART")
+        ));
+        when(mapper.toDto(actionable, context)).thenReturn(sampleGoodnessDto(
+                UUID.fromString("70707070-7070-7070-7070-707070707070"),
+                2.0D, 2_000_000L, 70.0D, 25.0D, false, List.of()
+        ));
+
+        Page<UnifiedFlipDto> result = service.filterFlips(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                FlipSortBy.EXPECTED_PROFIT,
+                Sort.Direction.DESC,
+                PageRequest.of(0, 10)
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(UUID.fromString("70707070-7070-7070-7070-707070707070"), result.getContent().getFirst().id());
     }
 
     @Test
@@ -603,6 +672,16 @@ class FlipReadServiceTest {
                                              Double liquidityScore,
                                              Double riskScore,
                                              boolean partial) {
+        return sampleGoodnessDto(id, roiPerHour, expectedProfit, liquidityScore, riskScore, partial, List.of());
+    }
+
+    private UnifiedFlipDto sampleGoodnessDto(UUID id,
+                                             Double roiPerHour,
+                                             Long expectedProfit,
+                                             Double liquidityScore,
+                                             Double riskScore,
+                                             boolean partial,
+                                             List<String> partialReasons) {
         return new UnifiedFlipDto(
                 id,
                 FlipType.BAZAAR,
@@ -618,7 +697,7 @@ class FlipReadServiceTest {
                 riskScore,
                 Instant.parse("2026-02-19T20:00:00Z"),
                 partial,
-                List.of(),
+                partialReasons,
                 List.of(),
                 List.of()
         );

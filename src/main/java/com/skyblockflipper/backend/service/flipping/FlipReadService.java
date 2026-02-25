@@ -30,6 +30,7 @@ import java.util.function.Function;
 public class FlipReadService {
 
     private static final int GOODNESS_PAGE_SIZE = 10;
+    private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
     private static final List<FlipType> COVERED_FLIP_TYPES = List.of(
             FlipType.AUCTION,
             FlipType.BAZAAR,
@@ -606,6 +607,7 @@ public class FlipReadService {
             return List.of();
         }
         return values.stream()
+                .filter(this::isActionableFlip)
                 .sorted(Comparator.comparing(dto -> dto.id() == null ? "" : dto.id().toString()))
                 .toList();
     }
@@ -644,6 +646,7 @@ public class FlipReadService {
                                                      Sort.Direction sortDirection) {
         return (source == null ? List.<UnifiedFlipDto>of() : source).stream()
                 .filter(Objects::nonNull)
+                .filter(this::isActionableFlip)
                 .filter(dto -> minLiquidityScore == null
                         || (dto.liquidityScore() != null && dto.liquidityScore() >= minLiquidityScore))
                 .filter(dto -> maxRiskScore == null
@@ -665,6 +668,7 @@ public class FlipReadService {
     private List<FlipGoodnessDto> rankByGoodness(List<UnifiedFlipDto> source) {
         return (source == null ? List.<UnifiedFlipDto>of() : source).stream()
                 .filter(Objects::nonNull)
+                .filter(this::isActionableFlip)
                 .map(this::toGoodnessDto)
                 .sorted(Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
                         .thenComparing(entry -> {
@@ -754,6 +758,22 @@ public class FlipReadService {
 
     private double round2(double value) {
         return Math.round(value * 100D) / 100D;
+    }
+
+    private boolean isActionableFlip(UnifiedFlipDto dto) {
+        if (dto == null) {
+            return false;
+        }
+        List<String> partialReasons = dto.partialReasons();
+        if (partialReasons == null || partialReasons.isEmpty()) {
+            return true;
+        }
+        for (String reason : partialReasons) {
+            if (reason != null && reason.startsWith(MISSING_INPUT_PRICE_REASON_PREFIX)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private double clamp(double value, double min, double max) {
