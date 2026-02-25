@@ -616,6 +616,9 @@ public class FlipReadService {
     }
 
     private Page<Flip> queryFlips(FlipType flipType, Long snapshotEpochMillis, Pageable pageable) {
+        if (pageable != null && pageable.isPaged()) {
+            return queryFlipsPaged(flipType, snapshotEpochMillis, pageable);
+        }
         if (snapshotEpochMillis == null) {
             return flipType == null
                     ? flipRepository.findAll(pageable)
@@ -624,6 +627,34 @@ public class FlipReadService {
         return flipType == null
                 ? flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, pageable)
                 : flipRepository.findAllByFlipTypeAndSnapshotTimestampEpochMillis(flipType, snapshotEpochMillis, pageable);
+    }
+
+    private Page<Flip> queryFlipsPaged(FlipType flipType, Long snapshotEpochMillis, Pageable pageable) {
+        Page<UUID> idPage = queryFlipIds(flipType, snapshotEpochMillis, pageable);
+        if (idPage.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
+        }
+
+        List<UUID> ids = idPage.getContent();
+        Map<UUID, Integer> orderById = new HashMap<>();
+        for (int i = 0; i < ids.size(); i++) {
+            orderById.put(ids.get(i), i);
+        }
+
+        List<Flip> fetched = new ArrayList<>(flipRepository.findAllByIdInWithDetails(ids));
+        fetched.sort(Comparator.comparingInt(flip -> orderById.getOrDefault(flip.getId(), Integer.MAX_VALUE)));
+        return new PageImpl<>(fetched, pageable, idPage.getTotalElements());
+    }
+
+    private Page<UUID> queryFlipIds(FlipType flipType, Long snapshotEpochMillis, Pageable pageable) {
+        if (snapshotEpochMillis == null) {
+            return flipType == null
+                    ? flipRepository.findAllIds(pageable)
+                    : flipRepository.findIdsByFlipType(flipType, pageable);
+        }
+        return flipType == null
+                ? flipRepository.findIdsBySnapshotTimestampEpochMillis(snapshotEpochMillis, pageable)
+                : flipRepository.findIdsByFlipTypeAndSnapshotTimestampEpochMillis(flipType, snapshotEpochMillis, pageable);
     }
 
     private Comparator<UnifiedFlipDto> comparatorFor(FlipSortBy sortBy, Sort.Direction direction) {

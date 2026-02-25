@@ -35,7 +35,7 @@ import static org.mockito.Mockito.when;
 class FlipReadServiceTest {
 
     @Test
-    void listFlipsWithoutTypeFilterUsesFindAll() {
+    void listFlipsWithoutTypeFilterUsesTwoPhaseIdLoad() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
         FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
@@ -43,9 +43,12 @@ class FlipReadServiceTest {
         FlipCalculationContext context = FlipCalculationContext.standard(null);
 
         Flip flip = mock(Flip.class);
+        UUID flipId = UUID.fromString("90909090-9090-9090-9090-909090909090");
         UnifiedFlipDto dto = sampleDto();
         Pageable pageable = PageRequest.of(0, 20);
-        when(flipRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(flip)));
+        when(flip.getId()).thenReturn(flipId);
+        when(flipRepository.findAllIds(pageable)).thenReturn(new PageImpl<>(List.of(flipId), pageable, 1));
+        when(flipRepository.findAllByIdInWithDetails(List.of(flipId))).thenReturn(List.of(flip));
         when(contextService.loadCurrentContext()).thenReturn(context);
         when(mapper.toDto(flip, context)).thenReturn(dto);
 
@@ -53,13 +56,14 @@ class FlipReadServiceTest {
 
         assertEquals(1, result.getTotalElements());
         assertEquals(dto, result.getContent().getFirst());
-        verify(flipRepository).findAll(pageable);
+        verify(flipRepository).findAllIds(pageable);
+        verify(flipRepository).findAllByIdInWithDetails(List.of(flipId));
         verify(contextService).loadCurrentContext();
         verify(mapper).toDto(flip, context);
     }
 
     @Test
-    void listFlipsWithTypeFilterUsesTypeQuery() {
+    void listFlipsWithTypeFilterUsesTwoPhaseTypeQuery() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
         FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
@@ -67,9 +71,13 @@ class FlipReadServiceTest {
         FlipCalculationContext context = FlipCalculationContext.standard(null);
 
         Flip flip = mock(Flip.class);
+        UUID flipId = UUID.fromString("91919191-9191-9191-9191-919191919191");
         UnifiedFlipDto dto = sampleDto();
-        Pageable pageable = PageRequest.of(1, 10);
-        when(flipRepository.findAllByFlipType(FlipType.BAZAAR, pageable)).thenReturn(new PageImpl<>(List.of(flip)));
+        Pageable pageable = PageRequest.of(0, 10);
+        when(flip.getId()).thenReturn(flipId);
+        when(flipRepository.findIdsByFlipType(FlipType.BAZAAR, pageable))
+                .thenReturn(new PageImpl<>(List.of(flipId), pageable, 1));
+        when(flipRepository.findAllByIdInWithDetails(List.of(flipId))).thenReturn(List.of(flip));
         when(contextService.loadCurrentContext()).thenReturn(context);
         when(mapper.toDto(flip, context)).thenReturn(dto);
 
@@ -77,7 +85,8 @@ class FlipReadServiceTest {
 
         assertEquals(1, result.getTotalElements());
         assertEquals(dto, result.getContent().getFirst());
-        verify(flipRepository).findAllByFlipType(FlipType.BAZAAR, pageable);
+        verify(flipRepository).findIdsByFlipType(FlipType.BAZAAR, pageable);
+        verify(flipRepository).findAllByIdInWithDetails(List.of(flipId));
         verify(contextService).loadCurrentContext();
         verify(mapper).toDto(flip, context);
     }
