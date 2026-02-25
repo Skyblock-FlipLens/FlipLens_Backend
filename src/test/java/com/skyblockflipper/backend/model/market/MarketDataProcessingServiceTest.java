@@ -16,6 +16,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -110,7 +111,14 @@ class MarketDataProcessingServiceTest {
         HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
         MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
-        MarketDataProcessingService service = new MarketDataProcessingService(client, snapshotMapper, persistenceService, inputMapper);
+        AtomicLong nowMillis = new AtomicLong(1_000_000L);
+        MarketDataProcessingService service = new MarketDataProcessingService(
+                client,
+                snapshotMapper,
+                persistenceService,
+                inputMapper,
+                nowMillis::get
+        );
 
         Auction auction = new Auction(
                 "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
@@ -126,7 +134,7 @@ class MarketDataProcessingServiceTest {
         BazaarResponse freshBazaar = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
 
         when(client.fetchAllAuctionPages()).thenAnswer(invocation -> {
-            Thread.sleep(40L);
+            nowMillis.addAndGet(40L);
             return auctionResponse;
         });
         when(client.fetchBazaar()).thenReturn(freshBazaar);
@@ -134,7 +142,7 @@ class MarketDataProcessingServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         ReflectionTestUtils.setField(service, "cachedBazaarResponse", staleCachedBazaar);
-        ReflectionTestUtils.setField(service, "nextBazaarFetchAtMillis", System.currentTimeMillis() + 20L);
+        ReflectionTestUtils.setField(service, "nextBazaarFetchAtMillis", nowMillis.get() + 20L);
 
         service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
@@ -142,11 +150,12 @@ class MarketDataProcessingServiceTest {
     }
 
     @Test
-    void captureCurrentSnapshotAndPrepareInputDoesNotRegressSourceWatermarks() throws InterruptedException {
+    void captureCurrentSnapshotAndPrepareInputDoesNotRegressSourceWatermarks() {
         HypixelClient client = mock(HypixelClient.class);
         HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
         MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        AtomicLong nowMillis = new AtomicLong(2_000_000L);
         com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
                 new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
                         new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
@@ -163,7 +172,8 @@ class MarketDataProcessingServiceTest {
                 Duration.ofMillis(1),
                 Duration.ofMillis(1),
                 1L,
-                Duration.ofMillis(1)
+                Duration.ofMillis(1),
+                nowMillis::get
         );
 
         Auction auction = new Auction(
@@ -186,7 +196,7 @@ class MarketDataProcessingServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
-        Thread.sleep(5L);
+        nowMillis.addAndGet(5L);
         service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
         long auctionWatermark = (long) ReflectionTestUtils.getField(service, "lastAuctionLastUpdated");

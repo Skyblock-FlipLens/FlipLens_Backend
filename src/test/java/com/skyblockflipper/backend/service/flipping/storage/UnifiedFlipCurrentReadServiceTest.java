@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -240,7 +241,7 @@ class UnifiedFlipCurrentReadServiceTest {
     }
 
     @Test
-    void listCurrentPageAdjustsTotalWhenMapperReturnsNull() {
+    void listCurrentPageThrowsWhenMapperReturnsNull() {
         FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
         StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
         UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
@@ -268,11 +269,11 @@ class UnifiedFlipCurrentReadServiceTest {
         when(dtoMapper.toDto(currentFirst, definitionFirst)).thenReturn(dto(firstId, FlipType.BAZAAR));
         when(dtoMapper.toDto(currentSecond, definitionSecond)).thenReturn(null);
 
-        Page<UnifiedFlipDto> result = service.listCurrentPage(FlipType.BAZAAR, pageable);
-
-        assertEquals(1L, result.getTotalElements());
-        assertEquals(1, result.getContent().size());
-        assertEquals(firstId, result.getContent().getFirst().id());
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.listCurrentPage(FlipType.BAZAAR, pageable)
+        );
+        assertTrue(exception.getMessage().contains("StoredFlipDtoMapper returned null"));
     }
 
     @Test

@@ -64,17 +64,14 @@ public class UnifiedFlipCurrentReadService {
             return new PageImpl<>(List.of(), pageable, page.getTotalElements());
         }
         List<UnifiedFlipDto> content = new ArrayList<>(page.getNumberOfElements());
-        long filteredNulls = 0L;
         for (FlipCurrentRepository.CurrentDefinitionProjection row : page.getContent()) {
             UnifiedFlipDto dto = storedFlipDtoMapper.toDto(row.getCurrent(), row.getDefinition());
             if (dto == null) {
-                filteredNulls++;
-                continue;
+                throw new IllegalStateException("StoredFlipDtoMapper returned null for paged current projection");
             }
             content.add(dto);
         }
-        long correctedTotal = Math.max(0L, page.getTotalElements() - filteredNulls);
-        return new PageImpl<>(List.copyOf(content), pageable, correctedTotal);
+        return new PageImpl<>(List.copyOf(content), pageable, page.getTotalElements());
     }
 
     @Transactional(readOnly = true)
@@ -104,17 +101,14 @@ public class UnifiedFlipCurrentReadService {
         }
 
         List<UnifiedFlipDto> content = new ArrayList<>(page.getNumberOfElements());
-        long filteredNulls = 0L;
         for (FlipCurrentRepository.CurrentDefinitionProjection row : page.getContent()) {
             UnifiedFlipDto dto = storedFlipDtoMapper.toDto(row.getCurrent(), row.getDefinition());
             if (dto == null) {
-                filteredNulls++;
-                continue;
+                throw new IllegalStateException("StoredFlipDtoMapper returned null for filtered current projection");
             }
             content.add(dto);
         }
-        long correctedTotal = Math.max(0L, page.getTotalElements() - filteredNulls);
-        return new PageImpl<>(List.copyOf(content), effectivePageable, correctedTotal);
+        return new PageImpl<>(List.copyOf(content), effectivePageable, page.getTotalElements());
     }
 
     @Transactional(readOnly = true)

@@ -42,24 +42,31 @@ class FlipReadServiceTest {
         FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
         FlipCalculationContext context = FlipCalculationContext.standard(null);
 
-        Flip flip = mock(Flip.class);
-        UUID flipId = UUID.fromString("90909090-9090-9090-9090-909090909090");
-        UnifiedFlipDto dto = sampleDto();
+        Flip flipA = mock(Flip.class);
+        Flip flipB = mock(Flip.class);
+        UUID idA = UUID.fromString("90909090-9090-9090-9090-909090909090");
+        UUID idB = UUID.fromString("90909090-9090-9090-9090-909090909091");
+        UnifiedFlipDto dtoA = sampleDto();
+        UnifiedFlipDto dtoB = sampleDto();
         Pageable pageable = PageRequest.of(0, 20);
-        when(flip.getId()).thenReturn(flipId);
-        when(flipRepository.findAllIds(pageable)).thenReturn(new PageImpl<>(List.of(flipId), pageable, 1));
-        when(flipRepository.findAllByIdInWithDetails(List.of(flipId))).thenReturn(List.of(flip));
+        when(flipA.getId()).thenReturn(idA);
+        when(flipB.getId()).thenReturn(idB);
+        when(flipRepository.findAllIds(pageable)).thenReturn(new PageImpl<>(List.of(idA, idB), pageable, 2));
+        when(flipRepository.findAllByIdInWithDetails(List.of(idA, idB))).thenReturn(List.of(flipB, flipA));
         when(contextService.loadCurrentContext()).thenReturn(context);
-        when(mapper.toDto(flip, context)).thenReturn(dto);
+        when(mapper.toDto(flipA, context)).thenReturn(dtoA);
+        when(mapper.toDto(flipB, context)).thenReturn(dtoB);
 
         Page<UnifiedFlipDto> result = service.listFlips(null, pageable);
 
-        assertEquals(1, result.getTotalElements());
-        assertEquals(dto, result.getContent().getFirst());
+        assertEquals(2, result.getTotalElements());
+        assertEquals(dtoA, result.getContent().get(0));
+        assertEquals(dtoB, result.getContent().get(1));
         verify(flipRepository).findAllIds(pageable);
-        verify(flipRepository).findAllByIdInWithDetails(List.of(flipId));
+        verify(flipRepository).findAllByIdInWithDetails(List.of(idA, idB));
         verify(contextService).loadCurrentContext();
-        verify(mapper).toDto(flip, context);
+        verify(mapper).toDto(flipA, context);
+        verify(mapper).toDto(flipB, context);
     }
 
     @Test
@@ -70,25 +77,32 @@ class FlipReadServiceTest {
         FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
         FlipCalculationContext context = FlipCalculationContext.standard(null);
 
-        Flip flip = mock(Flip.class);
-        UUID flipId = UUID.fromString("91919191-9191-9191-9191-919191919191");
-        UnifiedFlipDto dto = sampleDto();
+        Flip flipA = mock(Flip.class);
+        Flip flipB = mock(Flip.class);
+        UUID idA = UUID.fromString("91919191-9191-9191-9191-919191919191");
+        UUID idB = UUID.fromString("91919191-9191-9191-9191-919191919192");
+        UnifiedFlipDto dtoA = sampleDto();
+        UnifiedFlipDto dtoB = sampleDto();
         Pageable pageable = PageRequest.of(0, 10);
-        when(flip.getId()).thenReturn(flipId);
+        when(flipA.getId()).thenReturn(idA);
+        when(flipB.getId()).thenReturn(idB);
         when(flipRepository.findIdsByFlipType(FlipType.BAZAAR, pageable))
-                .thenReturn(new PageImpl<>(List.of(flipId), pageable, 1));
-        when(flipRepository.findAllByIdInWithDetails(List.of(flipId))).thenReturn(List.of(flip));
+                .thenReturn(new PageImpl<>(List.of(idA, idB), pageable, 2));
+        when(flipRepository.findAllByIdInWithDetails(List.of(idA, idB))).thenReturn(List.of(flipB, flipA));
         when(contextService.loadCurrentContext()).thenReturn(context);
-        when(mapper.toDto(flip, context)).thenReturn(dto);
+        when(mapper.toDto(flipA, context)).thenReturn(dtoA);
+        when(mapper.toDto(flipB, context)).thenReturn(dtoB);
 
         Page<UnifiedFlipDto> result = service.listFlips(FlipType.BAZAAR, pageable);
 
-        assertEquals(1, result.getTotalElements());
-        assertEquals(dto, result.getContent().getFirst());
+        assertEquals(2, result.getTotalElements());
+        assertEquals(dtoA, result.getContent().get(0));
+        assertEquals(dtoB, result.getContent().get(1));
         verify(flipRepository).findIdsByFlipType(FlipType.BAZAAR, pageable);
-        verify(flipRepository).findAllByIdInWithDetails(List.of(flipId));
+        verify(flipRepository).findAllByIdInWithDetails(List.of(idA, idB));
         verify(contextService).loadCurrentContext();
-        verify(mapper).toDto(flip, context);
+        verify(mapper).toDto(flipA, context);
+        verify(mapper).toDto(flipB, context);
     }
 
     @Test
@@ -1535,10 +1549,12 @@ class FlipReadServiceTest {
         when(second.getId()).thenReturn(secondId);
 
         when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
-        stubLegacyPagedBySnapshot(flipRepository, snapshotEpochMillis, List.of(firstId, secondId), List.of(first, second));
+        PageRequest firstPage = PageRequest.of(0, 500);
+        when(flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, firstPage))
+                .thenReturn(new PageImpl<>(List.of(first, second), firstPage, 2L));
         when(flipRepository.countByFlipTypeForSnapshot(snapshotEpochMillis)).thenReturn(List.of(
-                new Object[]{FlipType.AUCTION, 5L},
-                new Object[]{FlipType.BAZAAR, 3L}
+                new Object[]{FlipType.AUCTION, 1L},
+                new Object[]{FlipType.BAZAAR, 1L}
         ));
         when(contextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis))).thenReturn(context);
         when(mapper.toDto(first, context)).thenReturn(sampleGoodnessDto(
@@ -1565,9 +1581,14 @@ class FlipReadServiceTest {
         assertEquals(0.5D, result.avgRoi());
         assertEquals(1_000_000L, result.bestFlipProfit());
         assertEquals(FlipType.values().length, result.byType().size());
-        assertEquals(5L, result.byType().get(FlipType.AUCTION.name()));
-        assertEquals(3L, result.byType().get(FlipType.BAZAAR.name()));
+        assertEquals(1L, result.byType().get(FlipType.AUCTION.name()));
+        assertEquals(1L, result.byType().get(FlipType.BAZAAR.name()));
         verify(flipRepository, times(1)).countByFlipTypeForSnapshot(snapshotEpochMillis);
+        verify(flipRepository, times(1)).findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, firstPage);
+        verify(flipRepository, never()).findIdsBySnapshotTimestampEpochMillis(
+                org.mockito.ArgumentMatchers.eq(snapshotEpochMillis),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
         verify(flipRepository, never()).findAllByFlipType(
                 org.mockito.ArgumentMatchers.any(FlipType.class),
                 org.mockito.ArgumentMatchers.eq(Pageable.unpaged())

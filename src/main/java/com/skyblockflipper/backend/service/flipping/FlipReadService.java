@@ -38,8 +38,7 @@ public class FlipReadService {
     private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
     private static final int LEGACY_READ_PAGE_SIZE = 500;
     private static final int TOP_QUEUE_INITIAL_CAP = 10_000;
-    private static final int MAX_RANKING_ENTRIES = 10_000;
-    private static final int MAX_TOP_N = 10_000;
+    private static final int MAX_IN_MEMORY_ENTRIES = 10_000;
     private static final String MISSING_INPUT_PRICE_REASON_PREFIX = "MISSING_INPUT_PRICE";
     private static final String INSUFFICIENT_INPUT_DEPTH_REASON_PREFIX = "INSUFFICIENT_INPUT_DEPTH";
     private static final String MISSING_OUTPUT_PRICE_REASON_PREFIX = "MISSING_OUTPUT_PRICE";
@@ -62,6 +61,7 @@ public class FlipReadService {
     private final FlipStorageProperties flipStorageProperties;
     private final FlippingModelProperties flippingModelProperties;
     private final ConcurrentMap<GoodnessCacheKey, CachedGoodnessRanking> goodnessRankingCache = new ConcurrentHashMap<>();
+    private final Object goodnessCacheLock = new Object();
 
     public FlipReadService(FlipRepository flipRepository,
                            UnifiedFlipDtoMapper unifiedFlipDtoMapper,
@@ -382,7 +382,7 @@ public class FlipReadService {
         long roiCount = 0L;
         long bestFlipProfit = 0L;
 
-        Page<Flip> page = queryFlips(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
+        Page<Flip> page = queryFlipsForStats(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
         while (true) {
             for (Flip flip : page.getContent()) {
                 UnifiedFlipDto dto = unifiedFlipDtoMapper.toDto(flip, context);
@@ -407,7 +407,7 @@ public class FlipReadService {
             if (!page.hasNext()) {
                 break;
             }
-            page = queryFlips(flipType, snapshotEpochMillis, page.nextPageable());
+            page = queryFlipsForStats(flipType, snapshotEpochMillis, page.nextPageable());
         }
         long avgProfit = profitCount == 0L ? 0L : Math.round((double) profitSum / profitCount);
         double avgRoi = roiCount == 0L ? 0D : (roiSum / roiCount);
@@ -718,6 +718,17 @@ public class FlipReadService {
                 : flipRepository.findAllByFlipTypeAndSnapshotTimestampEpochMillis(flipType, snapshotEpochMillis, pageable);
     }
 
+    private Page<Flip> queryFlipsForStats(FlipType flipType, Long snapshotEpochMillis, Pageable pageable) {
+        if (snapshotEpochMillis == null) {
+            return flipType == null
+                    ? flipRepository.findAll(pageable)
+                    : flipRepository.findAllByFlipType(flipType, pageable);
+        }
+        return flipType == null
+                ? flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, pageable)
+                : flipRepository.findAllByFlipTypeAndSnapshotTimestampEpochMillis(flipType, snapshotEpochMillis, pageable);
+    }
+
     private Page<Flip> queryFlipsPaged(FlipType flipType, Long snapshotEpochMillis, Pageable pageable) {
         Page<UUID> idPage = queryFlipIds(flipType, snapshotEpochMillis, pageable);
         if (idPage.isEmpty()) {
@@ -892,10 +903,6 @@ public class FlipReadService {
     private List<FlipGoodnessDto> cachedGoodnessRanking(FlipType flipType,
                                                         Long snapshotEpochMillis,
                                                         Supplier<List<FlipGoodnessDto>> computer) {
-        if (snapshotEpochMillis == null) {
-            return computer.get();
-        }
-
         GoodnessCacheKey cacheKey = GoodnessCacheKey.from(
                 snapshotEpochMillis,
                 flipType,
@@ -909,13 +916,15 @@ public class FlipReadService {
         }
 
         List<FlipGoodnessDto> computed = computer.get();
-        goodnessRankingCache.put(cacheKey, new CachedGoodnessRanking(
-                computed,
-                computed.size(),
-                Math.max(1, computed.size()),
-                now
-        ));
-        trimGoodnessRankingCache();
+        synchronized (goodnessCacheLock) {
+            goodnessRankingCache.put(cacheKey, new CachedGoodnessRanking(
+                    computed,
+                    computed.size(),
+                    Math.max(1, computed.size()),
+                    now
+            ));
+            trimGoodnessRankingCacheLocked();
+        }
         return computed;
     }
 
@@ -954,8 +963,10 @@ public class FlipReadService {
                 computed.maxEntries(),
                 now
         );
-        goodnessRankingCache.put(cacheKey, withTimestamp);
-        trimGoodnessRankingCache();
+        synchronized (goodnessCacheLock) {
+            goodnessRankingCache.put(cacheKey, withTimestamp);
+            trimGoodnessRankingCacheLocked();
+        }
         return withTimestamp;
     }
 
@@ -1022,12 +1033,18 @@ public class FlipReadService {
             return GOODNESS_PAGE_SIZE;
         }
         if (required > Integer.MAX_VALUE) {
-            return MAX_RANKING_ENTRIES;
+            return MAX_IN_MEMORY_ENTRIES;
         }
         return sanitizeRankingEntries((int) required);
     }
 
     private void trimGoodnessRankingCache() {
+        synchronized (goodnessCacheLock) {
+            trimGoodnessRankingCacheLocked();
+        }
+    }
+
+    private void trimGoodnessRankingCacheLocked() {
         while (goodnessRankingCache.size() > GOODNESS_CACHE_MAX_ENTRIES) {
             GoodnessCacheKey oldestKey = null;
             long oldestTimestamp = Long.MAX_VALUE;
@@ -1220,11 +1237,11 @@ public class FlipReadService {
     }
 
     private int sanitizeRankingEntries(int requestedEntries) {
-        return Math.max(1, Math.min(requestedEntries, MAX_RANKING_ENTRIES));
+        return Math.max(1, Math.min(requestedEntries, MAX_IN_MEMORY_ENTRIES));
     }
 
     private int sanitizeTopLimit(int requestedLimit) {
-        return Math.max(1, Math.min(requestedLimit, MAX_TOP_N));
+        return Math.max(1, Math.min(requestedLimit, MAX_IN_MEMORY_ENTRIES));
     }
 
     private Sort currentStorageSort(FlipSortBy sortBy, Sort.Direction sortDirection) {
@@ -1281,9 +1298,18 @@ public class FlipReadService {
         return Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
                 .thenComparing(entry -> {
                     UnifiedFlipDto flip = entry.flip();
-                    return flip.expectedProfit() == null ? Long.MIN_VALUE : flip.expectedProfit();
+                    if (flip == null || flip.expectedProfit() == null) {
+                        return Long.MIN_VALUE;
+                    }
+                    return flip.expectedProfit();
                 }, Comparator.reverseOrder())
-                .thenComparing(entry -> entry.flip().id() == null ? "" : entry.flip().id().toString());
+                .thenComparing(entry -> {
+                    UnifiedFlipDto flip = entry.flip();
+                    if (flip == null || flip.id() == null) {
+                        return "";
+                    }
+                    return flip.id().toString();
+                });
     }
 
     private <T extends Comparable<? super T>> Comparator<UnifiedFlipDto> comparableComparator(
