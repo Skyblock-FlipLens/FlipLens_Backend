@@ -66,7 +66,9 @@ class UnifiedFlipInputMapperTest {
 
         UnifiedFlipInputSnapshot input = mapper.map(snapshot);
 
+        String expectedInternalId = "SQUID;1";
         assertEquals(1, input.auctionQuotesByItem().size());
+        assertTrue(input.auctionQuotesByItem().containsKey(expectedInternalId));
         UnifiedFlipInputSnapshot.AuctionQuote quote = input.auctionQuotesByItem().values().stream().findFirst().orElseThrow();
         assertEquals(100_000L, quote.lowestStartingBid());
         assertEquals(110_000L, quote.secondLowestStartingBid());

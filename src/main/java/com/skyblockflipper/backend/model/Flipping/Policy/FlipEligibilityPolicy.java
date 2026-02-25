@@ -42,7 +42,9 @@ public class FlipEligibilityPolicy {
         if (quote.p25ObservedPrice() > 0D) {
             anchor = Math.min(anchor, quote.p25ObservedPrice());
         }
-        if (quote.secondLowestStartingBid() > 0L) {
+        if (quote.p25ObservedPrice() <= 0D && quote.secondLowestStartingBid() > 0L && quote.medianObservedPrice() > 0D) {
+            anchor = Math.min(anchor, Math.min(quote.secondLowestStartingBid(), quote.medianObservedPrice() * 0.97D));
+        } else if (quote.secondLowestStartingBid() > 0L) {
             anchor = Math.min(anchor, quote.secondLowestStartingBid());
         }
         if (anchor != Double.MAX_VALUE) {

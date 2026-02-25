@@ -101,7 +101,11 @@ public class UnifiedFlipInputMapper {
     private String uniqueOutputKey(Map<String, UnifiedFlipInputSnapshot.AuctionQuote> existing,
                                    String preferredKey,
                                    AuctionComparableKey comparableKey) {
-        String base = preferredKey == null || preferredKey.isBlank() ? comparableKey.baseId() : preferredKey;
+        String keyFromComparable = comparableKey == null ? null : comparableKey.baseId();
+        String base = isBlankOrUnknown(keyFromComparable) ? preferredKey : keyFromComparable;
+        if (base == null || base.isBlank()) {
+            base = "UNKNOWN";
+        }
         if (!existing.containsKey(base)) {
             return base;
         }
@@ -161,17 +165,22 @@ public class UnifiedFlipInputMapper {
         if (extra == null || extra.isBlank()) {
             return null;
         }
-        String[] candidates = {extra, extra.replace("\\\"", "\"")};
+        String[] candidates = {extra.replace("\\\"", "\""), extra};
         for (String candidate : candidates) {
             Matcher matcher = INTERNAL_NAME_PATTERN.matcher(candidate);
             if (matcher.find()) {
-                String value = normalizeIdentifier(matcher.group(1));
+                String rawValue = matcher.group(1) == null ? "" : matcher.group(1).replace("\\", "");
+                String value = normalizeIdentifier(rawValue);
                 if (!value.isBlank()) {
                     return value;
                 }
             }
         }
         return null;
+    }
+
+    private boolean isBlankOrUnknown(String value) {
+        return value == null || value.isBlank() || "UNKNOWN".equalsIgnoreCase(value.trim());
     }
 
     private int countStars(String text) {
