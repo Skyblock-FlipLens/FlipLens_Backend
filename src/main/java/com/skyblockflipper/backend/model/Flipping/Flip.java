@@ -18,6 +18,7 @@ import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ public class Flip {
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "flip_id", nullable = false)
     @OrderColumn(name = "step_order")
+    @BatchSize(size = 50)
     private List<Step> steps = new ArrayList<>();
 
     @Setter
@@ -55,6 +57,7 @@ public class Flip {
     private Long snapshotTimestampEpochMillis;
 
     @ElementCollection
+    @BatchSize(size = 50)
     private List<Constraint> constraints = new ArrayList<>();
 
     protected Flip() {

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.function.LongSupplier;
 
 @Service
 @Slf4j
@@ -37,6 +38,7 @@ public class MarketDataProcessingService {
     private final long auctionMaxIntervalMillis;
     private final long bazaarMaxIntervalMillis;
     private final long retryIntervalMillis;
+    private final LongSupplier nowSupplier;
     private final Object pollStateLock = new Object();
 
     private AuctionResponse cachedAuctionResponse;
@@ -47,12 +49,15 @@ public class MarketDataProcessingService {
     private long bazaarCurrentIntervalMillis;
     private long lastAuctionLastUpdated = -1L;
     private long lastBazaarLastUpdated = -1L;
+    private boolean auctionRefreshInFlight;
+    private boolean bazaarRefreshInFlight;
 
     public MarketDataProcessingService(HypixelClient hypixelClient,
                                        HypixelMarketSnapshotMapper marketSnapshotMapper,
                                        MarketSnapshotPersistenceService marketSnapshotPersistenceService,
                                        UnifiedFlipInputMapper unifiedFlipInputMapper) {
-        this(hypixelClient,
+        this(
+                hypixelClient,
                 marketSnapshotMapper,
                 marketSnapshotPersistenceService,
                 unifiedFlipInputMapper,
@@ -63,7 +68,31 @@ public class MarketDataProcessingService {
                 DEFAULT_AUCTION_BASE_INTERVAL,
                 DEFAULT_BAZAAR_BASE_INTERVAL,
                 DEFAULT_MAX_INTERVAL_MULTIPLIER,
-                DEFAULT_RETRY_INTERVAL);
+                DEFAULT_RETRY_INTERVAL,
+                System::currentTimeMillis
+        );
+    }
+
+    public MarketDataProcessingService(HypixelClient hypixelClient,
+                                       HypixelMarketSnapshotMapper marketSnapshotMapper,
+                                       MarketSnapshotPersistenceService marketSnapshotPersistenceService,
+                                       UnifiedFlipInputMapper unifiedFlipInputMapper,
+                                       LongSupplier nowSupplier) {
+        this(
+                hypixelClient,
+                marketSnapshotMapper,
+                marketSnapshotPersistenceService,
+                unifiedFlipInputMapper,
+                new CycleInstrumentationService(
+                        new SimpleMeterRegistry(),
+                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
+                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties())),
+                DEFAULT_AUCTION_BASE_INTERVAL,
+                DEFAULT_BAZAAR_BASE_INTERVAL,
+                DEFAULT_MAX_INTERVAL_MULTIPLIER,
+                DEFAULT_RETRY_INTERVAL,
+                nowSupplier
+        );
     }
 
     @Autowired
@@ -76,6 +105,28 @@ public class MarketDataProcessingService {
                                        @Value("${config.hypixel.polling.bazaar-base-interval:PT20S}") Duration bazaarBaseInterval,
                                        @Value("${config.hypixel.polling.max-interval-multiplier:2}") long maxIntervalMultiplier,
                                        @Value("${config.hypixel.polling.retry-interval:PT10S}") Duration retryInterval) {
+        this(hypixelClient,
+                marketSnapshotMapper,
+                marketSnapshotPersistenceService,
+                unifiedFlipInputMapper,
+                cycleInstrumentationService,
+                auctionBaseInterval,
+                bazaarBaseInterval,
+                maxIntervalMultiplier,
+                retryInterval,
+                System::currentTimeMillis);
+    }
+
+    public MarketDataProcessingService(HypixelClient hypixelClient,
+                                       HypixelMarketSnapshotMapper marketSnapshotMapper,
+                                       MarketSnapshotPersistenceService marketSnapshotPersistenceService,
+                                       UnifiedFlipInputMapper unifiedFlipInputMapper,
+                                       CycleInstrumentationService cycleInstrumentationService,
+                                       Duration auctionBaseInterval,
+                                       Duration bazaarBaseInterval,
+                                       long maxIntervalMultiplier,
+                                       Duration retryInterval,
+                                       LongSupplier nowSupplier) {
         this.hypixelClient = hypixelClient;
         this.marketSnapshotMapper = marketSnapshotMapper;
         this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
@@ -87,6 +138,7 @@ public class MarketDataProcessingService {
         this.auctionMaxIntervalMillis = this.auctionBaseIntervalMillis * safeMultiplier;
         this.bazaarMaxIntervalMillis = this.bazaarBaseIntervalMillis * safeMultiplier;
         this.retryIntervalMillis = sanitizeDuration(retryInterval, DEFAULT_RETRY_INTERVAL);
+        this.nowSupplier = nowSupplier == null ? System::currentTimeMillis : nowSupplier;
         this.auctionCurrentIntervalMillis = this.auctionBaseIntervalMillis;
         this.bazaarCurrentIntervalMillis = this.bazaarBaseIntervalMillis;
     }
@@ -188,7 +240,8 @@ public class MarketDataProcessingService {
 
     public Optional<MarketSnapshot> marketSnapshotAsOfSecondsAgo(long secondsAgo) {
         long boundedSecondsAgo = Math.max(0L, secondsAgo);
-        return marketSnapshotPersistenceService.asOf(java.time.Instant.now().minusSeconds(boundedSecondsAgo));
+        long nowMillis = nowSupplier.getAsLong();
+        return marketSnapshotPersistenceService.asOf(java.time.Instant.ofEpochMilli(nowMillis).minusSeconds(boundedSecondsAgo));
     }
 
     public MarketSnapshotPersistenceService.SnapshotCompactionResult compactSnapshots() {
@@ -196,16 +249,21 @@ public class MarketDataProcessingService {
     }
 
     private PollPayload pollPayload() {
+        maybeRefreshAuctions(nowSupplier.getAsLong());
+        maybeRefreshBazaar(nowSupplier.getAsLong());
         synchronized (pollStateLock) {
-            long now = System.currentTimeMillis();
-            maybeRefreshAuctions(now);
-            maybeRefreshBazaar(now);
             return new PollPayload(cachedAuctionResponse, cachedBazaarResponse);
         }
     }
 
     private void maybeRefreshAuctions(long now) {
-        boolean shouldFetch = cachedAuctionResponse == null || now >= nextAuctionFetchAtMillis;
+        boolean shouldFetch;
+        synchronized (pollStateLock) {
+            shouldFetch = (cachedAuctionResponse == null || now >= nextAuctionFetchAtMillis) && !auctionRefreshInFlight;
+            if (shouldFetch) {
+                auctionRefreshInFlight = true;
+            }
+        }
         if (!shouldFetch) {
             return;
         }
@@ -217,26 +275,52 @@ public class MarketDataProcessingService {
             log.warn("Auction refresh failed, keeping cached payload: {}", e.getMessage());
             fetched = null;
         }
-        if (fetched == null) {
-            auctionCurrentIntervalMillis = growInterval(auctionCurrentIntervalMillis, auctionBaseIntervalMillis, auctionMaxIntervalMillis);
-            nextAuctionFetchAtMillis = now + Math.min(retryIntervalMillis, auctionCurrentIntervalMillis);
-            return;
-        }
+        synchronized (pollStateLock) {
+            try {
+                long decisionNow = nowSupplier.getAsLong();
+                if (fetched == null) {
+                    auctionCurrentIntervalMillis = growInterval(auctionCurrentIntervalMillis, auctionBaseIntervalMillis, auctionMaxIntervalMillis);
+                    nextAuctionFetchAtMillis = decisionNow + Math.min(retryIntervalMillis, auctionCurrentIntervalMillis);
+                    return;
+                }
 
-        cachedAuctionResponse = fetched;
-        long fetchedLastUpdated = fetched.getLastUpdated();
-        boolean advanced = fetchedLastUpdated > 0L && fetchedLastUpdated > lastAuctionLastUpdated;
-        auctionCurrentIntervalMillis = advanced
-                ? auctionBaseIntervalMillis
-                : growInterval(auctionCurrentIntervalMillis, auctionBaseIntervalMillis, auctionMaxIntervalMillis);
-        if (fetchedLastUpdated > 0L) {
-            lastAuctionLastUpdated = fetchedLastUpdated;
+                long fetchedLastUpdated = fetched.getLastUpdated();
+                boolean accepted = fetchedLastUpdated > 0L && fetchedLastUpdated >= lastAuctionLastUpdated;
+                boolean advanced = accepted && fetchedLastUpdated > lastAuctionLastUpdated;
+                if (accepted) {
+                    cachedAuctionResponse = fetched;
+                    if (advanced) {
+                        lastAuctionLastUpdated = fetchedLastUpdated;
+                        auctionCurrentIntervalMillis = auctionBaseIntervalMillis;
+                    } else {
+                        auctionCurrentIntervalMillis = growInterval(
+                                auctionCurrentIntervalMillis,
+                                auctionBaseIntervalMillis,
+                                auctionMaxIntervalMillis
+                        );
+                    }
+                } else {
+                    auctionCurrentIntervalMillis = growInterval(
+                            auctionCurrentIntervalMillis,
+                            auctionBaseIntervalMillis,
+                            auctionMaxIntervalMillis
+                    );
+                }
+                nextAuctionFetchAtMillis = decisionNow + auctionCurrentIntervalMillis;
+            } finally {
+                auctionRefreshInFlight = false;
+            }
         }
-        nextAuctionFetchAtMillis = now + auctionCurrentIntervalMillis;
     }
 
     private void maybeRefreshBazaar(long now) {
-        boolean shouldFetch = cachedBazaarResponse == null || now >= nextBazaarFetchAtMillis;
+        boolean shouldFetch;
+        synchronized (pollStateLock) {
+            shouldFetch = (cachedBazaarResponse == null || now >= nextBazaarFetchAtMillis) && !bazaarRefreshInFlight;
+            if (shouldFetch) {
+                bazaarRefreshInFlight = true;
+            }
+        }
         if (!shouldFetch) {
             return;
         }
@@ -248,22 +332,42 @@ public class MarketDataProcessingService {
             log.warn("Bazaar refresh failed, keeping cached payload: {}", e.getMessage());
             fetched = null;
         }
-        if (fetched == null) {
-            bazaarCurrentIntervalMillis = growInterval(bazaarCurrentIntervalMillis, bazaarBaseIntervalMillis, bazaarMaxIntervalMillis);
-            nextBazaarFetchAtMillis = now + Math.min(retryIntervalMillis, bazaarCurrentIntervalMillis);
-            return;
-        }
+        synchronized (pollStateLock) {
+            try {
+                long decisionNow = nowSupplier.getAsLong();
+                if (fetched == null) {
+                    bazaarCurrentIntervalMillis = growInterval(bazaarCurrentIntervalMillis, bazaarBaseIntervalMillis, bazaarMaxIntervalMillis);
+                    nextBazaarFetchAtMillis = decisionNow + Math.min(retryIntervalMillis, bazaarCurrentIntervalMillis);
+                    return;
+                }
 
-        cachedBazaarResponse = fetched;
-        long fetchedLastUpdated = fetched.getLastUpdated();
-        boolean advanced = fetchedLastUpdated > 0L && fetchedLastUpdated > lastBazaarLastUpdated;
-        bazaarCurrentIntervalMillis = advanced
-                ? bazaarBaseIntervalMillis
-                : growInterval(bazaarCurrentIntervalMillis, bazaarBaseIntervalMillis, bazaarMaxIntervalMillis);
-        if (fetchedLastUpdated > 0L) {
-            lastBazaarLastUpdated = fetchedLastUpdated;
+                long fetchedLastUpdated = fetched.getLastUpdated();
+                boolean accepted = fetchedLastUpdated > 0L && fetchedLastUpdated >= lastBazaarLastUpdated;
+                boolean advanced = accepted && fetchedLastUpdated > lastBazaarLastUpdated;
+                if (accepted) {
+                    cachedBazaarResponse = fetched;
+                    if (advanced) {
+                        lastBazaarLastUpdated = fetchedLastUpdated;
+                        bazaarCurrentIntervalMillis = bazaarBaseIntervalMillis;
+                    } else {
+                        bazaarCurrentIntervalMillis = growInterval(
+                                bazaarCurrentIntervalMillis,
+                                bazaarBaseIntervalMillis,
+                                bazaarMaxIntervalMillis
+                        );
+                    }
+                } else {
+                    bazaarCurrentIntervalMillis = growInterval(
+                            bazaarCurrentIntervalMillis,
+                            bazaarBaseIntervalMillis,
+                            bazaarMaxIntervalMillis
+                    );
+                }
+                nextBazaarFetchAtMillis = decisionNow + bazaarCurrentIntervalMillis;
+            } finally {
+                bazaarRefreshInFlight = false;
+            }
         }
-        nextBazaarFetchAtMillis = now + bazaarCurrentIntervalMillis;
     }
 
     private long growInterval(long currentIntervalMillis, long baseIntervalMillis, long maxIntervalMillis) {

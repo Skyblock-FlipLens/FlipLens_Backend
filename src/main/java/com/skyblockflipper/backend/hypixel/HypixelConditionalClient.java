@@ -20,6 +20,7 @@ import java.util.List;
 
 @Slf4j
 public class HypixelConditionalClient {
+    private static final int MAX_PREALLOC = 100_000;
 
     private final RestClient restClient;
     private final String apiKey;
@@ -49,7 +50,8 @@ public class HypixelConditionalClient {
         if (firstPage == null || !firstPage.isSuccess()) {
             return HypixelHttpResult.error(500, HttpHeaders.EMPTY, "Invalid first auctions page");
         }
-        List<Auction> allAuctions = new ArrayList<>();
+        int cappedSize = Math.min(Math.max(0, firstPage.getTotalAuctions()), MAX_PREALLOC);
+        List<Auction> allAuctions = new ArrayList<>(cappedSize);
         if (firstPage.getAuctions() != null) {
             allAuctions.addAll(firstPage.getAuctions());
         }

@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,4 +36,31 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
 
     @Query("select f.flipType, count(f) from Flip f where f.snapshotTimestampEpochMillis = :snapshotEpochMillis group by f.flipType")
     List<Object[]> countByFlipTypeForSnapshot(@Param("snapshotEpochMillis") long snapshotEpochMillis);
+
+    @Query("select f.id from Flip f")
+    Page<UUID> findAllIds(Pageable pageable);
+
+    @Query("select f.id from Flip f where f.flipType = :flipType")
+    Page<UUID> findIdsByFlipType(@Param("flipType") FlipType flipType, Pageable pageable);
+
+    @Query("select f.id from Flip f where f.snapshotTimestampEpochMillis = :snapshotTimestampEpochMillis")
+    Page<UUID> findIdsBySnapshotTimestampEpochMillis(@Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis,
+                                                     Pageable pageable);
+
+    @Query("""
+            select f.id from Flip f
+            where f.flipType = :flipType
+              and f.snapshotTimestampEpochMillis = :snapshotTimestampEpochMillis
+            """)
+    Page<UUID> findIdsByFlipTypeAndSnapshotTimestampEpochMillis(@Param("flipType") FlipType flipType,
+                                                                @Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis,
+                                                                Pageable pageable);
+
+    @Query("""
+            select distinct f from Flip f
+            left join fetch f.steps
+            left join fetch f.constraints
+            where f.id in :ids
+            """)
+    List<Flip> findAllByIdInWithDetails(@Param("ids") Collection<UUID> ids);
 }

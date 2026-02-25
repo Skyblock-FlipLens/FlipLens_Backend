@@ -37,7 +37,8 @@ public class MarketFlipMapper {
             return List.of();
         }
 
-        List<Flip> generated = new ArrayList<>();
+        int expectedSize = snapshot.bazaarQuotes().size() + snapshot.auctionQuotesByItem().size();
+        List<Flip> generated = new ArrayList<>(Math.max(expectedSize, 0));
         for (Map.Entry<String, UnifiedFlipInputSnapshot.BazaarQuote> entry : snapshot.bazaarQuotes().entrySet()) {
             Flip flip = buildBazaarFlip(entry.getKey(), entry.getValue());
             if (flip != null) {
