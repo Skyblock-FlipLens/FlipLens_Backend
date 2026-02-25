@@ -21,7 +21,8 @@ public class ElectionPollFreshnessService {
 
     static final String ELECTION_POLL_SOURCE_KEY = "HYPIXEL-ELECTION-POLL";
     private static final String ELECTION_UNAVAILABLE_HASH = "ELECTION_UNAVAILABLE";
-    private static final Duration DEFAULT_MAX_AGE = Duration.ofMinutes(5);
+    // SkyBlock mayor election cycle is 124 in-game hours.
+    private static final Duration DEFAULT_MAX_AGE = Duration.ofHours(124);
 
     private final DataSourceHashRepository dataSourceHashRepository;
     private final HypixelClient hypixelClient;
@@ -30,7 +31,7 @@ public class ElectionPollFreshnessService {
 
     public ElectionPollFreshnessService(DataSourceHashRepository dataSourceHashRepository,
                                         HypixelClient hypixelClient,
-                                        @Value("${config.hypixel.polling.election-max-age:PT5M}") Duration maxAge) {
+                                        @Value("${config.hypixel.polling.election-max-age:PT124H}") Duration maxAge) {
         this.dataSourceHashRepository = dataSourceHashRepository;
         this.hypixelClient = hypixelClient;
         this.maxAgeMillis = sanitizeDuration(maxAge, DEFAULT_MAX_AGE);

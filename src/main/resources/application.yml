@@ -90,6 +90,7 @@ config:
         queue-capacity: ${CONFIG_HYPIXEL_ADAPTIVE_PIPELINE_QUEUE_CAPACITY:1}
         coalesce-enabled: ${CONFIG_HYPIXEL_ADAPTIVE_PIPELINE_COALESCE_ENABLED:true}
     polling:
+      election-max-age: ${CONFIG_HYPIXEL_POLL_ELECTION_MAX_AGE:PT124H}
       auctions-base-interval: ${CONFIG_HYPIXEL_POLL_AUCTIONS_BASE_INTERVAL:PT60S}
       bazaar-base-interval: ${CONFIG_HYPIXEL_POLL_BAZAAR_BASE_INTERVAL:PT20S}
       max-interval-multiplier: ${CONFIG_HYPIXEL_POLL_MAX_INTERVAL_MULTIPLIER:2}

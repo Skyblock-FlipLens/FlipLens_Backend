@@ -5,9 +5,11 @@ import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import com.skyblockflipper.backend.service.market.MarketTimescaleFeatureService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 
@@ -17,11 +19,17 @@ public class FlipCalculationContextService {
     private static final double STANDARD_BAZAAR_TAX = 0.0125D;
     private static final double STANDARD_AUCTION_TAX_MULTIPLIER = 1.0D;
     private static final double DERPY_AUCTION_TAX_MULTIPLIER = 4.0D;
+    // SkyBlock mayor election cycle is 124 in-game hours.
+    private static final Duration DEFAULT_ELECTION_CACHE_MAX_AGE = Duration.ofHours(124);
 
     private final MarketSnapshotPersistenceService marketSnapshotPersistenceService;
     private final UnifiedFlipInputMapper unifiedFlipInputMapper;
     private final MarketTimescaleFeatureService marketTimescaleFeatureService;
     private final HypixelClient hypixelClient;
+    private final Object electionCacheLock = new Object();
+    @Value("${config.hypixel.polling.election-max-age:PT124H}")
+    private Duration electionCacheMaxAge = DEFAULT_ELECTION_CACHE_MAX_AGE;
+    private volatile CachedElection cachedElection;
 
     public FlipCalculationContextService(MarketSnapshotPersistenceService marketSnapshotPersistenceService,
                                          UnifiedFlipInputMapper unifiedFlipInputMapper,
@@ -64,7 +72,7 @@ public class FlipCalculationContextService {
             );
         }
 
-        JsonNode election = hypixelClient.fetchElection();
+        JsonNode election = loadLiveElection();
         if (election == null) {
             return new FlipCalculationContext(
                     marketSnapshot,
@@ -86,6 +94,32 @@ public class FlipCalculationContextService {
                 false,
                 scoreFeatures
         );
+    }
+
+    private JsonNode loadLiveElection() {
+        Instant now = Instant.now();
+        long maxAgeMillis = sanitizeDurationMillis(electionCacheMaxAge, DEFAULT_ELECTION_CACHE_MAX_AGE);
+        CachedElection local = cachedElection;
+        if (local != null && !now.isAfter(local.fetchedAt().plusMillis(maxAgeMillis))) {
+            return local.payload();
+        }
+
+        synchronized (electionCacheLock) {
+            now = Instant.now();
+            local = cachedElection;
+            if (local != null && !now.isAfter(local.fetchedAt().plusMillis(maxAgeMillis))) {
+                return local.payload();
+            }
+
+            JsonNode fetched = hypixelClient.fetchElection();
+            cachedElection = new CachedElection(now, fetched);
+            return fetched;
+        }
+    }
+
+    private long sanitizeDurationMillis(Duration configured, Duration fallback) {
+        Duration safe = configured == null || configured.isNegative() || configured.isZero() ? fallback : configured;
+        return safe.toMillis();
     }
 
     private boolean hasDerpyQuadTaxes(JsonNode election) {
@@ -139,5 +173,11 @@ public class FlipCalculationContextService {
             }
         }
         return null;
+    }
+
+    private record CachedElection(
+            Instant fetchedAt,
+            JsonNode payload
+    ) {
     }
 }

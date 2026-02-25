@@ -12,6 +12,9 @@ public interface FlipDefinitionRepository extends JpaRepository<FlipDefinitionEn
 
     Optional<FlipDefinitionEntity> findByStableFlipId(UUID stableFlipId);
 
-    @Query(value = "select pg_advisory_xact_lock(:lockKey)", nativeQuery = true)
-    Object acquireTransactionScopedWriteLock(@Param("lockKey") long lockKey);
+    @Query(value = """
+            with advisory_lock as (select pg_advisory_xact_lock(:lockKey))
+            select 1
+            """, nativeQuery = true)
+    Integer acquireTransactionScopedWriteLock(@Param("lockKey") long lockKey);
 }

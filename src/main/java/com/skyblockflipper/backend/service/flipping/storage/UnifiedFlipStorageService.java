@@ -61,6 +61,9 @@ public class UnifiedFlipStorageService {
 
     @Transactional
     public void clearSnapshotData(long snapshotEpochMillis) {
+        // Serialize cleanup across JVM instances to avoid deadlocks on overlapping snapshot deletes.
+        flipDefinitionRepository.acquireTransactionScopedWriteLock(UNIFIED_FLIP_WRITE_LOCK_KEY);
+
         // Align unified storage regeneration semantics with legacy "delete snapshot then write snapshot".
         flipCurrentRepository.deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
         flipTrendSegmentRepository.deleteByValidityWindow(

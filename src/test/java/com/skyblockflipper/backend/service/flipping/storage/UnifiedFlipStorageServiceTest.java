@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,6 +52,7 @@ class UnifiedFlipStorageServiceTest {
 
         service.clearSnapshotData(snapshotEpochMillis);
 
+        verify(flipDefinitionRepository).acquireTransactionScopedWriteLock(anyLong());
         verify(flipCurrentRepository).deleteBySnapshotTimestampEpochMillis(snapshotEpochMillis);
         verify(flipTrendSegmentRepository).deleteByValidityWindow(snapshotEpochMillis, snapshotEpochMillis);
     }

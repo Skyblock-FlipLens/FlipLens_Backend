@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class FlipCalculationContextServiceTest {
@@ -126,5 +128,45 @@ class FlipCalculationContextServiceTest {
         );
 
         assertThrows(NullPointerException.class, () -> service.loadContextAsOf(null));
+    }
+
+    @Test
+    void loadCurrentContextCachesElectionResponseWithinMaxAge() throws Exception {
+        MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
+        HypixelClient hypixelClient = mock(HypixelClient.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
+
+        when(marketSnapshotService.latest()).thenReturn(Optional.empty());
+        when(hypixelClient.fetchElection()).thenReturn(objectMapper.readTree("""
+                {
+                  "success": true,
+                  "mayor": {
+                    "name": "Derpy",
+                    "perks": [
+                      {
+                        "name": "QUAD TAXES!!!",
+                        "description": "The Auction House has 4x the listing fee and tax."
+                      }
+                    ]
+                  }
+                }
+                """));
+
+        FlipCalculationContextService service = new FlipCalculationContextService(
+                marketSnapshotService,
+                inputMapper,
+                featureService,
+                hypixelClient
+        );
+
+        FlipCalculationContext first = service.loadCurrentContext();
+        FlipCalculationContext second = service.loadCurrentContext();
+
+        verify(hypixelClient, times(1)).fetchElection();
+        assertEquals(4.0D, first.auctionTaxMultiplier());
+        assertEquals(4.0D, second.auctionTaxMultiplier());
+        assertFalse(first.electionPartial());
+        assertFalse(second.electionPartial());
     }
 }
