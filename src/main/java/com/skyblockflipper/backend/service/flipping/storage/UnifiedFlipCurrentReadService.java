@@ -2,6 +2,7 @@ package com.skyblockflipper.backend.service.flipping.storage;
 
 import com.skyblockflipper.backend.api.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
+import com.skyblockflipper.backend.model.flippingstorage.FlipCurrentEntity;
 import com.skyblockflipper.backend.repository.FlipCurrentRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -9,8 +10,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -75,6 +79,69 @@ public class UnifiedFlipCurrentReadService {
     @Transactional(readOnly = true)
     public Optional<Long> latestSnapshotEpochMillis() {
         return flipCurrentRepository.findMaxSnapshotTimestampEpochMillis();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UnifiedFlipDto> listCurrentScoringDtos(FlipType flipType) {
+        List<FlipCurrentEntity> rows = flipType == null
+                ? flipCurrentRepository.findAll()
+                : flipCurrentRepository.findAllByFlipType(flipType);
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        List<UnifiedFlipDto> result = new ArrayList<>(rows.size());
+        for (FlipCurrentEntity row : rows) {
+            result.add(new UnifiedFlipDto(
+                    row.getStableFlipId(),
+                    row.getFlipType(),
+                    List.of(),
+                    List.of(),
+                    row.getRequiredCapital(),
+                    row.getExpectedProfit(),
+                    row.getRoi(),
+                    row.getRoiPerHour(),
+                    row.getDurationSeconds(),
+                    row.getFees(),
+                    row.getLiquidityScore(),
+                    row.getRiskScore(),
+                    Instant.ofEpochMilli(row.getSnapshotTimestampEpochMillis()),
+                    row.isPartial(),
+                    storedFlipDtoMapper.parsePartialReasonsJson(row.getPartialReasonsJson()),
+                    List.of(),
+                    List.of()
+            ));
+        }
+        return List.copyOf(result);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UnifiedFlipDto> listCurrentByStableFlipIds(List<UUID> stableFlipIds) {
+        if (stableFlipIds == null || stableFlipIds.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> uniqueIds = new ArrayList<>(new LinkedHashSet<>(stableFlipIds));
+        if (uniqueIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, UnifiedFlipDto> byStableId = new LinkedHashMap<>();
+        for (FlipCurrentRepository.CurrentDefinitionProjection row
+                : flipCurrentRepository.findAllWithDefinitionByStableFlipIds(uniqueIds)) {
+            UnifiedFlipDto dto = storedFlipDtoMapper.toDto(row.getCurrent(), row.getDefinition());
+            if (dto != null && dto.id() != null) {
+                byStableId.put(dto.id(), dto);
+            }
+        }
+        if (byStableId.isEmpty()) {
+            return List.of();
+        }
+        List<UnifiedFlipDto> ordered = new ArrayList<>(stableFlipIds.size());
+        for (UUID stableId : stableFlipIds) {
+            UnifiedFlipDto dto = byStableId.get(stableId);
+            if (dto != null) {
+                ordered.add(dto);
+            }
+        }
+        return List.copyOf(ordered);
     }
 
     @Transactional(readOnly = true)

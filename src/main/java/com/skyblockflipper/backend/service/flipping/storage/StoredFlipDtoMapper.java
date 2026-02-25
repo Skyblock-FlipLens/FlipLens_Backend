@@ -38,7 +38,7 @@ public class StoredFlipDtoMapper {
         List<UnifiedFlipDto.ConstraintDto> constraints = parseConstraints(definition.getConstraintsJson());
         List<UnifiedFlipDto.ItemStackDto> inputItems = mapInputItems(steps);
         List<UnifiedFlipDto.ItemStackDto> outputItems = mapOutputItems(steps, definition.getResultItemId());
-        List<String> partialReasons = parsePartialReasons(current.getPartialReasonsJson());
+        List<String> partialReasons = parsePartialReasonsJson(current.getPartialReasonsJson());
 
         return new UnifiedFlipDto(
                 current.getStableFlipId(),
@@ -124,7 +124,7 @@ public class StoredFlipDtoMapper {
         }
     }
 
-    private List<String> parsePartialReasons(String partialReasonsJson) {
+    public List<String> parsePartialReasonsJson(String partialReasonsJson) {
         if (partialReasonsJson == null || partialReasonsJson.isBlank()) {
             return List.of();
         }

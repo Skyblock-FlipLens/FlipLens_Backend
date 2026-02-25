@@ -357,6 +357,7 @@ public class FlipReadService {
     public Page<FlipGoodnessDto> topGoodnessFlips(FlipType flipType, Instant snapshotTimestamp, Pageable pageable) {
         Sort sort = Sort.unsorted();
         Pageable fixedPageable = PageRequest.of(0, GOODNESS_PAGE_SIZE, sort);
+        boolean usingCurrentStorage = useCurrentStorage(snapshotTimestamp);
         if (pageable != null) {
             sort = pageable.getSort() == null ? Sort.unsorted() : pageable.getSort();
             fixedPageable = pageable.isUnpaged()
@@ -365,8 +366,13 @@ public class FlipReadService {
         }
 
         List<FlipGoodnessDto> ranked;
-        if (useCurrentStorage(snapshotTimestamp)) {
-            ranked = rankByGoodness(unifiedFlipCurrentReadService.listCurrent(flipType));
+        if (usingCurrentStorage) {
+            Long snapshotEpochMillis = unifiedFlipCurrentReadService.latestSnapshotEpochMillis().orElse(null);
+            ranked = cachedGoodnessRanking(
+                    flipType,
+                    snapshotEpochMillis,
+                    () -> rankByGoodness(unifiedFlipCurrentReadService.listCurrentScoringDtos(flipType))
+            );
         } else if (useOnDemandSnapshot(snapshotTimestamp)) {
             ranked = rankByGoodness(onDemandFlipSnapshotService.computeSnapshotDtos(snapshotTimestamp, flipType));
         } else {
@@ -378,7 +384,42 @@ public class FlipReadService {
             );
         }
 
-        return paginateGoodness(ranked, fixedPageable);
+        Page<FlipGoodnessDto> paged = paginateGoodness(ranked, fixedPageable);
+        if (!usingCurrentStorage || paged.isEmpty()) {
+            return paged;
+        }
+
+        List<UUID> orderedIds = paged.getContent().stream()
+                .map(FlipGoodnessDto::flip)
+                .filter(Objects::nonNull)
+                .map(UnifiedFlipDto::id)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (orderedIds.isEmpty()) {
+            return paged;
+        }
+
+        Map<UUID, UnifiedFlipDto> fullById = new LinkedHashMap<>();
+        for (UnifiedFlipDto full : unifiedFlipCurrentReadService.listCurrentByStableFlipIds(orderedIds)) {
+            if (full != null && full.id() != null) {
+                fullById.put(full.id(), full);
+            }
+        }
+
+        List<FlipGoodnessDto> hydrated = paged.getContent().stream()
+                .map(entry -> {
+                    UnifiedFlipDto rankedFlip = entry.flip();
+                    UUID stableId = rankedFlip == null ? null : rankedFlip.id();
+                    UnifiedFlipDto full = stableId == null ? null : fullById.get(stableId);
+                    if (full == null) {
+                        return entry;
+                    }
+                    return new FlipGoodnessDto(full, entry.goodnessScore(), entry.breakdown());
+                })
+                .toList();
+
+        return new PageImpl<>(hydrated, paged.getPageable(), paged.getTotalElements());
     }
 
     public FlipTypesDto listSupportedFlipTypes() {

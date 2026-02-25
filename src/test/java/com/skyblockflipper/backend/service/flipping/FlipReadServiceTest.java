@@ -545,6 +545,142 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsCurrentStorageHydratesPagedEntries() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        UUID highId = UUID.fromString("83838383-8383-8383-8383-838383838383");
+        UUID lowId = UUID.fromString("84848484-8484-8484-8484-848484848484");
+        UnifiedFlipDto highScoreSkeleton = sampleGoodnessDto(highId, 4.0D, 4_000_000L, 80.0D, 10.0D, false);
+        UnifiedFlipDto lowScoreSkeleton = sampleGoodnessDto(lowId, 1.0D, 1_000_000L, 60.0D, 20.0D, false);
+        when(unifiedFlipCurrentReadService.latestSnapshotEpochMillis())
+                .thenReturn(Optional.of(Instant.parse("2026-02-25T15:00:00Z").toEpochMilli()));
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(null))
+                .thenReturn(List.of(lowScoreSkeleton, highScoreSkeleton));
+
+        UnifiedFlipDto hydratedHigh = new UnifiedFlipDto(
+                highId,
+                FlipType.BAZAAR,
+                List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_DIAMOND", 16)),
+                List.of(new UnifiedFlipDto.ItemStackDto("POWER_SCROLL", 1)),
+                highScoreSkeleton.requiredCapital(),
+                highScoreSkeleton.expectedProfit(),
+                highScoreSkeleton.roi(),
+                highScoreSkeleton.roiPerHour(),
+                highScoreSkeleton.durationSeconds(),
+                highScoreSkeleton.fees(),
+                highScoreSkeleton.liquidityScore(),
+                highScoreSkeleton.riskScore(),
+                highScoreSkeleton.snapshotTimestamp(),
+                highScoreSkeleton.partial(),
+                highScoreSkeleton.partialReasons(),
+                List.of(),
+                List.of()
+        );
+        UnifiedFlipDto hydratedLow = new UnifiedFlipDto(
+                lowId,
+                FlipType.BAZAAR,
+                List.of(new UnifiedFlipDto.ItemStackDto("WHEAT", 160)),
+                List.of(new UnifiedFlipDto.ItemStackDto("HAY_BLOCK", 1)),
+                lowScoreSkeleton.requiredCapital(),
+                lowScoreSkeleton.expectedProfit(),
+                lowScoreSkeleton.roi(),
+                lowScoreSkeleton.roiPerHour(),
+                lowScoreSkeleton.durationSeconds(),
+                lowScoreSkeleton.fees(),
+                lowScoreSkeleton.liquidityScore(),
+                lowScoreSkeleton.riskScore(),
+                lowScoreSkeleton.snapshotTimestamp(),
+                lowScoreSkeleton.partial(),
+                lowScoreSkeleton.partialReasons(),
+                List.of(),
+                List.of()
+        );
+        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(highId, lowId)))
+                .thenReturn(List.of(hydratedHigh, hydratedLow));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(highId, result.getContent().get(0).flip().id());
+        assertEquals("POWER_SCROLL", result.getContent().get(0).flip().outputItems().getFirst().itemId());
+        assertEquals(lowId, result.getContent().get(1).flip().id());
+        verify(unifiedFlipCurrentReadService).listCurrentScoringDtos(null);
+        verify(unifiedFlipCurrentReadService).listCurrentByStableFlipIds(List.of(highId, lowId));
+        verify(unifiedFlipCurrentReadService, never()).listCurrent(null);
+        verifyNoInteractions(flipRepository);
+    }
+
+    @Test
+    void topGoodnessFlipsCurrentStorageCachesRankingPerLatestSnapshot() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        OnDemandFlipSnapshotService onDemandFlipSnapshotService = mock(OnDemandFlipSnapshotService.class);
+        FlipStorageProperties flipStorageProperties = new FlipStorageProperties();
+        flipStorageProperties.setReadFromNew(true);
+        flipStorageProperties.setLegacyWriteEnabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                onDemandFlipSnapshotService,
+                flipStorageProperties
+        );
+
+        long snapshotEpochMillis = Instant.parse("2026-02-25T15:00:00Z").toEpochMilli();
+        UUID onlyId = UUID.fromString("85858585-8585-8585-8585-858585858585");
+        UnifiedFlipDto scoring = sampleGoodnessDto(onlyId, 2.0D, 2_000_000L, 70.0D, 20.0D, false);
+        UnifiedFlipDto hydrated = new UnifiedFlipDto(
+                onlyId,
+                FlipType.BAZAAR,
+                List.of(new UnifiedFlipDto.ItemStackDto("INK_SACK", 64)),
+                List.of(new UnifiedFlipDto.ItemStackDto("ENCHANTED_INK_SACK", 1)),
+                scoring.requiredCapital(),
+                scoring.expectedProfit(),
+                scoring.roi(),
+                scoring.roiPerHour(),
+                scoring.durationSeconds(),
+                scoring.fees(),
+                scoring.liquidityScore(),
+                scoring.riskScore(),
+                scoring.snapshotTimestamp(),
+                scoring.partial(),
+                scoring.partialReasons(),
+                List.of(),
+                List.of()
+        );
+
+        when(unifiedFlipCurrentReadService.latestSnapshotEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
+        when(unifiedFlipCurrentReadService.listCurrentScoringDtos(FlipType.BAZAAR)).thenReturn(List.of(scoring));
+        when(unifiedFlipCurrentReadService.listCurrentByStableFlipIds(List.of(onlyId))).thenReturn(List.of(hydrated));
+
+        Page<FlipGoodnessDto> first = service.topGoodnessFlips(FlipType.BAZAAR, null, 0);
+        Page<FlipGoodnessDto> second = service.topGoodnessFlips(FlipType.BAZAAR, null, 0);
+
+        assertEquals(1, first.getTotalElements());
+        assertEquals(1, second.getTotalElements());
+        verify(unifiedFlipCurrentReadService, times(1)).listCurrentScoringDtos(FlipType.BAZAAR);
+        verify(unifiedFlipCurrentReadService, times(2)).listCurrentByStableFlipIds(List.of(onlyId));
+    }
+
+    @Test
     void filterFlipsExcludesMissingInputPriceEntries() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

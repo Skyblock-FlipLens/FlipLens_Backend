@@ -62,6 +62,16 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
             """)
     Optional<CurrentDefinitionProjection> findByStableFlipIdWithDefinition(@Param("stableFlipId") UUID stableFlipId);
 
+    @Query("""
+            select fc as current, fd as definition
+            from FlipCurrentEntity fc
+            join FlipDefinitionEntity fd on fd.flipKey = fc.flipKey
+            where fc.stableFlipId in :stableFlipIds
+            """)
+    List<CurrentDefinitionProjection> findAllWithDefinitionByStableFlipIds(
+            @Param("stableFlipIds") List<UUID> stableFlipIds
+    );
+
     boolean existsBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
 
     void deleteBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
