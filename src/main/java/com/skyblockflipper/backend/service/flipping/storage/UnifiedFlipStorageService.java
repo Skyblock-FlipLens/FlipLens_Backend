@@ -25,6 +25,7 @@ import java.util.Map;
 
 @Service
 public class UnifiedFlipStorageService {
+    private static final long UNIFIED_FLIP_WRITE_LOCK_KEY = 6_842_917_113L;
 
     private final FlipDefinitionRepository flipDefinitionRepository;
     private final FlipCurrentRepository flipCurrentRepository;
@@ -107,6 +108,11 @@ public class UnifiedFlipStorageService {
 
         List<ComputedFlip> computedFlips = new ArrayList<>(computedFlipsByKey.values());
         List<String> flipKeys = new ArrayList<>(computedFlipsByKey.keySet());
+
+        // Transaction-scoped DB lock prevents duplicate inserts across concurrent pipelines
+        // and across multiple application instances sharing the same PostgreSQL database.
+        flipDefinitionRepository.acquireTransactionScopedWriteLock(UNIFIED_FLIP_WRITE_LOCK_KEY);
+
         synchronized (persistLock) {
             // Keep read/modify/write atomic per JVM instance so parallel poller pipelines
             // cannot race inserting the same flip_key into flip_definition/flip_current.
