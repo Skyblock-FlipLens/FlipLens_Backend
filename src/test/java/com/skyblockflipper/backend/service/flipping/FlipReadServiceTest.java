@@ -1247,17 +1247,20 @@ class FlipReadServiceTest {
         FlipCalculationContext context = FlipCalculationContext.standard(null);
         Flip first = mock(Flip.class);
         Flip second = mock(Flip.class);
+        UUID firstId = UUID.fromString("81818181-8181-8181-8181-818181818181");
+        UUID secondId = UUID.fromString("82828282-8282-8282-8282-828282828282");
+        when(first.getId()).thenReturn(firstId);
+        when(second.getId()).thenReturn(secondId);
 
         when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(snapshotEpochMillis));
-        when(flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis, Pageable.unpaged()))
-                .thenReturn(new PageImpl<>(List.of(first, second)));
+        stubLegacyPagedBySnapshot(flipRepository, snapshotEpochMillis, List.of(firstId, secondId), List.of(first, second));
         when(flipRepository.countByFlipTypeForSnapshot(snapshotEpochMillis)).thenReturn(List.of(
                 new Object[]{FlipType.AUCTION, 5L},
                 new Object[]{FlipType.BAZAAR, 3L}
         ));
         when(contextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis))).thenReturn(context);
         when(mapper.toDto(first, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("81818181-8181-8181-8181-818181818181"),
+                firstId,
                 1.0D,
                 1_000_000L,
                 60.0D,
@@ -1265,7 +1268,7 @@ class FlipReadServiceTest {
                 false
         ));
         when(mapper.toDto(second, context)).thenReturn(sampleGoodnessDto(
-                UUID.fromString("82828282-8282-8282-8282-828282828282"),
+                secondId,
                 0.5D,
                 500_000L,
                 55.0D,

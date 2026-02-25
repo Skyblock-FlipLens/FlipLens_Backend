@@ -336,26 +336,42 @@ public class FlipReadService {
                 ? flipCalculationContextService.loadCurrentContext()
                 : flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(snapshotEpochMillis));
 
-        List<UnifiedFlipDto> mapped = queryFlips(flipType, snapshotEpochMillis, Pageable.unpaged())
-                .stream()
-                .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
-                .filter(Objects::nonNull)
-                .toList();
-        long avgProfit = Math.round(mapped.stream()
-                .map(UnifiedFlipDto::expectedProfit)
-                .filter(value -> value != null && value > 0)
-                .mapToLong(Long::longValue)
-                .average().orElse(0D));
-        double avgRoi = mapped.stream()
-                .map(UnifiedFlipDto::roi)
-                .filter(value -> value != null && !Double.isNaN(value) && !Double.isInfinite(value))
-                .mapToDouble(Double::doubleValue)
-                .average().orElse(0D);
-        long bestFlipProfit = mapped.stream()
-                .map(UnifiedFlipDto::expectedProfit)
-                .filter(value -> value != null && value > 0)
-                .max(Long::compareTo)
-                .orElse(0L);
+        long totalActiveFlips = 0L;
+        long profitSum = 0L;
+        long profitCount = 0L;
+        double roiSum = 0D;
+        long roiCount = 0L;
+        long bestFlipProfit = 0L;
+
+        Page<Flip> page = queryFlips(flipType, snapshotEpochMillis, PageRequest.of(0, LEGACY_READ_PAGE_SIZE));
+        while (true) {
+            for (Flip flip : page.getContent()) {
+                UnifiedFlipDto dto = unifiedFlipDtoMapper.toDto(flip, context);
+                if (dto == null) {
+                    continue;
+                }
+                totalActiveFlips++;
+                Long expectedProfit = dto.expectedProfit();
+                if (expectedProfit != null && expectedProfit > 0L) {
+                    profitSum += expectedProfit;
+                    profitCount++;
+                    if (expectedProfit > bestFlipProfit) {
+                        bestFlipProfit = expectedProfit;
+                    }
+                }
+                Double roi = dto.roi();
+                if (roi != null && !Double.isNaN(roi) && !Double.isInfinite(roi)) {
+                    roiSum += roi;
+                    roiCount++;
+                }
+            }
+            if (!page.hasNext()) {
+                break;
+            }
+            page = queryFlips(flipType, snapshotEpochMillis, page.nextPageable());
+        }
+        long avgProfit = profitCount == 0L ? 0L : Math.round((double) profitSum / profitCount);
+        double avgRoi = roiCount == 0L ? 0D : (roiSum / roiCount);
 
         EnumMap<FlipType, Long> countsByType = new EnumMap<>(FlipType.class);
         for (FlipType type : FlipType.values()) {
@@ -374,7 +390,7 @@ public class FlipReadService {
                 byType.put(type.name(), countsByType.getOrDefault(type, 0L));
             }
         }
-        return new FlipSummaryStatsDto(mapped.size(), avgProfit, round2(avgRoi), bestFlipProfit, byType);
+        return new FlipSummaryStatsDto(totalActiveFlips, avgProfit, round2(avgRoi), bestFlipProfit, byType);
     }
 
     public Page<UnifiedFlipDto> topLiquidityFlips(FlipType flipType, Instant snapshotTimestamp, Pageable pageable) {
