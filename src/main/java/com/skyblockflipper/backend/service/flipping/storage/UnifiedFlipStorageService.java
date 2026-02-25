@@ -223,7 +223,7 @@ public class UnifiedFlipStorageService {
             return Map.of();
         }
         List<FlipTrendSegmentEntity> sorted = flipTrendSegmentRepository
-                .findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(flipKeys);
+                .findLatestByFlipKeyIn(flipKeys);
         Map<String, FlipTrendSegmentEntity> latest = new HashMap<>();
         for (FlipTrendSegmentEntity segment : sorted) {
             latest.putIfAbsent(segment.getFlipKey(), segment);

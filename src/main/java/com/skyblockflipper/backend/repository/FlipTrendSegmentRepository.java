@@ -12,7 +12,18 @@ import java.util.List;
 
 public interface FlipTrendSegmentRepository extends JpaRepository<FlipTrendSegmentEntity, Long> {
 
-    List<FlipTrendSegmentEntity> findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(Collection<String> flipKeys);
+    @Query("""
+            SELECT f
+            FROM FlipTrendSegmentEntity f
+            WHERE f.flipKey IN :flipKeys
+              AND f.validToSnapshotEpochMillis = (
+                    SELECT MAX(innerSeg.validToSnapshotEpochMillis)
+                    FROM FlipTrendSegmentEntity innerSeg
+                    WHERE innerSeg.flipKey = f.flipKey
+              )
+            ORDER BY f.flipKey ASC
+            """)
+    List<FlipTrendSegmentEntity> findLatestByFlipKeyIn(@Param("flipKeys") Collection<String> flipKeys);
 
     @Modifying
     @Transactional

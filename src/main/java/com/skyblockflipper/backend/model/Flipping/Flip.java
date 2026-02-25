@@ -29,7 +29,10 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "flip",
-        indexes = @Index(name = "idx_flip_snapshot_ts_epoch_millis", columnList = "snapshot_timestamp_epoch_millis")
+        indexes = {
+                @Index(name = "idx_flip_snapshot_ts_epoch_millis", columnList = "snapshot_timestamp_epoch_millis"),
+                @Index(name = "idx_flip_snapshot_ts_flip_type", columnList = "snapshot_timestamp_epoch_millis,flip_type")
+        }
 )
 public class Flip {
 

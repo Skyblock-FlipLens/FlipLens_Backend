@@ -95,7 +95,7 @@ class UnifiedFlipStorageServiceTest {
         existingCurrent.setSnapshotTimestampEpochMillis(snapshotEpochMillis + 1L);
         when(flipDefinitionRepository.findAllById(List.of("key-1"))).thenReturn(List.of());
         when(flipCurrentRepository.findAllById(List.of("key-1"))).thenReturn(List.of(existingCurrent));
-        when(flipTrendSegmentRepository.findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(List.of("key-1")))
+        when(flipTrendSegmentRepository.findLatestByFlipKeyIn(List.of("key-1")))
                 .thenReturn(List.of());
 
         service.persistSnapshotFlips(List.of(flip), snapshotTimestamp);
@@ -151,7 +151,7 @@ class UnifiedFlipStorageServiceTest {
         latestSegment.setSampleCount(3);
         when(flipDefinitionRepository.findAllById(List.of("key-2"))).thenReturn(List.of());
         when(flipCurrentRepository.findAllById(List.of("key-2"))).thenReturn(List.of(existingCurrent));
-        when(flipTrendSegmentRepository.findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(List.of("key-2")))
+        when(flipTrendSegmentRepository.findLatestByFlipKeyIn(List.of("key-2")))
                 .thenReturn(List.of(latestSegment));
 
         service.persistSnapshotFlips(List.of(flip), snapshotTimestamp);
@@ -200,7 +200,7 @@ class UnifiedFlipStorageServiceTest {
                 .thenReturn(sampleDto(snapshotTimestamp));
         when(flipDefinitionRepository.findAllById(List.of("key-new"))).thenReturn(List.of());
         when(flipCurrentRepository.findAllById(List.of("key-new"))).thenReturn(List.of());
-        when(flipTrendSegmentRepository.findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(List.of("key-new")))
+        when(flipTrendSegmentRepository.findLatestByFlipKeyIn(List.of("key-new")))
                 .thenReturn(List.of());
 
         service.persistSnapshotFlips(List.of(flip), snapshotTimestamp);
@@ -276,7 +276,7 @@ class UnifiedFlipStorageServiceTest {
         latestSegment.setSampleCount(2);
         when(flipDefinitionRepository.findAllById(List.of("key-stable"))).thenReturn(List.of(existingDefinition));
         when(flipCurrentRepository.findAllById(List.of("key-stable"))).thenReturn(List.of(existingCurrent));
-        when(flipTrendSegmentRepository.findByFlipKeyInOrderByFlipKeyAscValidToSnapshotEpochMillisDesc(List.of("key-stable")))
+        when(flipTrendSegmentRepository.findLatestByFlipKeyIn(List.of("key-stable")))
                 .thenReturn(List.of(latestSegment));
 
         service.persistSnapshotFlips(List.of(flip), snapshotTimestamp);

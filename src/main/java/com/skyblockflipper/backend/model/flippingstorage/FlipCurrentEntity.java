@@ -25,7 +25,8 @@ import java.util.UUID;
                 @Index(name = "idx_flip_current_roi", columnList = "roi"),
                 @Index(name = "idx_flip_current_roi_per_hour", columnList = "roi_per_hour"),
                 @Index(name = "idx_flip_current_liquidity_score", columnList = "liquidity_score"),
-                @Index(name = "idx_flip_current_risk_score", columnList = "risk_score")
+                @Index(name = "idx_flip_current_risk_score", columnList = "risk_score"),
+                @Index(name = "idx_flip_current_flip_type_stable_flip_id", columnList = "flip_type,stable_flip_id")
         }
 )
 public class FlipCurrentEntity {

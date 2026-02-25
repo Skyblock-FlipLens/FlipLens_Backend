@@ -16,7 +16,8 @@ import lombok.Setter;
 @Table(
         name = "flip_trend_segment",
         indexes = {
-                @Index(name = "idx_flip_trend_segment_flip_key_from_snapshot", columnList = "flip_key,valid_from_snapshot_epoch_millis")
+                @Index(name = "idx_flip_trend_segment_flip_key_from_snapshot", columnList = "flip_key,valid_from_snapshot_epoch_millis"),
+                @Index(name = "idx_flip_trend_segment_flip_key_valid_to", columnList = "flip_key,valid_to_snapshot_epoch_millis")
         }
 )
 public class FlipTrendSegmentEntity {
