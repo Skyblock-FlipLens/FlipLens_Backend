@@ -47,6 +47,7 @@ public class AdaptivePollingCoordinator {
     private final String apiUrl;
     private final String apiKey;
     private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
+    private final AtomicBoolean auctionsStarted = new AtomicBoolean(false);
     private volatile boolean shutdownRequested = false;
 
     private AdaptivePoller<AuctionResponse> auctionsPoller;
@@ -104,12 +105,12 @@ public class AdaptivePollingCoordinator {
                 return;
             }
             int savedItems = neuRepoIngestionService.ingestLatestFilteredItems();
-            log.info("Initial NEU ingestion complete (saved {} items). Starting adaptive pollers.", savedItems);
+            log.info("Initial NEU ingestion complete (saved {} items). Starting bazaar poller first.", savedItems);
             GlobalRequestLimiter globalLimiter = new GlobalRequestLimiter(adaptivePollingProperties.getGlobalMaxRequestsPerSecond());
             auctionsPoller = buildAuctionsPoller(globalLimiter);
             bazaarPoller = buildBazaarPoller(globalLimiter);
-            auctionsPoller.start();
             bazaarPoller.start();
+            startAuctionsIfBazaarReady();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("Adaptive polling start deferred: NEU ingestion interrupted. Retrying in 30s.");
@@ -128,6 +129,7 @@ public class AdaptivePollingCoordinator {
     @PreDestroy
     public void stop() {
         shutdownRequested = true;
+        auctionsStarted.set(false);
         if (auctionsPoller != null) {
             auctionsPoller.stop();
         }
@@ -194,6 +196,7 @@ public class AdaptivePollingCoordinator {
                 endpointCfg.getConnectTimeout(),
                 endpointCfg.getRequestTimeout()
         );
+        AtomicBoolean initialBazaarPayloadDelivered = new AtomicBoolean(false);
         ProcessingPipeline<BazaarResponse> processingPipeline = new ProcessingPipeline<>(
                 endpointCfg.getName(),
                 meterRegistry,
@@ -210,10 +213,14 @@ public class AdaptivePollingCoordinator {
             );
             String responseHash = hashBazaar(response.body());
             ChangeDetector.ChangeDecision decision = detector.evaluate(response, responseHash);
-            if (decision.isChanged() && response.body() != null && response.body().isSuccess()) {
-                return new AdaptivePoller.PollExecution<>(decision, response.body(), response.body().getLastUpdated(), response);
+            BazaarResponse body = response.body();
+            if (body != null && body.isSuccess() && initialBazaarPayloadDelivered.compareAndSet(false, true) && !decision.isChanged()) {
+                decision = ChangeDetector.ChangeDecision.changed();
             }
-            long changeTs = response.body() == null ? 0L : response.body().getLastUpdated();
+            if (decision.isChanged() && body != null && body.isSuccess()) {
+                return new AdaptivePoller.PollExecution<>(decision, body, body.getLastUpdated(), response);
+            }
+            long changeTs = body == null ? 0L : body.getLastUpdated();
             return new AdaptivePoller.PollExecution<>(decision, null, changeTs, response);
         };
 
@@ -234,8 +241,26 @@ public class AdaptivePollingCoordinator {
     }
 
     private void processBazaarUpdate(BazaarResponse response) {
-        processUpdate("bazaar", estimateBazaarBytes(response), () -> marketDataProcessingService
-                .ingestBazaarPayload(response, "adaptive-bazaar").ifPresent(snapshot -> flipGenerationService.generateIfMissingForSnapshot(snapshot.snapshotTimestamp())));
+        processUpdate("bazaar", estimateBazaarBytes(response), () -> {
+            marketDataProcessingService
+                    .ingestBazaarPayload(response, "adaptive-bazaar")
+                    .ifPresent(snapshot -> flipGenerationService.generateIfMissingForSnapshot(snapshot.snapshotTimestamp()));
+            startAuctionsIfBazaarReady();
+        });
+    }
+
+    private void startAuctionsIfBazaarReady() {
+        if (shutdownRequested || auctionsPoller == null || auctionsStarted.get()) {
+            return;
+        }
+        if (!marketDataProcessingService.hasBazaarPayload()) {
+            return;
+        }
+        if (!auctionsStarted.compareAndSet(false, true)) {
+            return;
+        }
+        log.info("Bazaar cache primed. Starting auctions poller.");
+        auctionsPoller.start();
     }
 
     private void processUpdate(String endpoint, long payloadBytes, Runnable processor) {

@@ -180,6 +180,12 @@ public class MarketDataProcessingService {
         return marketSnapshotPersistenceService.latest();
     }
 
+    public boolean hasBazaarPayload() {
+        synchronized (pollStateLock) {
+            return cachedBazaarResponse != null;
+        }
+    }
+
     public Optional<MarketSnapshot> marketSnapshotAsOfSecondsAgo(long secondsAgo) {
         long boundedSecondsAgo = Math.max(0L, secondsAgo);
         return marketSnapshotPersistenceService.asOf(java.time.Instant.now().minusSeconds(boundedSecondsAgo));
