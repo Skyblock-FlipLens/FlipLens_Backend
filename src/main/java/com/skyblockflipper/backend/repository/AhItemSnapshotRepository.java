@@ -13,8 +13,10 @@ import java.util.List;
 
 public interface AhItemSnapshotRepository extends JpaRepository<AhItemSnapshotEntity, AhItemSnapshotId> {
 
+    boolean existsBySnapshotTs(long snapshotTs);
+
     List<AhItemSnapshotEntity> findByItemKeyAndSnapshotTsBetweenOrderBySnapshotTsAsc(String itemKey,
-                                                                                      long fromInclusive,
+                                                                                       long fromInclusive,
                                                                                       long toInclusive);
 
     List<AhItemSnapshotEntity> findBySnapshotTsBetweenAndItemKeyInOrderBySnapshotTsAsc(long fromInclusive,

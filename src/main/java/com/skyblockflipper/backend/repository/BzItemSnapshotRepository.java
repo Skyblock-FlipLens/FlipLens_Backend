@@ -13,8 +13,10 @@ import java.util.List;
 
 public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId> {
 
+    boolean existsBySnapshotTs(long snapshotTs);
+
     List<BzItemSnapshotEntity> findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(String productId,
-                                                                                        long fromInclusive,
+                                                                                         long fromInclusive,
                                                                                         long toInclusive);
 
     List<BzItemSnapshotEntity> findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(long fromInclusive,
