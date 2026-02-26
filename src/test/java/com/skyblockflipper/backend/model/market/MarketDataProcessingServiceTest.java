@@ -36,6 +36,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class MarketDataProcessingServiceTest {
@@ -332,6 +333,7 @@ class MarketDataProcessingServiceTest {
         verify(ahRepo, never()).saveAll(anyList());
         verify(bzRepo, never()).saveAll(anyList());
         verify(persistenceService, never()).save(any(MarketSnapshot.class));
+        verifyNoInteractions(ahAggregator, bzAggregator);
     }
 
     private AuctionResponse auctionResponse(long updatedAt) {

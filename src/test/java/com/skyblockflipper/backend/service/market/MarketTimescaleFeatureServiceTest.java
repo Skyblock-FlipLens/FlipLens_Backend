@@ -10,12 +10,12 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -39,11 +39,24 @@ class MarketTimescaleFeatureServiceTest {
                 row("2026-02-17T00:00:05Z", 100D),
                 row("2026-02-18T00:00:10Z", 120D)
         );
-        when(repository.findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(any(Long.class), any(Long.class), anyCollection()))
+        Instant evaluationTs = Instant.parse("2026-02-18T12:00:00Z");
+        long evaluationMillis = evaluationTs.toEpochMilli();
+        long expectedMicroStart = evaluationMillis - 60_000L;
+        long expectedMacroStart = (Math.floorDiv(evaluationTs.getEpochSecond(), 86_400L) - 32L) * 86_400_000L;
+        Set<String> expectedProductIds = Set.of("ENCHANTED_DIAMOND");
+
+        when(repository.findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(
+                eq(expectedMicroStart),
+                eq(evaluationMillis),
+                eq(expectedProductIds)
+        ))
                 .thenReturn(microWindow);
-        when(repository.findFirstSnapshotTsPerDayBetween(any(Long.class), any(Long.class)))
+        when(repository.findFirstSnapshotTsPerDayBetween(eq(expectedMacroStart), eq(evaluationMillis)))
                 .thenReturn(dailyAnchors);
-        when(repository.findBySnapshotTsInAndProductIdInOrderBySnapshotTsAsc(anyCollection(), anyCollection()))
+        when(repository.findBySnapshotTsInAndProductIdInOrderBySnapshotTsAsc(
+                eq(dailyAnchors),
+                eq(expectedProductIds)
+        ))
                 .thenReturn(dailyHistory);
 
         FlipScoreFeatureSet featureSet = featureService.computeFor(latest);
