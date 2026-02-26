@@ -9,10 +9,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.SQLTimeoutException;
@@ -92,8 +95,9 @@ public class CompactorDaemon implements SmartLifecycle {
     @Override
     public synchronized void stop() {
         running = false;
-        listenExecutor.shutdownNow();
-        safetyTickExecutor.shutdownNow();
+        shutdownExecutor(listenExecutor, "compactor-listen-loop");
+        shutdownExecutor(safetyTickExecutor, "compactor-safety-tick");
+        ensureCompactionControlConsistent();
         log.info("CompactorDaemon stopped");
     }
 
@@ -174,19 +178,18 @@ public class CompactorDaemon implements SmartLifecycle {
             return;
         }
 
-        Boolean locked = jdbcTemplate.queryForObject(
-                "select pg_try_advisory_lock(?)",
-                Boolean.class,
-                advisoryLockKey
-        );
-        if (locked == null || !locked) {
-            log.info("Compaction requested but advisory lock is held. Re-queueing request.");
-            jdbcTemplate.update("update compaction_control set requested = true where id = 1");
-            return;
-        }
-
-        Instant startedAt = Instant.now();
+        Connection advisoryConnection = null;
+        boolean lockAcquired = false;
         try {
+            advisoryConnection = DataSourceUtils.getConnection(dataSource);
+            lockAcquired = tryAcquireAdvisoryLock(advisoryConnection);
+            if (!lockAcquired) {
+                log.info("Compaction requested but advisory lock is held. Re-queueing request.");
+                jdbcTemplate.update("update compaction_control set requested = true where id = 1");
+                return;
+            }
+
+            Instant startedAt = Instant.now();
             log.info("Compaction run started");
             MarketSnapshotPersistenceService.SnapshotCompactionResult result = marketDataProcessingService.compactSnapshots();
             long elapsedMillis = Duration.between(startedAt, Instant.now()).toMillis();
@@ -207,6 +210,11 @@ public class CompactorDaemon implements SmartLifecycle {
                     result.keptCount(),
                     result.deletedCount());
         } catch (Exception e) {
+            if (!lockAcquired) {
+                jdbcTemplate.update("update compaction_control set requested = true where id = 1");
+                log.warn("Failed before acquiring advisory lock; request was re-queued: {}", e.toString(), e);
+                return;
+            }
             jdbcTemplate.update("""
                     update compaction_control
                     set last_run_at = now(),
@@ -216,13 +224,19 @@ public class CompactorDaemon implements SmartLifecycle {
                     """, e.toString());
             log.warn("Compaction run failed: {}", e.toString(), e);
         } finally {
-            Boolean unlocked = jdbcTemplate.queryForObject(
-                    "select pg_advisory_unlock(?)",
-                    Boolean.class,
-                    advisoryLockKey
-            );
-            if (Boolean.FALSE.equals(unlocked)) {
-                log.warn("Compactor advisory lock {} was already unlocked when finishing run", advisoryLockKey);
+            if (advisoryConnection != null) {
+                try {
+                    if (lockAcquired) {
+                        boolean unlocked = unlockAdvisoryLock(advisoryConnection);
+                        if (!unlocked) {
+                            log.warn("Compactor advisory lock {} was already unlocked when finishing run", advisoryLockKey);
+                        }
+                    }
+                } catch (SQLException e) {
+                    log.warn("Failed to release advisory lock {}: {}", advisoryLockKey, e.toString(), e);
+                } finally {
+                    DataSourceUtils.releaseConnection(advisoryConnection, dataSource);
+                }
             }
         }
     }
@@ -262,6 +276,54 @@ public class CompactorDaemon implements SmartLifecycle {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private boolean tryAcquireAdvisoryLock(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("select pg_try_advisory_lock(?)")) {
+            statement.setLong(1, advisoryLockKey);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getBoolean(1);
+            }
+        }
+    }
+
+    private boolean unlockAdvisoryLock(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("select pg_advisory_unlock(?)")) {
+            statement.setLong(1, advisoryLockKey);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getBoolean(1);
+            }
+        }
+    }
+
+    private void shutdownExecutor(ExecutorService executor, String name) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                log.warn("Executor {} did not terminate after shutdown; forcing shutdownNow()", name);
+                executor.shutdownNow();
+                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.warn("Executor {} did not terminate after forced shutdown", name);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+            log.warn("Interrupted while shutting down executor {}; forced shutdownNow()", name);
+        }
+    }
+
+    private void ensureCompactionControlConsistent() {
+        try {
+            jdbcTemplate.update("""
+                    insert into compaction_control (id, requested)
+                    values (1, false)
+                    on conflict (id) do nothing
+                    """);
+            log.debug("Compaction control consistency check finished");
+        } catch (Exception e) {
+            log.warn("Failed to verify compaction control consistency during shutdown: {}", e.toString(), e);
         }
     }
 }
