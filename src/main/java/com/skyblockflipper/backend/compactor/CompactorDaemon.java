@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,8 +42,8 @@ public class CompactorDaemon implements SmartLifecycle {
     private final long listenReconnectDelayMillis;
     private final long advisoryLockKey;
 
-    private final ExecutorService listenExecutor;
-    private final ScheduledExecutorService safetyTickExecutor;
+    private ExecutorService listenExecutor;
+    private ScheduledExecutorService safetyTickExecutor;
     private final AtomicBoolean claimedCompactionInProgress = new AtomicBoolean(false);
     private volatile boolean running;
 
@@ -62,16 +63,8 @@ public class CompactorDaemon implements SmartLifecycle {
         this.listenPollIntervalMillis = Math.max(100L, listenPollIntervalMillis);
         this.listenReconnectDelayMillis = Math.max(500L, listenReconnectDelayMillis);
         this.advisoryLockKey = advisoryLockKey;
-        this.listenExecutor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "compactor-listen-loop");
-            t.setDaemon(true);
-            return t;
-        });
-        this.safetyTickExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "compactor-safety-tick");
-            t.setDaemon(true);
-            return t;
-        });
+        this.listenExecutor = createListenExecutor();
+        this.safetyTickExecutor = createSafetyTickExecutor();
     }
 
     @Override
@@ -79,14 +72,29 @@ public class CompactorDaemon implements SmartLifecycle {
         if (running) {
             return;
         }
+        ensureExecutorsReady();
         running = true;
-        listenExecutor.submit(this::listenLoop);
-        safetyTickExecutor.scheduleWithFixedDelay(
-                this::tryRunIfRequestedSafely,
-                30_000L,
-                safetyTickIntervalMillis,
-                TimeUnit.MILLISECONDS
-        );
+        try {
+            listenExecutor.submit(this::listenLoop);
+            safetyTickExecutor.scheduleWithFixedDelay(
+                    this::tryRunIfRequestedSafely,
+                    30_000L,
+                    safetyTickIntervalMillis,
+                    TimeUnit.MILLISECONDS
+            );
+        } catch (RejectedExecutionException e) {
+            running = false;
+            log.warn("Failed to start compactor executors; recreating executors and retrying start once: {}", e.toString());
+            ensureExecutorsReady(true);
+            running = true;
+            listenExecutor.submit(this::listenLoop);
+            safetyTickExecutor.scheduleWithFixedDelay(
+                    this::tryRunIfRequestedSafely,
+                    30_000L,
+                    safetyTickIntervalMillis,
+                    TimeUnit.MILLISECONDS
+            );
+        }
         log.info("CompactorDaemon started (channel={}, safetyTickMs={}, listenPollMs={}, advisoryLockKey={})",
                 channel,
                 safetyTickIntervalMillis,
@@ -97,8 +105,10 @@ public class CompactorDaemon implements SmartLifecycle {
     @Override
     public synchronized void stop() {
         running = false;
-        boolean listenTerminated = shutdownExecutor(listenExecutor, "compactor-listen-loop");
+        shutdownExecutor(listenExecutor, "compactor-listen-loop");
         boolean safetyTickTerminated = shutdownExecutor(safetyTickExecutor, "compactor-safety-tick");
+        listenExecutor = null;
+        safetyTickExecutor = null;
         boolean shouldRequeueClaimedRequest = claimedCompactionInProgress.get() || !safetyTickTerminated;
         ensureCompactionControlConsistent(shouldRequeueClaimedRequest);
         log.info("CompactorDaemon stopped");
@@ -303,6 +313,9 @@ public class CompactorDaemon implements SmartLifecycle {
     }
 
     private boolean shutdownExecutor(ExecutorService executor, String name) {
+        if (executor == null) {
+            return true;
+        }
         executor.shutdown();
         try {
             if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -320,6 +333,35 @@ public class CompactorDaemon implements SmartLifecycle {
             log.warn("Interrupted while shutting down executor {}; forced shutdownNow()", name);
             return false;
         }
+    }
+
+    private void ensureExecutorsReady() {
+        ensureExecutorsReady(false);
+    }
+
+    private void ensureExecutorsReady(boolean forceRecreate) {
+        if (forceRecreate || listenExecutor == null || listenExecutor.isShutdown() || listenExecutor.isTerminated()) {
+            listenExecutor = createListenExecutor();
+        }
+        if (forceRecreate || safetyTickExecutor == null || safetyTickExecutor.isShutdown() || safetyTickExecutor.isTerminated()) {
+            safetyTickExecutor = createSafetyTickExecutor();
+        }
+    }
+
+    private ExecutorService createListenExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "compactor-listen-loop");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    private ScheduledExecutorService createSafetyTickExecutor() {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "compactor-safety-tick");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     private void ensureCompactionControlConsistent(boolean shouldRequeueClaimedRequest) {
