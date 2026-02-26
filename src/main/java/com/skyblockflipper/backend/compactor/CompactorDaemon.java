@@ -75,25 +75,13 @@ public class CompactorDaemon implements SmartLifecycle {
         ensureExecutorsReady();
         running = true;
         try {
-            listenExecutor.submit(this::listenLoop);
-            safetyTickExecutor.scheduleWithFixedDelay(
-                    this::tryRunIfRequestedSafely,
-                    30_000L,
-                    safetyTickIntervalMillis,
-                    TimeUnit.MILLISECONDS
-            );
+            submitCompactorTasks();
         } catch (RejectedExecutionException e) {
             running = false;
             log.warn("Failed to start compactor executors; recreating executors and retrying start once: {}", e.toString());
             ensureExecutorsReady(true);
             running = true;
-            listenExecutor.submit(this::listenLoop);
-            safetyTickExecutor.scheduleWithFixedDelay(
-                    this::tryRunIfRequestedSafely,
-                    30_000L,
-                    safetyTickIntervalMillis,
-                    TimeUnit.MILLISECONDS
-            );
+            submitCompactorTasks();
         }
         log.info("CompactorDaemon started (channel={}, safetyTickMs={}, listenPollMs={}, advisoryLockKey={})",
                 channel,
@@ -346,6 +334,16 @@ public class CompactorDaemon implements SmartLifecycle {
         if (forceRecreate || safetyTickExecutor == null || safetyTickExecutor.isShutdown() || safetyTickExecutor.isTerminated()) {
             safetyTickExecutor = createSafetyTickExecutor();
         }
+    }
+
+    private void submitCompactorTasks() {
+        listenExecutor.submit(this::listenLoop);
+        safetyTickExecutor.scheduleWithFixedDelay(
+                this::tryRunIfRequestedSafely,
+                30_000L,
+                safetyTickIntervalMillis,
+                TimeUnit.MILLISECONDS
+        );
     }
 
     private ExecutorService createListenExecutor() {
