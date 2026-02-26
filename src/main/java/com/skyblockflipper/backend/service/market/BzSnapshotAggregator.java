@@ -10,19 +10,16 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class BzSnapshotAggregator {
 
     private final MarketItemKeyService marketItemKeyService;
 
-    public BzSnapshotAggregator() {
-        this(new MarketItemKeyService());
-    }
-
     @Autowired
     public BzSnapshotAggregator(MarketItemKeyService marketItemKeyService) {
-        this.marketItemKeyService = marketItemKeyService;
+        this.marketItemKeyService = Objects.requireNonNull(marketItemKeyService, "marketItemKeyService must not be null");
     }
 
     public List<BzItemSnapshotEntity> aggregate(Instant snapshotTimestamp, Map<String, BazaarMarketRecord> bazaarProducts) {

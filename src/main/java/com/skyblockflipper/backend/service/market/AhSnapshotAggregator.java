@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class AhSnapshotAggregator {
@@ -18,13 +19,9 @@ public class AhSnapshotAggregator {
     private static final long ENDING_SOON_WINDOW_MILLIS = 10L * 60L * 1_000L;
     private final MarketItemKeyService marketItemKeyService;
 
-    public AhSnapshotAggregator() {
-        this(new MarketItemKeyService());
-    }
-
     @Autowired
     public AhSnapshotAggregator(MarketItemKeyService marketItemKeyService) {
-        this.marketItemKeyService = marketItemKeyService;
+        this.marketItemKeyService = Objects.requireNonNull(marketItemKeyService, "marketItemKeyService must not be null");
     }
 
     public List<AhItemSnapshotEntity> aggregate(Instant snapshotTimestamp, List<AuctionMarketRecord> auctions) {

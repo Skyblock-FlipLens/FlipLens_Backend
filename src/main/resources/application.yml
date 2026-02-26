@@ -10,6 +10,8 @@ spring:
     show-sql: false
     properties:
       hibernate.default_batch_fetch_size: ${SPRING_JPA_HIBERNATE_DEFAULT_BATCH_FETCH_SIZE:50}
+      hibernate.jdbc.batch_size: ${SPRING_JPA_HIBERNATE_JDBC_BATCH_SIZE:100}
+      hibernate.order_inserts: ${SPRING_JPA_HIBERNATE_ORDER_INSERTS:true}
 
   flyway:
     enabled: true

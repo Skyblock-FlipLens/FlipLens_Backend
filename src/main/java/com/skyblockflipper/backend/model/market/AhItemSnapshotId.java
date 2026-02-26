@@ -5,6 +5,8 @@ import java.util.Objects;
 
 public class AhItemSnapshotId implements Serializable {
 
+    private static final long serialVersionUID = 1L;
+
     private long snapshotTs;
     private String itemKey;
 

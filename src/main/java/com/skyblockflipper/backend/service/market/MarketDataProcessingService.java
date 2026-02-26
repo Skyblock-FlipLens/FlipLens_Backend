@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 
@@ -73,8 +74,8 @@ public class MarketDataProcessingService {
                 unifiedFlipInputMapper,
                 null,
                 null,
-                new AhSnapshotAggregator(),
-                new BzSnapshotAggregator(),
+                new AhSnapshotAggregator(new MarketItemKeyService()),
+                new BzSnapshotAggregator(new MarketItemKeyService()),
                 MarketSnapshotStorageProperties.rawOnlyDefaults(),
                 new CycleInstrumentationService(
                         new SimpleMeterRegistry(),
@@ -100,8 +101,8 @@ public class MarketDataProcessingService {
                 unifiedFlipInputMapper,
                 null,
                 null,
-                new AhSnapshotAggregator(),
-                new BzSnapshotAggregator(),
+                new AhSnapshotAggregator(new MarketItemKeyService()),
+                new BzSnapshotAggregator(new MarketItemKeyService()),
                 MarketSnapshotStorageProperties.rawOnlyDefaults(),
                 new CycleInstrumentationService(
                         new SimpleMeterRegistry(),
@@ -164,8 +165,8 @@ public class MarketDataProcessingService {
                 unifiedFlipInputMapper,
                 null,
                 null,
-                new AhSnapshotAggregator(),
-                new BzSnapshotAggregator(),
+                new AhSnapshotAggregator(new MarketItemKeyService()),
+                new BzSnapshotAggregator(new MarketItemKeyService()),
                 MarketSnapshotStorageProperties.rawOnlyDefaults(),
                 cycleInstrumentationService,
                 auctionBaseInterval,
@@ -197,8 +198,12 @@ public class MarketDataProcessingService {
         this.unifiedFlipInputMapper = unifiedFlipInputMapper;
         this.ahItemSnapshotRepository = ahItemSnapshotRepository;
         this.bzItemSnapshotRepository = bzItemSnapshotRepository;
-        this.ahSnapshotAggregator = ahSnapshotAggregator == null ? new AhSnapshotAggregator() : ahSnapshotAggregator;
-        this.bzSnapshotAggregator = bzSnapshotAggregator == null ? new BzSnapshotAggregator() : bzSnapshotAggregator;
+        this.ahSnapshotAggregator = ahSnapshotAggregator == null
+                ? new AhSnapshotAggregator(new MarketItemKeyService())
+                : ahSnapshotAggregator;
+        this.bzSnapshotAggregator = bzSnapshotAggregator == null
+                ? new BzSnapshotAggregator(new MarketItemKeyService())
+                : bzSnapshotAggregator;
         this.snapshotStorageProperties = snapshotStorageProperties == null
                 ? MarketSnapshotStorageProperties.rawOnlyDefaults()
                 : snapshotStorageProperties;
@@ -212,6 +217,7 @@ public class MarketDataProcessingService {
         this.nowSupplier = nowSupplier == null ? System::currentTimeMillis : nowSupplier;
         this.auctionCurrentIntervalMillis = this.auctionBaseIntervalMillis;
         this.bazaarCurrentIntervalMillis = this.bazaarBaseIntervalMillis;
+        validateStorageConfiguration(this.snapshotStorageProperties);
     }
 
     private static long sanitizeDuration(Duration configured, Duration fallback) {
@@ -293,7 +299,11 @@ public class MarketDataProcessingService {
         cycleInstrumentationService.endPhase("compute_flips", computeStart, true, payloadBytes);
 
         long persistStart = cycleInstrumentationService.startPhase();
-        persistAggregateSnapshots(snapshot);
+        try {
+            persistAggregateSnapshots(snapshot);
+        } catch (RuntimeException e) {
+            log.warn("Aggregate snapshot persistence failed but raw snapshot path will continue.", e);
+        }
         if (snapshotStorageProperties.isPersistRawMarketSnapshot()) {
             marketSnapshotPersistenceService.save(snapshot);
         }
@@ -327,16 +337,38 @@ public class MarketDataProcessingService {
             return;
         }
         if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
-            List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
-            if (!ahAggregates.isEmpty()) {
-                ahItemSnapshotRepository.saveAll(ahAggregates);
+            try {
+                List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
+                if (!ahAggregates.isEmpty()) {
+                    ahItemSnapshotRepository.saveAll(ahAggregates);
+                }
+            } catch (RuntimeException e) {
+                log.warn("Failed to persist AH aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
             }
         }
         if (snapshotStorageProperties.isPersistBzAggregates() && bzItemSnapshotRepository != null) {
-            List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
-            if (!bzAggregates.isEmpty()) {
-                bzItemSnapshotRepository.saveAll(bzAggregates);
+            try {
+                List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
+                if (!bzAggregates.isEmpty()) {
+                    bzItemSnapshotRepository.saveAll(bzAggregates);
+                }
+            } catch (RuntimeException e) {
+                log.warn("Failed to persist Bazaar aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
             }
+        }
+    }
+
+    private void validateStorageConfiguration(MarketSnapshotStorageProperties storageProperties) {
+        MarketSnapshotStorageProperties safe = Objects.requireNonNull(storageProperties, "storageProperties must not be null");
+        boolean rawEnabled = safe.isPersistRawMarketSnapshot();
+        boolean ahEnabled = safe.isPersistAhAggregates();
+        boolean bzEnabled = safe.isPersistBzAggregates();
+        if (!rawEnabled && !ahEnabled && !bzEnabled) {
+            log.warn(
+                    "All snapshot persistence outputs are disabled (config.snapshot.storage.persist-raw-market-snapshot, "
+                            + "config.snapshot.storage.persist-ah-aggregates, config.snapshot.storage.persist-bz-aggregates). "
+                            + "No market snapshots will be persisted."
+            );
         }
     }
 

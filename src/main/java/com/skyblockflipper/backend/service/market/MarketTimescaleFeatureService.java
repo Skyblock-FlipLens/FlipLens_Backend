@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -38,8 +39,8 @@ public class MarketTimescaleFeatureService {
     @Autowired
     public MarketTimescaleFeatureService(BzItemSnapshotRepository bzItemSnapshotRepository,
                                          MarketItemKeyService marketItemKeyService) {
-        this.bzItemSnapshotRepository = bzItemSnapshotRepository;
-        this.marketItemKeyService = marketItemKeyService == null ? new MarketItemKeyService() : marketItemKeyService;
+        this.bzItemSnapshotRepository = Objects.requireNonNull(bzItemSnapshotRepository, "bzItemSnapshotRepository must not be null");
+        this.marketItemKeyService = Objects.requireNonNull(marketItemKeyService, "marketItemKeyService must not be null");
     }
 
     public FlipScoreFeatureSet computeFor(MarketSnapshot latestSnapshot) {
