@@ -10,6 +10,8 @@ public class SnapshotRetentionProperties {
     private long twoHourTierUpperSeconds = 12L * 60L * 60L;
     private long minuteIntervalSeconds = 60L;
     private long twoHourIntervalSeconds = 2L * 60L * 60L;
+    private long ahAggregateDays = 30L;
+    private long bzAggregateDays = 30L;
 
     public long getRawWindowSeconds() {
         return rawWindowSeconds;
@@ -49,5 +51,21 @@ public class SnapshotRetentionProperties {
 
     public void setTwoHourIntervalSeconds(long twoHourIntervalSeconds) {
         this.twoHourIntervalSeconds = twoHourIntervalSeconds;
+    }
+
+    public long getAhAggregateDays() {
+        return ahAggregateDays;
+    }
+
+    public void setAhAggregateDays(long ahAggregateDays) {
+        this.ahAggregateDays = ahAggregateDays;
+    }
+
+    public long getBzAggregateDays() {
+        return bzAggregateDays;
+    }
+
+    public void setBzAggregateDays(long bzAggregateDays) {
+        this.bzAggregateDays = bzAggregateDays;
     }
 }

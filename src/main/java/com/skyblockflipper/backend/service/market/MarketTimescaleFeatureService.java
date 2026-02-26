@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.service.flipping.FlipScoreFeatureSet;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -34,10 +35,7 @@ public class MarketTimescaleFeatureService {
     private final BzItemSnapshotRepository bzItemSnapshotRepository;
     private final MarketItemKeyService marketItemKeyService;
 
-    public MarketTimescaleFeatureService(BzItemSnapshotRepository bzItemSnapshotRepository) {
-        this(bzItemSnapshotRepository, new MarketItemKeyService());
-    }
-
+    @Autowired
     public MarketTimescaleFeatureService(BzItemSnapshotRepository bzItemSnapshotRepository,
                                          MarketItemKeyService marketItemKeyService) {
         this.bzItemSnapshotRepository = bzItemSnapshotRepository;

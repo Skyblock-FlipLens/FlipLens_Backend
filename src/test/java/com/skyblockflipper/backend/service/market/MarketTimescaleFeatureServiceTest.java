@@ -23,7 +23,7 @@ class MarketTimescaleFeatureServiceTest {
     @Test
     void dailyFeaturesUseFirstSnapshotInEachEpochDayBucket() {
         BzItemSnapshotRepository repository = mock(BzItemSnapshotRepository.class);
-        MarketTimescaleFeatureService featureService = new MarketTimescaleFeatureService(repository);
+        MarketTimescaleFeatureService featureService = new MarketTimescaleFeatureService(repository, new MarketItemKeyService());
 
         MarketSnapshot latest = snapshot("2026-02-18T12:00:00Z", 300D);
         List<BzItemSnapshotEntity> microWindow = List.of(

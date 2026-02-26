@@ -109,6 +109,9 @@ config:
       two-hour-tier-upper-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_TIER_UPPER_SECONDS:43200}
       minute-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_MINUTE_INTERVAL_SECONDS:60}
       two-hour-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_INTERVAL_SECONDS:7200}
+      ah-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_AH_AGGREGATE_DAYS:30}
+      bz-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_BZ_AGGREGATE_DAYS:30}
+      aggregate-cleanup-interval-ms: ${CONFIG_SNAPSHOT_RETENTION_AGGREGATE_CLEANUP_INTERVAL_MS:3600000}
 
 instrumentation:
   jfr:
