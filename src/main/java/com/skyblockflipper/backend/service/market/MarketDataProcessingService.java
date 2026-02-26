@@ -5,7 +5,11 @@ import com.skyblockflipper.backend.hypixel.HypixelMarketSnapshotMapper;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
 import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
+import com.skyblockflipper.backend.model.market.AhItemSnapshotEntity;
+import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.AhItemSnapshotRepository;
+import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipInputMapper;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -15,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 
@@ -32,6 +37,11 @@ public class MarketDataProcessingService {
     private final HypixelMarketSnapshotMapper marketSnapshotMapper;
     private final MarketSnapshotPersistenceService marketSnapshotPersistenceService;
     private final UnifiedFlipInputMapper unifiedFlipInputMapper;
+    private final AhItemSnapshotRepository ahItemSnapshotRepository;
+    private final BzItemSnapshotRepository bzItemSnapshotRepository;
+    private final AhSnapshotAggregator ahSnapshotAggregator;
+    private final BzSnapshotAggregator bzSnapshotAggregator;
+    private final MarketSnapshotStorageProperties snapshotStorageProperties;
     private final CycleInstrumentationService cycleInstrumentationService;
     private final long auctionBaseIntervalMillis;
     private final long bazaarBaseIntervalMillis;
@@ -61,6 +71,11 @@ public class MarketDataProcessingService {
                 marketSnapshotMapper,
                 marketSnapshotPersistenceService,
                 unifiedFlipInputMapper,
+                null,
+                null,
+                new AhSnapshotAggregator(),
+                new BzSnapshotAggregator(),
+                MarketSnapshotStorageProperties.rawOnlyDefaults(),
                 new CycleInstrumentationService(
                         new SimpleMeterRegistry(),
                         new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
@@ -83,6 +98,11 @@ public class MarketDataProcessingService {
                 marketSnapshotMapper,
                 marketSnapshotPersistenceService,
                 unifiedFlipInputMapper,
+                null,
+                null,
+                new AhSnapshotAggregator(),
+                new BzSnapshotAggregator(),
+                MarketSnapshotStorageProperties.rawOnlyDefaults(),
                 new CycleInstrumentationService(
                         new SimpleMeterRegistry(),
                         new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
@@ -100,6 +120,11 @@ public class MarketDataProcessingService {
                                        HypixelMarketSnapshotMapper marketSnapshotMapper,
                                        MarketSnapshotPersistenceService marketSnapshotPersistenceService,
                                        UnifiedFlipInputMapper unifiedFlipInputMapper,
+                                       AhItemSnapshotRepository ahItemSnapshotRepository,
+                                       BzItemSnapshotRepository bzItemSnapshotRepository,
+                                       AhSnapshotAggregator ahSnapshotAggregator,
+                                       BzSnapshotAggregator bzSnapshotAggregator,
+                                       MarketSnapshotStorageProperties snapshotStorageProperties,
                                        CycleInstrumentationService cycleInstrumentationService,
                                        @Value("${config.hypixel.polling.auctions-base-interval:PT60S}") Duration auctionBaseInterval,
                                        @Value("${config.hypixel.polling.bazaar-base-interval:PT20S}") Duration bazaarBaseInterval,
@@ -109,6 +134,11 @@ public class MarketDataProcessingService {
                 marketSnapshotMapper,
                 marketSnapshotPersistenceService,
                 unifiedFlipInputMapper,
+                ahItemSnapshotRepository,
+                bzItemSnapshotRepository,
+                ahSnapshotAggregator,
+                bzSnapshotAggregator,
+                snapshotStorageProperties,
                 cycleInstrumentationService,
                 auctionBaseInterval,
                 bazaarBaseInterval,
@@ -127,10 +157,51 @@ public class MarketDataProcessingService {
                                        long maxIntervalMultiplier,
                                        Duration retryInterval,
                                        LongSupplier nowSupplier) {
+        this(
+                hypixelClient,
+                marketSnapshotMapper,
+                marketSnapshotPersistenceService,
+                unifiedFlipInputMapper,
+                null,
+                null,
+                new AhSnapshotAggregator(),
+                new BzSnapshotAggregator(),
+                MarketSnapshotStorageProperties.rawOnlyDefaults(),
+                cycleInstrumentationService,
+                auctionBaseInterval,
+                bazaarBaseInterval,
+                maxIntervalMultiplier,
+                retryInterval,
+                nowSupplier
+        );
+    }
+
+    public MarketDataProcessingService(HypixelClient hypixelClient,
+                                       HypixelMarketSnapshotMapper marketSnapshotMapper,
+                                       MarketSnapshotPersistenceService marketSnapshotPersistenceService,
+                                       UnifiedFlipInputMapper unifiedFlipInputMapper,
+                                       AhItemSnapshotRepository ahItemSnapshotRepository,
+                                       BzItemSnapshotRepository bzItemSnapshotRepository,
+                                       AhSnapshotAggregator ahSnapshotAggregator,
+                                       BzSnapshotAggregator bzSnapshotAggregator,
+                                       MarketSnapshotStorageProperties snapshotStorageProperties,
+                                       CycleInstrumentationService cycleInstrumentationService,
+                                       Duration auctionBaseInterval,
+                                       Duration bazaarBaseInterval,
+                                       long maxIntervalMultiplier,
+                                       Duration retryInterval,
+                                       LongSupplier nowSupplier) {
         this.hypixelClient = hypixelClient;
         this.marketSnapshotMapper = marketSnapshotMapper;
         this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
         this.unifiedFlipInputMapper = unifiedFlipInputMapper;
+        this.ahItemSnapshotRepository = ahItemSnapshotRepository;
+        this.bzItemSnapshotRepository = bzItemSnapshotRepository;
+        this.ahSnapshotAggregator = ahSnapshotAggregator == null ? new AhSnapshotAggregator() : ahSnapshotAggregator;
+        this.bzSnapshotAggregator = bzSnapshotAggregator == null ? new BzSnapshotAggregator() : bzSnapshotAggregator;
+        this.snapshotStorageProperties = snapshotStorageProperties == null
+                ? MarketSnapshotStorageProperties.rawOnlyDefaults()
+                : snapshotStorageProperties;
         this.cycleInstrumentationService = cycleInstrumentationService;
         this.auctionBaseIntervalMillis = sanitizeDuration(auctionBaseInterval, DEFAULT_AUCTION_BASE_INTERVAL);
         this.bazaarBaseIntervalMillis = sanitizeDuration(bazaarBaseInterval, DEFAULT_BAZAAR_BASE_INTERVAL);
@@ -222,7 +293,10 @@ public class MarketDataProcessingService {
         cycleInstrumentationService.endPhase("compute_flips", computeStart, true, payloadBytes);
 
         long persistStart = cycleInstrumentationService.startPhase();
-        marketSnapshotPersistenceService.save(snapshot);
+        persistAggregateSnapshots(snapshot);
+        if (snapshotStorageProperties.isPersistRawMarketSnapshot()) {
+            marketSnapshotPersistenceService.save(snapshot);
+        }
         cycleInstrumentationService.endPhase("persist/cache_update", persistStart, true, payloadBytes);
 
         return Optional.of(inputSnapshot);
@@ -246,6 +320,24 @@ public class MarketDataProcessingService {
 
     public MarketSnapshotPersistenceService.SnapshotCompactionResult compactSnapshots() {
         return marketSnapshotPersistenceService.compactSnapshots();
+    }
+
+    private void persistAggregateSnapshots(MarketSnapshot snapshot) {
+        if (snapshot == null || snapshot.snapshotTimestamp() == null) {
+            return;
+        }
+        if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
+            List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
+            if (!ahAggregates.isEmpty()) {
+                ahItemSnapshotRepository.saveAll(ahAggregates);
+            }
+        }
+        if (snapshotStorageProperties.isPersistBzAggregates() && bzItemSnapshotRepository != null) {
+            List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
+            if (!bzAggregates.isEmpty()) {
+                bzItemSnapshotRepository.saveAll(bzAggregates);
+            }
+        }
     }
 
     private PollPayload pollPayload() {
