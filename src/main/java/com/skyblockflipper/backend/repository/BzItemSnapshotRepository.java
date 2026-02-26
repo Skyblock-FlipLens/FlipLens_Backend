@@ -13,10 +13,38 @@ import java.util.List;
 
 public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId> {
 
-    boolean existsBySnapshotTs(long snapshotTs);
+    @Modifying
+    @Transactional
+    @Query(value = """
+            insert into bz_item_snapshot (
+                snapshot_ts,
+                product_id,
+                buy_price,
+                sell_price,
+                buy_volume,
+                sell_volume,
+                created_at_epoch_millis
+            ) values (
+                :snapshotTs,
+                :productId,
+                :buyPrice,
+                :sellPrice,
+                :buyVolume,
+                :sellVolume,
+                :createdAtEpochMillis
+            )
+            on conflict (snapshot_ts, product_id) do nothing
+            """, nativeQuery = true)
+    int insertIgnore(@Param("snapshotTs") long snapshotTs,
+                     @Param("productId") String productId,
+                     @Param("buyPrice") Double buyPrice,
+                     @Param("sellPrice") Double sellPrice,
+                     @Param("buyVolume") Long buyVolume,
+                     @Param("sellVolume") Long sellVolume,
+                     @Param("createdAtEpochMillis") long createdAtEpochMillis);
 
     List<BzItemSnapshotEntity> findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(String productId,
-                                                                                         long fromInclusive,
+                                                                                          long fromInclusive,
                                                                                         long toInclusive);
 
     List<BzItemSnapshotEntity> findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(long fromInclusive,

@@ -310,6 +310,12 @@ public class AdaptivePollingCoordinator {
                 }
             }
         } finally {
+            // latestSnapshotEpochMillisToGenerate is atomically drained via getAndSet(-1L), but a concurrent
+            // enqueuer can still publish new work after this worker decides to exit and before
+            // generationWorkerScheduledOrRunning is observed as false. This reschedule CAS closes that gap:
+            // if shutdownRequested is false and taskScheduler has pending work in
+            // latestSnapshotEpochMillisToGenerate, compareAndSet(false, true) ensures a new worker is scheduled
+            // so no snapshot generation request is lost.
             generationWorkerScheduledOrRunning.set(false);
             if (!shutdownRequested
                     && latestSnapshotEpochMillisToGenerate.get() >= 0L

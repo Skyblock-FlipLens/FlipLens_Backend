@@ -51,7 +51,6 @@ public class MarketDataProcessingService {
     private final long retryIntervalMillis;
     private final LongSupplier nowSupplier;
     private final Object pollStateLock = new Object();
-    private final Object aggregatePersistLock = new Object();
 
     private AuctionResponse cachedAuctionResponse;
     private BazaarResponse cachedBazaarResponse;
@@ -337,35 +336,43 @@ public class MarketDataProcessingService {
         if (snapshot == null || snapshot.snapshotTimestamp() == null) {
             return;
         }
-        long snapshotTs = snapshot.snapshotTimestamp().toEpochMilli();
-        synchronized (aggregatePersistLock) {
-            if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
-                try {
-                    if (ahItemSnapshotRepository.existsBySnapshotTs(snapshotTs)) {
-                        log.debug("Skipping AH aggregate persistence for existing snapshotTs={}", snapshotTs);
-                    } else {
-                        List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
-                        if (!ahAggregates.isEmpty()) {
-                            ahItemSnapshotRepository.saveAll(ahAggregates);
-                        }
-                    }
-                } catch (RuntimeException e) {
-                    log.warn("Failed to persist AH aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
+        if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
+            try {
+                List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
+                for (AhItemSnapshotEntity aggregate : ahAggregates) {
+                    ahItemSnapshotRepository.insertIgnore(
+                            aggregate.getSnapshotTs(),
+                            aggregate.getItemKey(),
+                            aggregate.getBinLowest(),
+                            aggregate.getBinLowest5Mean(),
+                            aggregate.getBinP50(),
+                            aggregate.getBinP95(),
+                            aggregate.getBinCount(),
+                            aggregate.getBidP50(),
+                            aggregate.getEndingSoonCount(),
+                            aggregate.getCreatedAtEpochMillis()
+                    );
                 }
+            } catch (RuntimeException e) {
+                log.warn("Failed to persist AH aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
             }
-            if (snapshotStorageProperties.isPersistBzAggregates() && bzItemSnapshotRepository != null) {
-                try {
-                    if (bzItemSnapshotRepository.existsBySnapshotTs(snapshotTs)) {
-                        log.debug("Skipping Bazaar aggregate persistence for existing snapshotTs={}", snapshotTs);
-                    } else {
-                        List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
-                        if (!bzAggregates.isEmpty()) {
-                            bzItemSnapshotRepository.saveAll(bzAggregates);
-                        }
-                    }
-                } catch (RuntimeException e) {
-                    log.warn("Failed to persist Bazaar aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
+        }
+        if (snapshotStorageProperties.isPersistBzAggregates() && bzItemSnapshotRepository != null) {
+            try {
+                List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
+                for (BzItemSnapshotEntity aggregate : bzAggregates) {
+                    bzItemSnapshotRepository.insertIgnore(
+                            aggregate.getSnapshotTs(),
+                            aggregate.getProductId(),
+                            aggregate.getBuyPrice(),
+                            aggregate.getSellPrice(),
+                            aggregate.getBuyVolume(),
+                            aggregate.getSellVolume(),
+                            aggregate.getCreatedAtEpochMillis()
+                    );
                 }
+            } catch (RuntimeException e) {
+                log.warn("Failed to persist Bazaar aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
             }
         }
     }

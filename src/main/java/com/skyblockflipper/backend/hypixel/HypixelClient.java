@@ -153,8 +153,9 @@ public class HypixelClient {
         }
     }
 
-    private Duration sanitize(Duration configured, Duration fallback) {
+    private Duration sanitize(Duration configured, Duration fallback, String settingName) {
         if (configured == null || configured.isNegative() || configured.isZero()) {
+            log.warn("Invalid {}='{}'; falling back to {}", settingName, configured, fallback);
             return fallback;
         }
         return configured;
@@ -162,10 +163,10 @@ public class HypixelClient {
 
     private RestClient buildRestClient(String apiUrl, Duration connectTimeout, Duration requestTimeout) {
         HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(sanitize(connectTimeout, DEFAULT_CONNECT_TIMEOUT))
+                .connectTimeout(sanitize(connectTimeout, DEFAULT_CONNECT_TIMEOUT, "config.hypixel.connect-timeout"))
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(sanitize(requestTimeout, DEFAULT_REQUEST_TIMEOUT));
+        requestFactory.setReadTimeout(sanitize(requestTimeout, DEFAULT_REQUEST_TIMEOUT, "config.hypixel.request-timeout"));
         return RestClient.builder()
                 .baseUrl(apiUrl)
                 .requestFactory(requestFactory)

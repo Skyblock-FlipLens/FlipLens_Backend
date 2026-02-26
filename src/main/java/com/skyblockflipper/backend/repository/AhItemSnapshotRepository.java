@@ -13,7 +13,44 @@ import java.util.List;
 
 public interface AhItemSnapshotRepository extends JpaRepository<AhItemSnapshotEntity, AhItemSnapshotId> {
 
-    boolean existsBySnapshotTs(long snapshotTs);
+    @Modifying
+    @Transactional
+    @Query(value = """
+            insert into ah_item_snapshot (
+                snapshot_ts,
+                item_key,
+                bin_lowest,
+                bin_lowest5_mean,
+                bin_p50,
+                bin_p95,
+                bin_count,
+                bid_p50,
+                ending_soon_count,
+                created_at_epoch_millis
+            ) values (
+                :snapshotTs,
+                :itemKey,
+                :binLowest,
+                :binLowest5Mean,
+                :binP50,
+                :binP95,
+                :binCount,
+                :bidP50,
+                :endingSoonCount,
+                :createdAtEpochMillis
+            )
+            on conflict (snapshot_ts, item_key) do nothing
+            """, nativeQuery = true)
+    int insertIgnore(@Param("snapshotTs") long snapshotTs,
+                     @Param("itemKey") String itemKey,
+                     @Param("binLowest") Long binLowest,
+                     @Param("binLowest5Mean") Long binLowest5Mean,
+                     @Param("binP50") Long binP50,
+                     @Param("binP95") Long binP95,
+                     @Param("binCount") int binCount,
+                     @Param("bidP50") Long bidP50,
+                     @Param("endingSoonCount") int endingSoonCount,
+                     @Param("createdAtEpochMillis") long createdAtEpochMillis);
 
     List<AhItemSnapshotEntity> findByItemKeyAndSnapshotTsBetweenOrderBySnapshotTsAsc(String itemKey,
                                                                                        long fromInclusive,

@@ -35,8 +35,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -261,16 +265,54 @@ class MarketDataProcessingServiceTest {
         when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(ahAggregator.aggregate(any(Instant.class), anyList()))
                 .thenReturn(List.of(new AhItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND|T:RARE|C:MISC|P:-|S:0|R:0", 100L, 100L, 100L, 100L, 1, null, 0)));
-        when(ahRepo.saveAll(anyList())).thenThrow(new RuntimeException("aggregate failure"));
+        when(ahRepo.insertIgnore(
+                anyLong(),
+                anyString(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyInt(),
+                any(),
+                anyInt(),
+                anyLong()
+        )).thenThrow(new RuntimeException("aggregate failure"));
         when(bzAggregator.aggregate(any(Instant.class), anyMap()))
                 .thenReturn(List.of(new BzItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND", 10.0, 9.0, 100L, 90L)));
-        when(bzRepo.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bzRepo.insertIgnore(
+                anyLong(),
+                anyString(),
+                anyDouble(),
+                anyDouble(),
+                any(),
+                any(),
+                anyLong()
+        )).thenReturn(1);
 
         UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
         assertNotNull(input);
-        verify(ahRepo, times(1)).saveAll(anyList());
-        verify(bzRepo, times(1)).saveAll(anyList());
+        verify(ahRepo, times(1)).insertIgnore(
+                anyLong(),
+                anyString(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyInt(),
+                any(),
+                anyInt(),
+                anyLong()
+        );
+        verify(bzRepo, times(1)).insertIgnore(
+                anyLong(),
+                anyString(),
+                anyDouble(),
+                anyDouble(),
+                any(),
+                any(),
+                anyLong()
+        );
         verify(persistenceService, times(1)).save(any(MarketSnapshot.class));
     }
 
@@ -312,8 +354,27 @@ class MarketDataProcessingServiceTest {
         UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
         assertNotNull(input);
-        verify(ahRepo, never()).saveAll(anyList());
-        verify(bzRepo, never()).saveAll(anyList());
+        verify(ahRepo, never()).insertIgnore(
+                anyLong(),
+                anyString(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyInt(),
+                any(),
+                anyInt(),
+                anyLong()
+        );
+        verify(bzRepo, never()).insertIgnore(
+                anyLong(),
+                anyString(),
+                anyDouble(),
+                anyDouble(),
+                any(),
+                any(),
+                anyLong()
+        );
         verify(persistenceService, never()).save(any(MarketSnapshot.class));
         verifyNoInteractions(ahAggregator, bzAggregator);
     }
