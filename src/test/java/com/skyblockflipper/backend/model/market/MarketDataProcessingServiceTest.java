@@ -7,20 +7,33 @@ import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarQuickStatus;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
+import com.skyblockflipper.backend.model.market.AhItemSnapshotEntity;
+import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
+import com.skyblockflipper.backend.repository.AhItemSnapshotRepository;
+import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipInputMapper;
+import com.skyblockflipper.backend.service.market.AhSnapshotAggregator;
+import com.skyblockflipper.backend.service.market.BzSnapshotAggregator;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
+import com.skyblockflipper.backend.service.market.MarketSnapshotStorageProperties;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -207,5 +220,133 @@ class MarketDataProcessingServiceTest {
         assertEquals(11_000L, bazaarWatermark);
         assertEquals(10_000L, cachedAuction.getLastUpdated());
         assertEquals(11_000L, cachedBazaar.getLastUpdated());
+    }
+
+    @Test
+    void captureCurrentSnapshotAndPrepareInputKeepsRawSnapshotWhenAggregateWriteFails() {
+        HypixelClient client = mock(HypixelClient.class);
+        HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
+        MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        AhItemSnapshotRepository ahRepo = mock(AhItemSnapshotRepository.class);
+        BzItemSnapshotRepository bzRepo = mock(BzItemSnapshotRepository.class);
+        AhSnapshotAggregator ahAggregator = mock(AhSnapshotAggregator.class);
+        BzSnapshotAggregator bzAggregator = mock(BzSnapshotAggregator.class);
+        MarketSnapshotStorageProperties storageProperties = new MarketSnapshotStorageProperties();
+        storageProperties.setPersistRawMarketSnapshot(true);
+        storageProperties.setPersistAhAggregates(true);
+        storageProperties.setPersistBzAggregates(true);
+
+        com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
+                new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
+                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()
+                        )
+                );
+
+        MarketDataProcessingService service = new MarketDataProcessingService(
+                client,
+                snapshotMapper,
+                persistenceService,
+                inputMapper,
+                ahRepo,
+                bzRepo,
+                ahAggregator,
+                bzAggregator,
+                storageProperties,
+                instrumentation,
+                Duration.ofSeconds(60),
+                Duration.ofSeconds(20),
+                2L,
+                Duration.ofSeconds(10),
+                System::currentTimeMillis
+        );
+
+        AuctionResponse auctionResponse = auctionResponse(10_000L);
+        BazaarResponse bazaarResponse = bazaarResponse(11_000L);
+        when(client.fetchAllAuctionPages()).thenReturn(auctionResponse);
+        when(client.fetchBazaar()).thenReturn(bazaarResponse);
+        when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(ahAggregator.aggregate(any(Instant.class), anyList()))
+                .thenReturn(List.of(new AhItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND|T:RARE|C:MISC|P:-|S:0|R:0", 100L, 100L, 100L, 100L, 1, null, 0)));
+        when(ahRepo.saveAll(anyList())).thenThrow(new RuntimeException("aggregate failure"));
+        when(bzAggregator.aggregate(any(Instant.class), anyMap()))
+                .thenReturn(List.of(new BzItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND", 10.0, 9.0, 100L, 90L)));
+
+        UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
+
+        assertNotNull(input);
+        verify(ahRepo, times(1)).saveAll(anyList());
+        verify(bzRepo, times(1)).saveAll(anyList());
+        verify(persistenceService, times(1)).save(any(MarketSnapshot.class));
+    }
+
+    @Test
+    void captureCurrentSnapshotAndPrepareInputPersistsNothingWhenAllStorageTogglesAreDisabled() {
+        HypixelClient client = mock(HypixelClient.class);
+        HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
+        MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        AhItemSnapshotRepository ahRepo = mock(AhItemSnapshotRepository.class);
+        BzItemSnapshotRepository bzRepo = mock(BzItemSnapshotRepository.class);
+        AhSnapshotAggregator ahAggregator = mock(AhSnapshotAggregator.class);
+        BzSnapshotAggregator bzAggregator = mock(BzSnapshotAggregator.class);
+        MarketSnapshotStorageProperties storageProperties = new MarketSnapshotStorageProperties();
+        storageProperties.setPersistRawMarketSnapshot(false);
+        storageProperties.setPersistAhAggregates(false);
+        storageProperties.setPersistBzAggregates(false);
+
+        com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
+                new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
+                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()
+                        )
+                );
+
+        MarketDataProcessingService service = new MarketDataProcessingService(
+                client,
+                snapshotMapper,
+                persistenceService,
+                inputMapper,
+                ahRepo,
+                bzRepo,
+                ahAggregator,
+                bzAggregator,
+                storageProperties,
+                instrumentation,
+                Duration.ofSeconds(60),
+                Duration.ofSeconds(20),
+                2L,
+                Duration.ofSeconds(10),
+                System::currentTimeMillis
+        );
+
+        when(client.fetchAllAuctionPages()).thenReturn(auctionResponse(10_000L));
+        when(client.fetchBazaar()).thenReturn(bazaarResponse(11_000L));
+
+        UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
+
+        assertNotNull(input);
+        verify(ahRepo, never()).saveAll(anyList());
+        verify(bzRepo, never()).saveAll(anyList());
+        verify(persistenceService, never()).save(any(MarketSnapshot.class));
+    }
+
+    private AuctionResponse auctionResponse(long updatedAt) {
+        Auction auction = new Auction(
+                "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
+                "ENCHANTED_DIAMOND", "lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
+                100L, false, List.of(), 120L, List.of()
+        );
+        auction.setBin(true);
+        return new AuctionResponse(true, 0, 1, 1, updatedAt, List.of(auction));
+    }
+
+    private BazaarResponse bazaarResponse(long updatedAt) {
+        BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
+        BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
+        return new BazaarResponse(true, updatedAt, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
     }
 }

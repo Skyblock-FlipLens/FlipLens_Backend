@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
@@ -50,6 +51,13 @@ class MarketTimescaleFeatureServiceTest {
 
         assertNotNull(itemFeatures);
         assertEquals(Math.log(120D / 100D), itemFeatures.macroReturn1d(), 1e-9);
+    }
+
+    @Test
+    void constructorRejectsNullDependencies() {
+        BzItemSnapshotRepository repository = mock(BzItemSnapshotRepository.class);
+        assertThrows(NullPointerException.class, () -> new MarketTimescaleFeatureService(null, new MarketItemKeyService()));
+        assertThrows(NullPointerException.class, () -> new MarketTimescaleFeatureService(repository, null));
     }
 
     private BzItemSnapshotEntity row(String timestamp, double midPrice) {
