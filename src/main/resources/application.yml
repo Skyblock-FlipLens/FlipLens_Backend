@@ -45,6 +45,8 @@ config:
   hypixel:
     api-url: ${CONFIG_HYPIXEL_API_URL:https://api.hypixel.net/v2}
     api-key: ${CONFIG_HYPIXEL_API_KEY:}
+    connect-timeout: ${CONFIG_HYPIXEL_CONNECT_TIMEOUT:PT2S}
+    request-timeout: ${CONFIG_HYPIXEL_REQUEST_TIMEOUT:PT8S}
     adaptive:
       enabled: ${CONFIG_HYPIXEL_ADAPTIVE_ENABLED:true}
       global-max-requests-per-second: ${CONFIG_HYPIXEL_ADAPTIVE_GLOBAL_MAX_RPS:3.0}
@@ -93,6 +95,8 @@ config:
         coalesce-enabled: ${CONFIG_HYPIXEL_ADAPTIVE_PIPELINE_COALESCE_ENABLED:true}
     polling:
       election-max-age: ${CONFIG_HYPIXEL_POLL_ELECTION_MAX_AGE:PT124H}
+      election-refresh-interval-ms: ${CONFIG_HYPIXEL_POLL_ELECTION_REFRESH_INTERVAL_MS:300000}
+      election-refresh-initial-delay-ms: ${CONFIG_HYPIXEL_POLL_ELECTION_REFRESH_INITIAL_DELAY_MS:60000}
       auctions-base-interval: ${CONFIG_HYPIXEL_POLL_AUCTIONS_BASE_INTERVAL:PT60S}
       bazaar-base-interval: ${CONFIG_HYPIXEL_POLL_BAZAAR_BASE_INTERVAL:PT20S}
       max-interval-multiplier: ${CONFIG_HYPIXEL_POLL_MAX_INTERVAL_MULTIPLIER:2}
@@ -111,6 +115,8 @@ config:
       two-hour-tier-upper-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_TIER_UPPER_SECONDS:43200}
       minute-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_MINUTE_INTERVAL_SECONDS:60}
       two-hour-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_INTERVAL_SECONDS:7200}
+      compaction-interval-ms: ${CONFIG_SNAPSHOT_RETENTION_COMPACTION_INTERVAL_MS:300000}
+      compaction-initial-delay-ms: ${CONFIG_SNAPSHOT_RETENTION_COMPACTION_INITIAL_DELAY_MS:60000}
       ah-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_AH_AGGREGATE_DAYS:30}
       bz-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_BZ_AGGREGATE_DAYS:30}
       aggregate-cleanup-interval-ms: ${CONFIG_SNAPSHOT_RETENTION_AGGREGATE_CLEANUP_INTERVAL_MS:3600000}

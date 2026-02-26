@@ -9,12 +9,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.JsonNode;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,6 +27,8 @@ public class HypixelClient {
     // Base URL already contains /v2 (see config.hypixel.api-url), so this stays resource-relative.
     private static final String ELECTION_RESOURCE_PATH = "/resources/skyblock/election";
     private static final int MAX_AUCTION_PREALLOC = 100_000;
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(8);
 
     private final RestClient restClient;
     private final String apiKey;
@@ -31,16 +36,20 @@ public class HypixelClient {
 
 
     public HypixelClient(String apiUrl, String apiKey) {
-        this(apiUrl, apiKey, new BlockingTimeTracker(new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()));
+        this.restClient = buildRestClient(apiUrl, DEFAULT_CONNECT_TIMEOUT, DEFAULT_REQUEST_TIMEOUT);
+        this.apiKey = apiKey;
+        this.blockingTimeTracker = new BlockingTimeTracker(new com.skyblockflipper.backend.instrumentation.InstrumentationProperties());
     }
 
     @Autowired
     public HypixelClient(
             @Value("${config.hypixel.api-url}") String apiUrl,
             @Value("${config.hypixel.api-key:}") String apiKey,
+            @Value("${config.hypixel.connect-timeout:PT2S}") Duration connectTimeout,
+            @Value("${config.hypixel.request-timeout:PT8S}") Duration requestTimeout,
             BlockingTimeTracker blockingTimeTracker
     ) {
-        this.restClient = RestClient.builder().baseUrl(apiUrl).build();
+        this.restClient = buildRestClient(apiUrl, connectTimeout, requestTimeout);
         this.apiKey = apiKey;
         this.blockingTimeTracker = blockingTimeTracker;
     }
@@ -142,5 +151,24 @@ public class HypixelClient {
             log.warn("Hypixel request failed for {}: {}", uri, e.getMessage());
             return null;
         }
+    }
+
+    private Duration sanitize(Duration configured, Duration fallback) {
+        if (configured == null || configured.isNegative() || configured.isZero()) {
+            return fallback;
+        }
+        return configured;
+    }
+
+    private RestClient buildRestClient(String apiUrl, Duration connectTimeout, Duration requestTimeout) {
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(sanitize(connectTimeout, DEFAULT_CONNECT_TIMEOUT))
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(sanitize(requestTimeout, DEFAULT_REQUEST_TIMEOUT));
+        return RestClient.builder()
+                .baseUrl(apiUrl)
+                .requestFactory(requestFactory)
+                .build();
     }
 }
