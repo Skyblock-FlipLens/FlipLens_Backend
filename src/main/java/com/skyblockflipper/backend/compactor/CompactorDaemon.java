@@ -58,7 +58,7 @@ public class CompactorDaemon implements SmartLifecycle {
         this.jdbcTemplate = jdbcTemplate;
         this.marketDataProcessingService = marketDataProcessingService;
         this.channel = sanitizeChannel(channel);
-        this.safetyTickIntervalMillis = Math.max(5_000L, safetyTickIntervalMillis);
+        this.safetyTickIntervalMillis = Math.max(30_000L, safetyTickIntervalMillis);
         this.listenPollIntervalMillis = Math.max(100L, listenPollIntervalMillis);
         this.listenReconnectDelayMillis = Math.max(500L, listenReconnectDelayMillis);
         this.advisoryLockKey = advisoryLockKey;
