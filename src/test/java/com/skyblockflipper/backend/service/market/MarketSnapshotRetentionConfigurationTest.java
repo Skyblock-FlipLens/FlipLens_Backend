@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,8 +30,12 @@ class MarketSnapshotRetentionConfigurationTest {
     @Autowired
     private MarketSnapshotRepository marketSnapshotRepository;
 
+    @Autowired
+    private FlipRepository flipRepository;
+
     @BeforeEach
     void clean() {
+        flipRepository.deleteAll();
         marketSnapshotRepository.deleteAll();
     }
 
