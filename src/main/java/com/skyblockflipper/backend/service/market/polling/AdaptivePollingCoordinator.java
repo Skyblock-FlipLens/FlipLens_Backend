@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class AdaptivePollingCoordinator {
     private static final int MAX_GENERATION_SCHEDULE_RETRY_ATTEMPTS = 3;
     private static final Duration GENERATION_SCHEDULE_RETRY_BASE_DELAY = Duration.ofMillis(250);
+    private static final Duration START_SCHEDULE_FAILURE_RETRY_DELAY = Duration.ofSeconds(1);
 
     private final AdaptivePollingProperties adaptivePollingProperties;
     private final TaskScheduler taskScheduler;
@@ -109,7 +110,31 @@ public class AdaptivePollingCoordinator {
         if (!startScheduledOrRunning.compareAndSet(false, true)) {
             return;
         }
-        taskScheduler.schedule(this::attemptStart, when);
+        try {
+            taskScheduler.schedule(this::attemptStart, when);
+        } catch (RuntimeException e) {
+            startScheduledOrRunning.compareAndSet(true, false);
+            log.error("Failed to schedule adaptive polling start attempt at {}: {}", when, ExceptionUtils.getStackTrace(e));
+            scheduleStartAttemptFallback(when);
+        }
+    }
+
+    private void scheduleStartAttemptFallback(Instant requestedWhen) {
+        generationFallbackExecutor.execute(() -> {
+            if (shutdownRequested || auctionsPoller != null || bazaarPoller != null) {
+                return;
+            }
+            try {
+                Thread.sleep(START_SCHEDULE_FAILURE_RETRY_DELAY.toMillis());
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            Instant fallbackWhen = requestedWhen == null
+                    ? Instant.now().plus(START_SCHEDULE_FAILURE_RETRY_DELAY)
+                    : requestedWhen.isAfter(Instant.now()) ? requestedWhen : Instant.now().plus(START_SCHEDULE_FAILURE_RETRY_DELAY);
+            scheduleStartAttempt(fallbackWhen);
+        });
     }
 
     private void attemptStart() {
