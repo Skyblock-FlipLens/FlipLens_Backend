@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.FlipRepository;
+import com.skyblockflipper.backend.repository.MarketSnapshotCompactionCandidate;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -127,8 +128,8 @@ public class MarketSnapshotPersistenceService {
         long nowMillis = safeNow.toEpochMilli();
         long compactionCandidateUpperBound = nowMillis - (rawWindowSeconds * 1_000L);
 
-        List<MarketSnapshotEntity> candidates = blockingTimeTracker.record("db.marketSnapshot.compactionCandidates", "db", () -> marketSnapshotRepository
-                .findBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisAsc(compactionCandidateUpperBound));
+        List<MarketSnapshotCompactionCandidate> candidates = blockingTimeTracker.record("db.marketSnapshot.compactionCandidates", "db", () -> marketSnapshotRepository
+                .findCompactionCandidates(compactionCandidateUpperBound));
         if (candidates.isEmpty()) {
             return new SnapshotCompactionResult(0, 0, 0);
         }
@@ -138,7 +139,7 @@ public class MarketSnapshotPersistenceService {
         Map<Long, UUID> dailyKeepers = new LinkedHashMap<>();
         List<UUID> toDelete = new ArrayList<>();
 
-        for (MarketSnapshotEntity entity : candidates) {
+        for (MarketSnapshotCompactionCandidate entity : candidates) {
             long snapshotMillis = entity.getSnapshotTimestampEpochMillis();
             long ageSeconds = Math.max(0L, (nowMillis - snapshotMillis) / 1_000L);
 
@@ -176,7 +177,7 @@ public class MarketSnapshotPersistenceService {
         return new SnapshotCompactionResult(candidates.size(), toDelete.size(), keptCount);
     }
 
-    private int deleteOrphanedFlipsForDeletedSnapshots(List<MarketSnapshotEntity> candidates, List<UUID> deletedSnapshotIds) {
+    private int deleteOrphanedFlipsForDeletedSnapshots(List<MarketSnapshotCompactionCandidate> candidates, List<UUID> deletedSnapshotIds) {
         if (deletedSnapshotIds.isEmpty()) {
             return 0;
         }
@@ -184,7 +185,7 @@ public class MarketSnapshotPersistenceService {
         Set<UUID> deletedSnapshotIdSet = new HashSet<>(deletedSnapshotIds);
         List<Long> deletedSnapshotTimestamps = candidates.stream()
                 .filter(candidate -> deletedSnapshotIdSet.contains(candidate.getId()))
-                .map(MarketSnapshotEntity::getSnapshotTimestampEpochMillis)
+                .map(MarketSnapshotCompactionCandidate::getSnapshotTimestampEpochMillis)
                 .distinct()
                 .toList();
 
