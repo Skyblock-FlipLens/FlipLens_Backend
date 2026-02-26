@@ -1,9 +1,11 @@
 package com.skyblockflipper.backend.instrumentation.admin;
 
 import com.skyblockflipper.backend.config.Jobs.SourceJobs;
+import com.skyblockflipper.backend.service.market.CompactionRequestService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,27 +19,29 @@ import java.util.concurrent.atomic.AtomicReference;
 
 @RestController
 @RequestMapping("/internal/admin/debug")
+@Profile("!compactor")
 @RequiredArgsConstructor
 @Slf4j
 public class DebugAdminController {
 
     private final AdminAccessGuard adminAccessGuard;
     private final SourceJobs sourceJobs;
+    private final CompactionRequestService compactionRequestService;
     private final AtomicReference<Instant> lastCompactSnapshotsTrigger = new AtomicReference<>();
     private final AtomicReference<Instant> lastCopyRepoTrigger = new AtomicReference<>();
 
+    /** Legacy endpoint kept for backward compatibility; prefer /trigger/request-compaction. */
+    @Deprecated
     @PostMapping("/trigger/compact-snapshots")
     public Map<String, Object> triggerCompactSnapshots(HttpServletRequest request) {
         adminAccessGuard.validate(request);
-        Instant triggeredAt = Instant.now();
-        log.info("Manual debug trigger: compactSnapshots from {}", request.getRemoteAddr());
-        sourceJobs.compactSnapshots();
-        lastCompactSnapshotsTrigger.set(triggeredAt);
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("status", "triggered");
-        response.put("job", "compactSnapshots");
-        response.put("triggeredAtUtc", triggeredAt.toString());
-        return response;
+        return triggerCompactionRequest(request, "compactSnapshots");
+    }
+
+    @PostMapping("/trigger/request-compaction")
+    public Map<String, Object> requestCompaction(HttpServletRequest request) {
+        adminAccessGuard.validate(request);
+        return triggerCompactionRequest(request, "requestCompaction");
     }
 
     @PostMapping("/trigger/copy-repo")
@@ -75,5 +79,16 @@ public class DebugAdminController {
 
     private String toIso(Instant value) {
         return value == null ? null : value.toString();
+    }
+
+    private Map<String, Object> triggerCompactionRequest(HttpServletRequest request, String jobName) {
+        Instant triggeredAt = Instant.now();
+        String requestedBy = "api:" + request.getRemoteAddr();
+        log.info("Manual debug trigger: {} from {}", jobName, request.getRemoteAddr());
+        Map<String, Object> result = new LinkedHashMap<>(compactionRequestService.request(requestedBy));
+        lastCompactSnapshotsTrigger.set(triggeredAt);
+        result.put("job", jobName);
+        result.put("triggeredAtUtc", triggeredAt.toString());
+        return result;
     }
 }

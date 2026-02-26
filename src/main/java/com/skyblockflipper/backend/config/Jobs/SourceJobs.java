@@ -10,6 +10,7 @@ import com.skyblockflipper.backend.service.market.polling.ElectionPollFreshnessS
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 @Component
+@Profile("!compactor")
 @Slf4j
 public class SourceJobs {
     private static final long MILLIS_PER_DAY = 86_400_000L;
@@ -45,26 +47,6 @@ public class SourceJobs {
         this.bzItemSnapshotRepository = bzItemSnapshotRepository;
         this.snapshotRetentionProperties = snapshotRetentionProperties;
         this.electionPollFreshnessService = electionPollFreshnessService;
-    }
-
-    @Scheduled(
-            fixedDelayString = "${config.snapshot.retention.compaction-interval-ms:300000}",
-            initialDelayString = "${config.snapshot.retention.compaction-initial-delay-ms:60000}"
-    )
-    public void compactSnapshots() {
-        try {
-            var result = marketDataProcessingService.compactSnapshots();
-            if (result.deletedCount() > 0) {
-                log.info(
-                        "Compacted market snapshots: scanned={}, kept={}, deleted={}",
-                        result.scannedCount(),
-                        result.keptCount(),
-                        result.deletedCount()
-                );
-            }
-        } catch (Exception e) {
-            log.warn("Failed to compact market snapshots: {}", ExceptionUtils.getStackTrace(e));
-        }
     }
 
     @Scheduled(cron = "0 0 23 * * *", zone = "UTC")
