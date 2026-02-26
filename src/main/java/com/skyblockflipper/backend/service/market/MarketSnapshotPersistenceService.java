@@ -5,30 +5,38 @@ import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
+import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class MarketSnapshotPersistenceService {
 
     private static final long SECONDS_PER_DAY = 86_400L;
+    private static final int FLIP_DELETE_BATCH_SIZE = 1_000;
 
     private static final TypeReference<List<AuctionMarketRecord>> AUCTIONS_TYPE = new TypeReference<>() {};
     private static final TypeReference<Map<String, BazaarMarketRecord>> BAZAAR_TYPE = new TypeReference<>() {};
 
     private final MarketSnapshotRepository marketSnapshotRepository;
+    private final FlipRepository flipRepository;
     private final ObjectMapper objectMapper;
     private final BlockingTimeTracker blockingTimeTracker;
     private final long rawWindowSeconds;
@@ -38,10 +46,12 @@ public class MarketSnapshotPersistenceService {
     private final long twoHourIntervalMillis;
 
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
+                                            FlipRepository flipRepository,
                                             ObjectMapper objectMapper,
                                             BlockingTimeTracker blockingTimeTracker,
                                             SnapshotRetentionProperties retentionProperties) {
         this.marketSnapshotRepository = marketSnapshotRepository;
+        this.flipRepository = flipRepository;
         this.objectMapper = objectMapper;
         this.blockingTimeTracker = blockingTimeTracker;
         SnapshotRetentionProperties configuredRetention = Objects.requireNonNull(
@@ -111,6 +121,7 @@ public class MarketSnapshotPersistenceService {
         return compactSnapshots(Instant.now());
     }
 
+    @Transactional
     public SnapshotCompactionResult compactSnapshots(Instant now) {
         Instant safeNow = now == null ? Instant.now() : now;
         long nowMillis = safeNow.toEpochMilli();
@@ -155,10 +166,39 @@ public class MarketSnapshotPersistenceService {
 
         if (!toDelete.isEmpty()) {
             blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(toDelete));
+            int deletedFlips = deleteOrphanedFlipsForDeletedSnapshots(candidates, toDelete);
+            if (deletedFlips > 0) {
+                log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
+            }
         }
 
         int keptCount = candidates.size() - toDelete.size();
         return new SnapshotCompactionResult(candidates.size(), toDelete.size(), keptCount);
+    }
+
+    private int deleteOrphanedFlipsForDeletedSnapshots(List<MarketSnapshotEntity> candidates, List<UUID> deletedSnapshotIds) {
+        if (deletedSnapshotIds.isEmpty()) {
+            return 0;
+        }
+
+        Set<UUID> deletedSnapshotIdSet = new HashSet<>(deletedSnapshotIds);
+        List<Long> deletedSnapshotTimestamps = candidates.stream()
+                .filter(candidate -> deletedSnapshotIdSet.contains(candidate.getId()))
+                .map(MarketSnapshotEntity::getSnapshotTimestampEpochMillis)
+                .distinct()
+                .toList();
+
+        int deletedFlips = 0;
+        for (int fromIndex = 0; fromIndex < deletedSnapshotTimestamps.size(); fromIndex += FLIP_DELETE_BATCH_SIZE) {
+            int toIndex = Math.min(fromIndex + FLIP_DELETE_BATCH_SIZE, deletedSnapshotTimestamps.size());
+            List<Long> timestampBatch = deletedSnapshotTimestamps.subList(fromIndex, toIndex);
+            deletedFlips += blockingTimeTracker.record(
+                    "db.flip.deleteOrphansBySnapshotBatch",
+                    "db",
+                    () -> flipRepository.deleteOrphansBySnapshotTimestampEpochMillisIn(timestampBatch)
+            );
+        }
+        return deletedFlips;
     }
 
     private MarketSnapshot toDomain(MarketSnapshotEntity entity) {

@@ -5,8 +5,10 @@ import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
@@ -63,4 +65,17 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
             where f.id in :ids
             """)
     List<Flip> findAllByIdInWithDetails(@Param("ids") Collection<UUID> ids);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("""
+            delete from Flip f
+            where f.snapshotTimestampEpochMillis in :timestamps
+              and not exists (
+                    select 1
+                    from MarketSnapshotEntity ms
+                    where ms.snapshotTimestampEpochMillis = f.snapshotTimestampEpochMillis
+              )
+            """)
+    int deleteOrphansBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps);
 }

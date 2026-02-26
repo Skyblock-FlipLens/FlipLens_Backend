@@ -1,8 +1,12 @@
 package com.skyblockflipper.backend.service.market;
 
+import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
+import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,9 +28,18 @@ class MarketSnapshotPersistenceServiceTest {
     @Autowired
     private MarketSnapshotRepository marketSnapshotRepository;
 
+    @Autowired
+    private FlipRepository flipRepository;
+
     @BeforeEach
     void clean() {
+        flipRepository.deleteAll();
         marketSnapshotRepository.deleteAll();
+    }
+
+    @AfterEach
+    void cleanAfterEach() {
+        clean();
     }
 
     @Test
@@ -135,11 +148,43 @@ class MarketSnapshotPersistenceServiceTest {
         assertTrue(survivors.stream().noneMatch(s -> s.snapshotTimestamp().equals(Instant.parse("2026-02-15T15:00:00Z"))));
     }
 
+    @Test
+    void compactSnapshotsDeletesFlipsOnlyWhenTheirSnapshotTimestampNoLongerExists() {
+        Instant now = Instant.parse("2026-02-17T12:00:00Z");
+
+        saveAt("2026-02-17T11:57:00Z");
+        saveAt("2026-02-17T11:57:00Z");
+        saveAt("2026-02-17T11:56:00Z");
+        saveAt("2026-02-17T11:56:30Z");
+
+        saveFlipAt("2026-02-17T11:57:00Z", "DUPLICATE_TS_KEEP");
+        saveFlipAt("2026-02-17T11:56:00Z", "KEPT_SLOT");
+        saveFlipAt("2026-02-17T11:56:30Z", "DELETED_SLOT");
+
+        MarketSnapshotPersistenceService.SnapshotCompactionResult result = marketSnapshotPersistenceService.compactSnapshots(now);
+
+        assertEquals(4, result.scannedCount());
+        assertEquals(2, result.deletedCount());
+        assertEquals(2, result.keptCount());
+
+        List<Flip> remainingFlips = flipRepository.findAll();
+        assertEquals(2, remainingFlips.size());
+        assertTrue(remainingFlips.stream().anyMatch(f -> "DUPLICATE_TS_KEEP".equals(f.getResultItemId())));
+        assertTrue(remainingFlips.stream().anyMatch(f -> "KEPT_SLOT".equals(f.getResultItemId())));
+        assertTrue(remainingFlips.stream().noneMatch(f -> "DELETED_SLOT".equals(f.getResultItemId())));
+    }
+
     private void saveAt(String timestamp) {
         marketSnapshotPersistenceService.save(new MarketSnapshot(
                 Instant.parse(timestamp),
                 List.of(),
                 Map.of()
         ));
+    }
+
+    private void saveFlipAt(String snapshotTimestamp, String resultItemId) {
+        Flip flip = new Flip(null, FlipType.BAZAAR, List.of(), resultItemId, List.of());
+        flip.setSnapshotTimestampEpochMillis(Instant.parse(snapshotTimestamp).toEpochMilli());
+        flipRepository.save(flip);
     }
 }
