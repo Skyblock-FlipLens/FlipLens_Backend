@@ -2,6 +2,8 @@ package com.skyblockflipper.backend.repository;
 
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,5 +22,15 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
 
     List<MarketSnapshotEntity> findBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisAsc(
             long snapshotTimestampEpochMillis
+    );
+
+    @Query("""
+            select m.id as id, m.snapshotTimestampEpochMillis as snapshotTimestampEpochMillis
+            from MarketSnapshotEntity m
+            where m.snapshotTimestampEpochMillis <= :snapshotTimestampEpochMillis
+            order by m.snapshotTimestampEpochMillis asc
+            """)
+    List<MarketSnapshotCompactionCandidate> findCompactionCandidates(
+            @Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis
     );
 }

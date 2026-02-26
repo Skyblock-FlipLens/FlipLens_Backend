@@ -11,11 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.List;
 
-public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId> {
+public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId>, BzItemSnapshotBatchRepository {
 
     List<BzItemSnapshotEntity> findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(String productId,
-                                                                                        long fromInclusive,
-                                                                                        long toInclusive);
+                                                                                          long fromInclusive,
+                                                                                         long toInclusive);
 
     List<BzItemSnapshotEntity> findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(long fromInclusive,
                                                                                            long toInclusive,

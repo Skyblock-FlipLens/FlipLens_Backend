@@ -8,6 +8,7 @@ public class MarketSnapshotStorageProperties {
     private boolean persistRawMarketSnapshot = true;
     private boolean persistAhAggregates = true;
     private boolean persistBzAggregates = true;
+    private int aggregateBatchSize = 500;
 
     public static MarketSnapshotStorageProperties rawOnlyDefaults() {
         MarketSnapshotStorageProperties properties = new MarketSnapshotStorageProperties();
@@ -39,5 +40,13 @@ public class MarketSnapshotStorageProperties {
 
     public void setPersistBzAggregates(boolean persistBzAggregates) {
         this.persistBzAggregates = persistBzAggregates;
+    }
+
+    public int getAggregateBatchSize() {
+        return aggregateBatchSize;
+    }
+
+    public void setAggregateBatchSize(int aggregateBatchSize) {
+        this.aggregateBatchSize = aggregateBatchSize;
     }
 }
