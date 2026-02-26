@@ -1,5 +1,6 @@
 services:
   api:
+    image: ${APP_IMAGE:-skyblockflipper-api:local}
     build:
       context: ${REPO_GIT_URL:-https://github.com/Skyblock-FlipLens/FlipLens_Backend.git}#${REPO_GIT_REF:-main}
       dockerfile: Dockerfile
@@ -12,6 +13,8 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://db:5432/skyblock}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
+      CONFIG_SNAPSHOT_RETENTION_RAW_COMPACTION_ENABLED: ${CONFIG_SNAPSHOT_RETENTION_RAW_COMPACTION_ENABLED:-false}
       FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE:-false}
       SERVER_PORT: ${SERVER_PORT:-1880}
       JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=10 -XX:MaxRAMPercentage=75}"
@@ -21,6 +24,25 @@ services:
     memswap_limit: 14g
     networks:
       - app_net
+      - db_net
+
+  compactor:
+    image: ${APP_IMAGE:-skyblockflipper-api:local}
+    container_name: skyblockflipper-compactor
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://db:5432/skyblock}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+      SPRING_PROFILES_ACTIVE: ${COMPACTOR_SPRING_PROFILES_ACTIVE:-compactor}
+      FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE:-false}
+      JAVA_TOOL_OPTIONS: "${COMPACTOR_JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=10 -XX:MaxRAMPercentage=35}"
+    mem_limit: 2g
+    memswap_limit: 3g
+    networks:
       - db_net
 
   db:
