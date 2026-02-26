@@ -56,7 +56,7 @@ class MarketDataProcessingServiceTest {
 
         Auction auction = new Auction(
                 "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
-                "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
+                "ENCHANTED_DIAMOND", "lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
                 100L, false, List.of(), 120L, List.of()
         );
         auction.setBin(true);
@@ -102,7 +102,7 @@ class MarketDataProcessingServiceTest {
 
         Auction auction = new Auction(
                 "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
-                "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
+                "ENCHANTED_DIAMOND", "lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
                 100L, false, List.of(), 120L, List.of()
         );
         auction.setBin(true);
@@ -141,7 +141,7 @@ class MarketDataProcessingServiceTest {
 
         Auction auction = new Auction(
                 "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
-                "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
+                "ENCHANTED_DIAMOND", "lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
                 100L, false, List.of(), 120L, List.of()
         );
         auction.setBin(true);
@@ -190,7 +190,7 @@ class MarketDataProcessingServiceTest {
 
         Auction auction = new Auction(
                 "a-1", "auctioneer", "profile", List.of(), 1L, 2L,
-                "ENCHANTED_DIAMOND", "lore", "extra", "misc", "RARE",
+                "ENCHANTED_DIAMOND", "lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
                 100L, false, List.of(), 120L, List.of()
         );
         auction.setBin(true);
@@ -235,6 +235,7 @@ class MarketDataProcessingServiceTest {
         storageProperties.setPersistRawMarketSnapshot(true);
         storageProperties.setPersistAhAggregates(true);
         storageProperties.setPersistBzAggregates(true);
+        AtomicLong nowMillis = new AtomicLong(2_100_000L);
 
         MarketDataProcessingService service = createService(
                 client,
@@ -250,7 +251,7 @@ class MarketDataProcessingServiceTest {
                 Duration.ofSeconds(20),
                 2L,
                 Duration.ofSeconds(10),
-                System::currentTimeMillis
+                nowMillis::get
         );
 
         AuctionResponse auctionResponse = auctionResponse(10_000L);
@@ -263,6 +264,7 @@ class MarketDataProcessingServiceTest {
         when(ahRepo.saveAll(anyList())).thenThrow(new RuntimeException("aggregate failure"));
         when(bzAggregator.aggregate(any(Instant.class), anyMap()))
                 .thenReturn(List.of(new BzItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND", 10.0, 9.0, 100L, 90L)));
+        when(bzRepo.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
         UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
