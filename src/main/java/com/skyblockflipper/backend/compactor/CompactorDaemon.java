@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 @Profile("compactor")
@@ -42,6 +43,7 @@ public class CompactorDaemon implements SmartLifecycle {
 
     private final ExecutorService listenExecutor;
     private final ScheduledExecutorService safetyTickExecutor;
+    private final AtomicBoolean claimedCompactionInProgress = new AtomicBoolean(false);
     private volatile boolean running;
 
     public CompactorDaemon(DataSource dataSource,
@@ -95,9 +97,10 @@ public class CompactorDaemon implements SmartLifecycle {
     @Override
     public synchronized void stop() {
         running = false;
-        shutdownExecutor(listenExecutor, "compactor-listen-loop");
-        shutdownExecutor(safetyTickExecutor, "compactor-safety-tick");
-        ensureCompactionControlConsistent();
+        boolean listenTerminated = shutdownExecutor(listenExecutor, "compactor-listen-loop");
+        boolean safetyTickTerminated = shutdownExecutor(safetyTickExecutor, "compactor-safety-tick");
+        boolean shouldRequeueClaimedRequest = claimedCompactionInProgress.get() || !safetyTickTerminated;
+        ensureCompactionControlConsistent(shouldRequeueClaimedRequest);
         log.info("CompactorDaemon stopped");
     }
 
@@ -178,6 +181,7 @@ public class CompactorDaemon implements SmartLifecycle {
             return;
         }
 
+        claimedCompactionInProgress.set(true);
         Connection advisoryConnection = null;
         boolean lockAcquired = false;
         try {
@@ -238,6 +242,7 @@ public class CompactorDaemon implements SmartLifecycle {
                     DataSourceUtils.releaseConnection(advisoryConnection, dataSource);
                 }
             }
+            claimedCompactionInProgress.set(false);
         }
     }
 
@@ -297,7 +302,7 @@ public class CompactorDaemon implements SmartLifecycle {
         }
     }
 
-    private void shutdownExecutor(ExecutorService executor, String name) {
+    private boolean shutdownExecutor(ExecutorService executor, String name) {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -305,22 +310,35 @@ public class CompactorDaemon implements SmartLifecycle {
                 executor.shutdownNow();
                 if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
                     log.warn("Executor {} did not terminate after forced shutdown", name);
+                    return false;
                 }
             }
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
             log.warn("Interrupted while shutting down executor {}; forced shutdownNow()", name);
+            return false;
         }
     }
 
-    private void ensureCompactionControlConsistent() {
+    private void ensureCompactionControlConsistent(boolean shouldRequeueClaimedRequest) {
         try {
             jdbcTemplate.update("""
                     insert into compaction_control (id, requested)
                     values (1, false)
                     on conflict (id) do nothing
                     """);
+            Boolean requested = jdbcTemplate.queryForObject(
+                    "select requested from compaction_control where id = 1",
+                    Boolean.class
+            );
+            if (shouldRequeueClaimedRequest && Boolean.FALSE.equals(requested)) {
+                int updated = jdbcTemplate.update("update compaction_control set requested = true where id = 1 and requested = false");
+                if (updated > 0) {
+                    log.info("Re-queued claimed compaction request during shutdown consistency check");
+                }
+            }
             log.debug("Compaction control consistency check finished");
         } catch (Exception e) {
             log.warn("Failed to verify compaction control consistency during shutdown: {}", e.toString(), e);
