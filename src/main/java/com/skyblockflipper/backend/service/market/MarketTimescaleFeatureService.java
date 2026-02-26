@@ -1,8 +1,11 @@
 package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
+import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.service.flipping.FlipScoreFeatureSet;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -12,11 +15,14 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 public class MarketTimescaleFeatureService {
 
     private static final long SECONDS_PER_UTC_DAY = 86_400L;
+    private static final long MILLIS_PER_DAY = SECONDS_PER_UTC_DAY * 1_000L;
     private static final int MICRO_WINDOW_SECONDS = 60;
     private static final int MACRO_WINDOW_DAYS = 30;
     private static final int MICRO_HIGH_CONFIDENCE_POINTS = 10;
@@ -27,10 +33,14 @@ public class MarketTimescaleFeatureService {
     private static final double STRUCTURAL_SPREAD_THRESHOLD = 0.05D;
     private static final double STRUCTURAL_TURNOVER_PER_HOUR_THRESHOLD = 10D;
 
-    private final MarketSnapshotPersistenceService marketSnapshotPersistenceService;
+    private final BzItemSnapshotRepository bzItemSnapshotRepository;
+    private final MarketItemKeyService marketItemKeyService;
 
-    public MarketTimescaleFeatureService(MarketSnapshotPersistenceService marketSnapshotPersistenceService) {
-        this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
+    @Autowired
+    public MarketTimescaleFeatureService(BzItemSnapshotRepository bzItemSnapshotRepository,
+                                         MarketItemKeyService marketItemKeyService) {
+        this.bzItemSnapshotRepository = Objects.requireNonNull(bzItemSnapshotRepository, "bzItemSnapshotRepository must not be null");
+        this.marketItemKeyService = Objects.requireNonNull(marketItemKeyService, "marketItemKeyService must not be null");
     }
 
     public FlipScoreFeatureSet computeFor(MarketSnapshot latestSnapshot) {
@@ -39,44 +49,73 @@ public class MarketTimescaleFeatureService {
         }
 
         Instant evaluationTs = latestSnapshot.snapshotTimestamp();
-        List<MarketSnapshot> microSnapshots = marketSnapshotPersistenceService
-                .between(evaluationTs.minusSeconds(MICRO_WINDOW_SECONDS), evaluationTs);
-        long earliestEpochDay = epochDay(evaluationTs) - (MACRO_WINDOW_DAYS + 2L);
-        Instant macroStartInclusive = Instant.ofEpochSecond(earliestEpochDay * SECONDS_PER_UTC_DAY);
-        List<MarketSnapshot> dailySnapshots = marketSnapshotPersistenceService
-                .between(macroStartInclusive, evaluationTs);
+        if (evaluationTs == null) {
+            return FlipScoreFeatureSet.empty();
+        }
 
-        Map<String, List<PricePoint>> microSeriesByItem = buildMicroSeriesByItem(microSnapshots);
-        Map<Long, MarketSnapshot> dailyAnchors = buildDailyAnchors(dailySnapshots);
+        Set<String> normalizedIds = latestSnapshot.bazaarProducts().values().stream()
+                .map(record -> marketItemKeyService.toBazaarItemKey(record))
+                .filter(id -> id != null && !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        if (normalizedIds.isEmpty()) {
+            return FlipScoreFeatureSet.empty();
+        }
+
+        long evaluationEpochMillis = evaluationTs.toEpochMilli();
+        long microStartInclusive = evaluationEpochMillis - (MICRO_WINDOW_SECONDS * 1_000L);
+        List<BzItemSnapshotEntity> microRows = bzItemSnapshotRepository
+                .findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(
+                        microStartInclusive,
+                        evaluationEpochMillis,
+                        normalizedIds
+                );
+
+        long earliestEpochDay = epochDay(evaluationTs) - (MACRO_WINDOW_DAYS + 2L);
+        long macroStartInclusive = earliestEpochDay * MILLIS_PER_DAY;
+        List<Long> dailyAnchorSnapshotTs = bzItemSnapshotRepository.findFirstSnapshotTsPerDayBetween(
+                macroStartInclusive,
+                evaluationEpochMillis
+        );
+        List<BzItemSnapshotEntity> dailyRows = dailyAnchorSnapshotTs.isEmpty()
+                ? List.of()
+                : bzItemSnapshotRepository.findBySnapshotTsInAndProductIdInOrderBySnapshotTsAsc(
+                        dailyAnchorSnapshotTs,
+                        normalizedIds
+                );
+
+        Map<String, List<PricePoint>> microSeriesByItem = buildMicroSeriesByItem(microRows);
+        Map<String, List<DailyPoint>> dailySeriesByItem = buildDailySeriesByItem(dailyRows);
 
         Map<String, FlipScoreFeatureSet.ItemTimescaleFeatures> byItem = new LinkedHashMap<>();
         for (Map.Entry<String, BazaarMarketRecord> entry : latestSnapshot.bazaarProducts().entrySet()) {
-            String itemId = entry.getKey();
             BazaarMarketRecord latestRecord = entry.getValue();
-            List<PricePoint> microSeries = microSeriesByItem.getOrDefault(itemId, List.of());
-            byItem.put(itemId, computeItemFeatures(itemId, evaluationTs, latestRecord, microSeries, dailyAnchors));
+            String normalizedId = marketItemKeyService.toBazaarItemKey(latestRecord);
+            if (normalizedId == null || normalizedId.isBlank()) {
+                continue;
+            }
+            List<PricePoint> microSeries = microSeriesByItem.getOrDefault(normalizedId, List.of());
+            List<DailyPoint> dailyPoints = dailySeriesByItem.getOrDefault(normalizedId, List.of());
+            DailyFeatureSeries dailySeries = buildDailySeries(dailyPoints);
+            byItem.put(normalizedId, computeItemFeatures(evaluationTs, latestRecord, microSeries, dailySeries));
         }
         return new FlipScoreFeatureSet(byItem);
     }
 
-    private Map<String, List<PricePoint>> buildMicroSeriesByItem(List<MarketSnapshot> snapshots) {
-        if (snapshots == null || snapshots.isEmpty()) {
+    private Map<String, List<PricePoint>> buildMicroSeriesByItem(List<BzItemSnapshotEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
             return Map.of();
         }
         Map<String, List<PricePoint>> byItem = new LinkedHashMap<>();
-        for (MarketSnapshot snapshot : snapshots) {
-            if (snapshot == null || snapshot.bazaarProducts().isEmpty()) {
+        for (BzItemSnapshotEntity row : rows) {
+            if (row == null) {
                 continue;
             }
-            Instant ts = snapshot.snapshotTimestamp();
-            for (Map.Entry<String, BazaarMarketRecord> entry : snapshot.bazaarProducts().entrySet()) {
-                Double mid = resolveMid(entry.getValue());
-                if (mid == null) {
-                    continue;
-                }
-                byItem.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>())
-                        .add(new PricePoint(ts, mid));
+            Double mid = resolveMid(row.getBuyPrice(), row.getSellPrice());
+            if (mid == null) {
+                continue;
             }
+            byItem.computeIfAbsent(row.getProductId(), ignored -> new ArrayList<>())
+                    .add(new PricePoint(Instant.ofEpochMilli(row.getSnapshotTs()), mid));
         }
         for (List<PricePoint> points : byItem.values()) {
             points.sort(Comparator.comparing(PricePoint::timestamp));
@@ -84,41 +123,42 @@ public class MarketTimescaleFeatureService {
         return byItem;
     }
 
-    private Map<Long, MarketSnapshot> buildDailyAnchors(List<MarketSnapshot> snapshots) {
-        if (snapshots == null || snapshots.isEmpty()) {
+    private Map<String, List<DailyPoint>> buildDailySeriesByItem(List<BzItemSnapshotEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
             return Map.of();
         }
-        Map<Long, SnapshotAnchorCandidate> byDay = new LinkedHashMap<>();
-        for (MarketSnapshot snapshot : snapshots) {
-            if (snapshot == null) {
+        Map<String, List<DailyPoint>> byItem = new LinkedHashMap<>();
+        for (BzItemSnapshotEntity row : rows) {
+            if (row == null) {
                 continue;
             }
-            Instant ts = snapshot.snapshotTimestamp();
-            long day = epochDay(ts);
-            SnapshotAnchorCandidate current = byDay.get(day);
-            SnapshotAnchorCandidate candidate = new SnapshotAnchorCandidate(snapshot, ts.toEpochMilli());
-            if (current == null || candidate.isBetterThan(current)) {
-                byDay.put(day, candidate);
+            Double mid = resolveMid(row.getBuyPrice(), row.getSellPrice());
+            if (mid == null) {
+                continue;
             }
+            long day = Math.floorDiv(row.getSnapshotTs(), MILLIS_PER_DAY);
+            byItem.computeIfAbsent(row.getProductId(), ignored -> new ArrayList<>())
+                    .add(new DailyPoint(
+                            day,
+                            mid,
+                            computeRelativeSpread(row.getBuyPrice(), row.getSellPrice()),
+                            resolveConservativeTurnoverPerHour(row.getBuyVolume(), row.getSellVolume())
+                    ));
         }
-
-        Map<Long, MarketSnapshot> anchors = new LinkedHashMap<>();
-        byDay.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> anchors.put(entry.getKey(), entry.getValue().snapshot()));
-        return anchors;
+        for (List<DailyPoint> points : byItem.values()) {
+            points.sort(Comparator.comparing(DailyPoint::day));
+        }
+        return byItem;
     }
 
-    private FlipScoreFeatureSet.ItemTimescaleFeatures computeItemFeatures(String itemId,
-                                                                          Instant evaluationTs,
+    private FlipScoreFeatureSet.ItemTimescaleFeatures computeItemFeatures(Instant evaluationTs,
                                                                           BazaarMarketRecord latestRecord,
                                                                           List<PricePoint> microSeries,
-                                                                          Map<Long, MarketSnapshot> dailyAnchors) {
+                                                                          DailyFeatureSeries dailySeries) {
         Double microReturn = computeOneMinuteReturn(microSeries, evaluationTs);
         Double microVolatility = computeLogReturnStdev(microSeries);
         FlipScoreFeatureSet.ConfidenceLevel microConfidence = resolveMicroConfidence(microSeries, microReturn, microVolatility);
 
-        DailyFeatureSeries dailySeries = buildDailySeries(itemId, dailyAnchors);
         Double macroReturn = resolveLatestDailyReturn(dailySeries, evaluationTs);
         Double macroVolatility = computeMacroVolatility(dailySeries.dailyLogReturns());
         FlipScoreFeatureSet.ConfidenceLevel macroConfidence = resolveMacroConfidence(dailySeries.dailyLogReturns().size());
@@ -179,36 +219,17 @@ public class MarketTimescaleFeatureService {
         return safeLogRatio(latest.mid(), boundary.mid());
     }
 
-    private DailyFeatureSeries buildDailySeries(String itemId, Map<Long, MarketSnapshot> dailyAnchors) {
-        if (itemId == null || itemId.isBlank() || dailyAnchors == null || dailyAnchors.isEmpty()) {
+    private DailyFeatureSeries buildDailySeries(List<DailyPoint> points) {
+        if (points == null || points.isEmpty()) {
             return DailyFeatureSeries.empty();
         }
+        List<DailyPoint> ordered = new ArrayList<>(points);
+        ordered.sort(Comparator.comparing(DailyPoint::day));
 
-        List<DailyPoint> points = new ArrayList<>();
-        for (Map.Entry<Long, MarketSnapshot> entry : dailyAnchors.entrySet()) {
-            MarketSnapshot snapshot = entry.getValue();
-            if (snapshot == null) {
-                continue;
-            }
-            BazaarMarketRecord record = snapshot.bazaarProducts().get(itemId);
-            if (record == null) {
-                continue;
-            }
-            Double mid = resolveMid(record);
-            if (mid == null) {
-                continue;
-            }
-            points.add(new DailyPoint(entry.getKey(), mid, computeRelativeSpread(record), resolveConservativeTurnoverPerHour(record)));
-        }
-        if (points.isEmpty()) {
-            return DailyFeatureSeries.empty();
-        }
-
-        points.sort(Comparator.comparing(DailyPoint::day));
         List<Double> dailyLogReturns = new ArrayList<>();
-        for (int i = 1; i < points.size(); i++) {
-            DailyPoint previous = points.get(i - 1);
-            DailyPoint current = points.get(i);
+        for (int i = 1; i < ordered.size(); i++) {
+            DailyPoint previous = ordered.get(i - 1);
+            DailyPoint current = ordered.get(i);
             if (current.day() - previous.day() != 1L) {
                 continue;
             }
@@ -217,7 +238,7 @@ public class MarketTimescaleFeatureService {
                 dailyLogReturns.add(ret);
             }
         }
-        return new DailyFeatureSeries(points, dailyLogReturns);
+        return new DailyFeatureSeries(List.copyOf(ordered), dailyLogReturns);
     }
 
     private Double resolveLatestDailyReturn(DailyFeatureSeries dailySeries, Instant evaluationTs) {
@@ -298,12 +319,12 @@ public class MarketTimescaleFeatureService {
         return medianSpread >= STRUCTURAL_SPREAD_THRESHOLD || medianTurnover <= STRUCTURAL_TURNOVER_PER_HOUR_THRESHOLD;
     }
 
-    private Double resolveMid(BazaarMarketRecord record) {
-        if (record == null) {
+    private Double resolveMid(Double buyPrice, Double sellPrice) {
+        if (buyPrice == null || sellPrice == null) {
             return null;
         }
-        double high = Math.max(record.buyPrice(), record.sellPrice());
-        double low = Math.min(record.buyPrice(), record.sellPrice());
+        double high = Math.max(buyPrice, sellPrice);
+        double low = Math.min(buyPrice, sellPrice);
         double mid = (high + low) / 2D;
         if (mid <= 0D || Double.isNaN(mid) || Double.isInfinite(mid)) {
             return null;
@@ -311,13 +332,27 @@ public class MarketTimescaleFeatureService {
         return mid;
     }
 
+    private Double resolveMid(BazaarMarketRecord record) {
+        if (record == null) {
+            return null;
+        }
+        return resolveMid(record.buyPrice(), record.sellPrice());
+    }
+
     private double computeRelativeSpread(BazaarMarketRecord record) {
-        Double mid = resolveMid(record);
+        if (record == null) {
+            return 1D;
+        }
+        return computeRelativeSpread(record.buyPrice(), record.sellPrice());
+    }
+
+    private double computeRelativeSpread(Double buyPrice, Double sellPrice) {
+        Double mid = resolveMid(buyPrice, sellPrice);
         if (mid == null) {
             return 1D;
         }
-        double high = Math.max(record.buyPrice(), record.sellPrice());
-        double low = Math.min(record.buyPrice(), record.sellPrice());
+        double high = Math.max(buyPrice, sellPrice);
+        double low = Math.min(buyPrice, sellPrice);
         return Math.max(0D, (high - low) / mid);
     }
 
@@ -328,6 +363,13 @@ public class MarketTimescaleFeatureService {
         double buyTurnover = record.buyMovingWeek() > 0 ? record.buyMovingWeek() / 168D : record.buyVolume() / 168D;
         double sellTurnover = record.sellMovingWeek() > 0 ? record.sellMovingWeek() / 168D : record.sellVolume() / 168D;
         return Math.max(0D, Math.min(buyTurnover, sellTurnover));
+    }
+
+    private double resolveConservativeTurnoverPerHour(Long buyVolume, Long sellVolume) {
+        if (buyVolume == null || sellVolume == null) {
+            return 0D;
+        }
+        return Math.max(0D, Math.min(buyVolume / 168D, sellVolume / 168D));
     }
 
     private Double safeLogRatio(double numerator, double denominator) {
@@ -390,15 +432,6 @@ public class MarketTimescaleFeatureService {
             Instant timestamp,
             double mid
     ) {
-    }
-
-    private record SnapshotAnchorCandidate(
-            MarketSnapshot snapshot,
-            long timestampEpochMillis
-    ) {
-        private boolean isBetterThan(SnapshotAnchorCandidate other) {
-            return timestampEpochMillis < other.timestampEpochMillis;
-        }
     }
 
     private record DailyPoint(
