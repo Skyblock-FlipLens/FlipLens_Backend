@@ -17,6 +17,10 @@ import com.skyblockflipper.backend.service.market.BzSnapshotAggregator;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotStorageProperties;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
+import com.skyblockflipper.backend.instrumentation.BlockingTimeTracker;
+import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
+import com.skyblockflipper.backend.instrumentation.InstrumentationProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -25,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -170,19 +175,12 @@ class MarketDataProcessingServiceTest {
         MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         AtomicLong nowMillis = new AtomicLong(2_000_000L);
-        com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
-                new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
-                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
-                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
-                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()
-                        )
-                );
-        MarketDataProcessingService service = new MarketDataProcessingService(
+        MarketDataProcessingService service = createService(
                 client,
                 snapshotMapper,
                 persistenceService,
                 inputMapper,
-                instrumentation,
+                createCycleInstrumentationService(),
                 Duration.ofMillis(1),
                 Duration.ofMillis(1),
                 1L,
@@ -238,15 +236,7 @@ class MarketDataProcessingServiceTest {
         storageProperties.setPersistAhAggregates(true);
         storageProperties.setPersistBzAggregates(true);
 
-        com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
-                new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
-                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
-                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
-                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()
-                        )
-                );
-
-        MarketDataProcessingService service = new MarketDataProcessingService(
+        MarketDataProcessingService service = createService(
                 client,
                 snapshotMapper,
                 persistenceService,
@@ -256,7 +246,6 @@ class MarketDataProcessingServiceTest {
                 ahAggregator,
                 bzAggregator,
                 storageProperties,
-                instrumentation,
                 Duration.ofSeconds(60),
                 Duration.ofSeconds(20),
                 2L,
@@ -298,15 +287,7 @@ class MarketDataProcessingServiceTest {
         storageProperties.setPersistAhAggregates(false);
         storageProperties.setPersistBzAggregates(false);
 
-        com.skyblockflipper.backend.instrumentation.CycleInstrumentationService instrumentation =
-                new com.skyblockflipper.backend.instrumentation.CycleInstrumentationService(
-                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
-                        new com.skyblockflipper.backend.instrumentation.BlockingTimeTracker(
-                                new com.skyblockflipper.backend.instrumentation.InstrumentationProperties()
-                        )
-                );
-
-        MarketDataProcessingService service = new MarketDataProcessingService(
+        MarketDataProcessingService service = createService(
                 client,
                 snapshotMapper,
                 persistenceService,
@@ -316,7 +297,6 @@ class MarketDataProcessingServiceTest {
                 ahAggregator,
                 bzAggregator,
                 storageProperties,
-                instrumentation,
                 Duration.ofSeconds(60),
                 Duration.ofSeconds(20),
                 2L,
@@ -350,5 +330,73 @@ class MarketDataProcessingServiceTest {
         BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
         BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
         return new BazaarResponse(true, updatedAt, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
+    }
+
+    private static MarketDataProcessingService createService(
+            HypixelClient client,
+            HypixelMarketSnapshotMapper snapshotMapper,
+            MarketSnapshotPersistenceService persistenceService,
+            UnifiedFlipInputMapper inputMapper,
+            CycleInstrumentationService instrumentation,
+            Duration auctionBaseInterval,
+            Duration bazaarBaseInterval,
+            long maxIntervalMultiplier,
+            Duration retryInterval,
+            LongSupplier nowSupplier
+    ) {
+        return new MarketDataProcessingService(
+                client,
+                snapshotMapper,
+                persistenceService,
+                inputMapper,
+                instrumentation,
+                auctionBaseInterval,
+                bazaarBaseInterval,
+                maxIntervalMultiplier,
+                retryInterval,
+                nowSupplier
+        );
+    }
+
+    private static MarketDataProcessingService createService(
+            HypixelClient client,
+            HypixelMarketSnapshotMapper snapshotMapper,
+            MarketSnapshotPersistenceService persistenceService,
+            UnifiedFlipInputMapper inputMapper,
+            AhItemSnapshotRepository ahRepo,
+            BzItemSnapshotRepository bzRepo,
+            AhSnapshotAggregator ahAggregator,
+            BzSnapshotAggregator bzAggregator,
+            MarketSnapshotStorageProperties storageProperties,
+            Duration auctionBaseInterval,
+            Duration bazaarBaseInterval,
+            long maxIntervalMultiplier,
+            Duration retryInterval,
+            LongSupplier nowSupplier
+    ) {
+        return new MarketDataProcessingService(
+                client,
+                snapshotMapper,
+                persistenceService,
+                inputMapper,
+                ahRepo,
+                bzRepo,
+                ahAggregator,
+                bzAggregator,
+                storageProperties,
+                createCycleInstrumentationService(),
+                auctionBaseInterval,
+                bazaarBaseInterval,
+                maxIntervalMultiplier,
+                retryInterval,
+                nowSupplier
+        );
+    }
+
+    private static CycleInstrumentationService createCycleInstrumentationService() {
+        return new CycleInstrumentationService(
+                new SimpleMeterRegistry(),
+                new BlockingTimeTracker(new InstrumentationProperties())
+        );
     }
 }
