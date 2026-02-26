@@ -33,7 +33,7 @@ public class MarketDataProcessingService {
     private static final Duration DEFAULT_RETRY_INTERVAL = Duration.ofSeconds(10);
     private static final long DEFAULT_MAX_INTERVAL_MULTIPLIER = 2L;
     private static final long MIN_ADAPTIVE_STEP_MILLIS = 5_000L;
-    private static final int AGGREGATE_INSERT_BATCH_SIZE = 500;
+    private static final int DEFAULT_AGGREGATE_INSERT_BATCH_SIZE = 500;
 
     private final HypixelClient hypixelClient;
     private final HypixelMarketSnapshotMapper marketSnapshotMapper;
@@ -51,6 +51,7 @@ public class MarketDataProcessingService {
     private final long bazaarMaxIntervalMillis;
     private final long retryIntervalMillis;
     private final LongSupplier nowSupplier;
+    private final int aggregateInsertBatchSize;
     private final Object pollStateLock = new Object();
 
     private AuctionResponse cachedAuctionResponse;
@@ -216,6 +217,7 @@ public class MarketDataProcessingService {
         this.bazaarMaxIntervalMillis = this.bazaarBaseIntervalMillis * safeMultiplier;
         this.retryIntervalMillis = sanitizeDuration(retryInterval, DEFAULT_RETRY_INTERVAL);
         this.nowSupplier = nowSupplier == null ? System::currentTimeMillis : nowSupplier;
+        this.aggregateInsertBatchSize = sanitizeBatchSize(this.snapshotStorageProperties.getAggregateBatchSize());
         this.auctionCurrentIntervalMillis = this.auctionBaseIntervalMillis;
         this.bazaarCurrentIntervalMillis = this.bazaarBaseIntervalMillis;
         validateStorageConfiguration(this.snapshotStorageProperties);
@@ -224,6 +226,16 @@ public class MarketDataProcessingService {
     private static long sanitizeDuration(Duration configured, Duration fallback) {
         Duration safeDuration = configured == null || configured.isNegative() || configured.isZero() ? fallback : configured;
         return safeDuration.toMillis();
+    }
+
+    private int sanitizeBatchSize(int configuredBatchSize) {
+        if (configuredBatchSize <= 0) {
+            log.warn("Invalid config.snapshot.storage.aggregate-batch-size='{}'; falling back to {}",
+                    configuredBatchSize,
+                    DEFAULT_AGGREGATE_INSERT_BATCH_SIZE);
+            return DEFAULT_AGGREGATE_INSERT_BATCH_SIZE;
+        }
+        return configuredBatchSize;
     }
 
     public Optional<UnifiedFlipInputSnapshot> captureCurrentSnapshotAndPrepareInput() {
@@ -340,8 +352,8 @@ public class MarketDataProcessingService {
         if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
             try {
                 List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
-                for (int fromIndex = 0; fromIndex < ahAggregates.size(); fromIndex += AGGREGATE_INSERT_BATCH_SIZE) {
-                    int toIndex = Math.min(fromIndex + AGGREGATE_INSERT_BATCH_SIZE, ahAggregates.size());
+                for (int fromIndex = 0; fromIndex < ahAggregates.size(); fromIndex += aggregateInsertBatchSize) {
+                    int toIndex = Math.min(fromIndex + aggregateInsertBatchSize, ahAggregates.size());
                     ahItemSnapshotRepository.insertIgnoreBatch(ahAggregates.subList(fromIndex, toIndex));
                 }
             } catch (RuntimeException e) {
@@ -351,8 +363,8 @@ public class MarketDataProcessingService {
         if (snapshotStorageProperties.isPersistBzAggregates() && bzItemSnapshotRepository != null) {
             try {
                 List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
-                for (int fromIndex = 0; fromIndex < bzAggregates.size(); fromIndex += AGGREGATE_INSERT_BATCH_SIZE) {
-                    int toIndex = Math.min(fromIndex + AGGREGATE_INSERT_BATCH_SIZE, bzAggregates.size());
+                for (int fromIndex = 0; fromIndex < bzAggregates.size(); fromIndex += aggregateInsertBatchSize) {
+                    int toIndex = Math.min(fromIndex + aggregateInsertBatchSize, bzAggregates.size());
                     bzItemSnapshotRepository.insertIgnoreBatch(bzAggregates.subList(fromIndex, toIndex));
                 }
             } catch (RuntimeException e) {

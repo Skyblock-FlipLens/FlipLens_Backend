@@ -109,6 +109,7 @@ config:
       persist-raw-market-snapshot: ${CONFIG_SNAPSHOT_STORAGE_PERSIST_RAW_MARKET_SNAPSHOT:true}
       persist-ah-aggregates: ${CONFIG_SNAPSHOT_STORAGE_PERSIST_AH_AGGREGATES:true}
       persist-bz-aggregates: ${CONFIG_SNAPSHOT_STORAGE_PERSIST_BZ_AGGREGATES:true}
+      aggregate-batch-size: ${CONFIG_SNAPSHOT_STORAGE_AGGREGATE_BATCH_SIZE:500}
     retention:
       raw-window-seconds: ${CONFIG_SNAPSHOT_RETENTION_RAW_WINDOW_SECONDS:90}
       minute-tier-upper-seconds: ${CONFIG_SNAPSHOT_RETENTION_MINUTE_TIER_UPPER_SECONDS:1800}

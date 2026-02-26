@@ -12,6 +12,7 @@ import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
 import com.skyblockflipper.backend.service.item.NeuRepoIngestionService;
 import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -46,6 +47,7 @@ public class AdaptivePollingCoordinator {
     private final NeuRepoIngestionService neuRepoIngestionService;
     private final String apiUrl;
     private final String apiKey;
+    private final Counter flipGenerationScheduleFailureCounter;
     private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
     private final AtomicBoolean auctionsStarted = new AtomicBoolean(false);
     private final AtomicLong latestSnapshotEpochMillisToGenerate = new AtomicLong(-1L);
@@ -73,6 +75,7 @@ public class AdaptivePollingCoordinator {
         this.neuRepoIngestionService = neuRepoIngestionService;
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
+        this.flipGenerationScheduleFailureCounter = meterRegistry.counter("skyblock.adaptive.flip_generation_schedule_failures");
     }
 
     @PostConstruct
@@ -330,6 +333,7 @@ public class AdaptivePollingCoordinator {
             taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
         } catch (RuntimeException e) {
             generationWorkerScheduledOrRunning.compareAndSet(true, false);
+            flipGenerationScheduleFailureCounter.increment();
             log.error("Failed to schedule flip generation drain (reason={}): {}", reason, ExceptionUtils.getStackTrace(e));
         }
     }
