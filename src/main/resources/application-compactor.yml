@@ -1,0 +1,15 @@
+spring:
+  main:
+    web-application-type: none
+
+config:
+  hypixel:
+    adaptive:
+      enabled: false
+  snapshot:
+    retention:
+      raw-compaction-enabled: false
+
+instrumentation:
+  jfr:
+    enabled: false
