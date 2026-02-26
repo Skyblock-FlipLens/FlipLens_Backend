@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.List;
 
-public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId> {
+public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId>, BzItemSnapshotBatchRepository {
 
     @Modifying
     @Transactional

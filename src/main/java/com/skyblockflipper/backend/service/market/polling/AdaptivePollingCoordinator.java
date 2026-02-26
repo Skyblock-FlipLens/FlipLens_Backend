@@ -288,7 +288,7 @@ public class AdaptivePollingCoordinator {
         latestSnapshotEpochMillisToGenerate.accumulateAndGet(snapshotEpochMillis, Math::max);
         meterRegistry.counter("skyblock.adaptive.flip_generation_enqueued", "endpoint", endpoint).increment();
         if (generationWorkerScheduledOrRunning.compareAndSet(false, true)) {
-            taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
+            scheduleGenerationDrain("enqueue");
         }
     }
 
@@ -320,8 +320,17 @@ public class AdaptivePollingCoordinator {
             if (!shutdownRequested
                     && latestSnapshotEpochMillisToGenerate.get() >= 0L
                     && generationWorkerScheduledOrRunning.compareAndSet(false, true)) {
-                taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
+                scheduleGenerationDrain("reschedule");
             }
+        }
+    }
+
+    private void scheduleGenerationDrain(String reason) {
+        try {
+            taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
+        } catch (RuntimeException e) {
+            generationWorkerScheduledOrRunning.compareAndSet(true, false);
+            log.error("Failed to schedule flip generation drain (reason={}): {}", reason, ExceptionUtils.getStackTrace(e));
         }
     }
 

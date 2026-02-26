@@ -22,6 +22,7 @@ import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
 import com.skyblockflipper.backend.instrumentation.InstrumentationProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
@@ -35,12 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -265,54 +262,26 @@ class MarketDataProcessingServiceTest {
         when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(ahAggregator.aggregate(any(Instant.class), anyList()))
                 .thenReturn(List.of(new AhItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND|T:RARE|C:MISC|P:-|S:0|R:0", 100L, 100L, 100L, 100L, 1, null, 0)));
-        when(ahRepo.insertIgnore(
-                anyLong(),
-                anyString(),
-                any(),
-                any(),
-                any(),
-                any(),
-                anyInt(),
-                any(),
-                anyInt(),
-                anyLong()
-        )).thenThrow(new RuntimeException("aggregate failure"));
+        when(ahRepo.insertIgnoreBatch(anyList())).thenThrow(new RuntimeException("aggregate failure"));
         when(bzAggregator.aggregate(any(Instant.class), anyMap()))
                 .thenReturn(List.of(new BzItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND", 10.0, 9.0, 100L, 90L)));
-        when(bzRepo.insertIgnore(
-                anyLong(),
-                anyString(),
-                anyDouble(),
-                anyDouble(),
-                any(),
-                any(),
-                anyLong()
-        )).thenReturn(1);
+        when(bzRepo.insertIgnoreBatch(anyList())).thenReturn(new int[]{1});
 
         UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
         assertNotNull(input);
-        verify(ahRepo, times(1)).insertIgnore(
-                anyLong(),
-                anyString(),
-                any(),
-                any(),
-                any(),
-                any(),
-                anyInt(),
-                any(),
-                anyInt(),
-                anyLong()
-        );
-        verify(bzRepo, times(1)).insertIgnore(
-                anyLong(),
-                anyString(),
-                anyDouble(),
-                anyDouble(),
-                any(),
-                any(),
-                anyLong()
-        );
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AhItemSnapshotEntity>> ahBatchCaptor = ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BzItemSnapshotEntity>> bzBatchCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ahRepo, times(1)).insertIgnoreBatch(ahBatchCaptor.capture());
+        verify(bzRepo, times(1)).insertIgnoreBatch(bzBatchCaptor.capture());
+        assertEquals(1, ahBatchCaptor.getValue().size());
+        assertEquals(11_000L, ahBatchCaptor.getValue().getFirst().getSnapshotTs());
+        assertEquals("ENCHANTED_DIAMOND|T:RARE|C:MISC|P:-|S:0|R:0", ahBatchCaptor.getValue().getFirst().getItemKey());
+        assertEquals(1, bzBatchCaptor.getValue().size());
+        assertEquals(11_000L, bzBatchCaptor.getValue().getFirst().getSnapshotTs());
+        assertEquals("ENCHANTED_DIAMOND", bzBatchCaptor.getValue().getFirst().getProductId());
         verify(persistenceService, times(1)).save(any(MarketSnapshot.class));
     }
 
@@ -354,27 +323,8 @@ class MarketDataProcessingServiceTest {
         UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
         assertNotNull(input);
-        verify(ahRepo, never()).insertIgnore(
-                anyLong(),
-                anyString(),
-                any(),
-                any(),
-                any(),
-                any(),
-                anyInt(),
-                any(),
-                anyInt(),
-                anyLong()
-        );
-        verify(bzRepo, never()).insertIgnore(
-                anyLong(),
-                anyString(),
-                anyDouble(),
-                anyDouble(),
-                any(),
-                any(),
-                anyLong()
-        );
+        verify(ahRepo, never()).insertIgnoreBatch(anyList());
+        verify(bzRepo, never()).insertIgnoreBatch(anyList());
         verify(persistenceService, never()).save(any(MarketSnapshot.class));
         verifyNoInteractions(ahAggregator, bzAggregator);
     }

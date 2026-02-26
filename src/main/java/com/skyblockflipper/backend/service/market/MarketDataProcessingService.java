@@ -33,6 +33,7 @@ public class MarketDataProcessingService {
     private static final Duration DEFAULT_RETRY_INTERVAL = Duration.ofSeconds(10);
     private static final long DEFAULT_MAX_INTERVAL_MULTIPLIER = 2L;
     private static final long MIN_ADAPTIVE_STEP_MILLIS = 5_000L;
+    private static final int AGGREGATE_INSERT_BATCH_SIZE = 500;
 
     private final HypixelClient hypixelClient;
     private final HypixelMarketSnapshotMapper marketSnapshotMapper;
@@ -339,19 +340,9 @@ public class MarketDataProcessingService {
         if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
             try {
                 List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
-                for (AhItemSnapshotEntity aggregate : ahAggregates) {
-                    ahItemSnapshotRepository.insertIgnore(
-                            aggregate.getSnapshotTs(),
-                            aggregate.getItemKey(),
-                            aggregate.getBinLowest(),
-                            aggregate.getBinLowest5Mean(),
-                            aggregate.getBinP50(),
-                            aggregate.getBinP95(),
-                            aggregate.getBinCount(),
-                            aggregate.getBidP50(),
-                            aggregate.getEndingSoonCount(),
-                            aggregate.getCreatedAtEpochMillis()
-                    );
+                for (int fromIndex = 0; fromIndex < ahAggregates.size(); fromIndex += AGGREGATE_INSERT_BATCH_SIZE) {
+                    int toIndex = Math.min(fromIndex + AGGREGATE_INSERT_BATCH_SIZE, ahAggregates.size());
+                    ahItemSnapshotRepository.insertIgnoreBatch(ahAggregates.subList(fromIndex, toIndex));
                 }
             } catch (RuntimeException e) {
                 log.warn("Failed to persist AH aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
@@ -360,16 +351,9 @@ public class MarketDataProcessingService {
         if (snapshotStorageProperties.isPersistBzAggregates() && bzItemSnapshotRepository != null) {
             try {
                 List<BzItemSnapshotEntity> bzAggregates = bzSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.bazaarProducts());
-                for (BzItemSnapshotEntity aggregate : bzAggregates) {
-                    bzItemSnapshotRepository.insertIgnore(
-                            aggregate.getSnapshotTs(),
-                            aggregate.getProductId(),
-                            aggregate.getBuyPrice(),
-                            aggregate.getSellPrice(),
-                            aggregate.getBuyVolume(),
-                            aggregate.getSellVolume(),
-                            aggregate.getCreatedAtEpochMillis()
-                    );
+                for (int fromIndex = 0; fromIndex < bzAggregates.size(); fromIndex += AGGREGATE_INSERT_BATCH_SIZE) {
+                    int toIndex = Math.min(fromIndex + AGGREGATE_INSERT_BATCH_SIZE, bzAggregates.size());
+                    bzItemSnapshotRepository.insertIgnoreBatch(bzAggregates.subList(fromIndex, toIndex));
                 }
             } catch (RuntimeException e) {
                 log.warn("Failed to persist Bazaar aggregate snapshots for {}", snapshot.snapshotTimestamp(), e);
