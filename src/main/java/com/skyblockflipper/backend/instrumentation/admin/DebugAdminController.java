@@ -30,6 +30,8 @@ public class DebugAdminController {
     private final AtomicReference<Instant> lastCompactSnapshotsTrigger = new AtomicReference<>();
     private final AtomicReference<Instant> lastCopyRepoTrigger = new AtomicReference<>();
 
+    /** Legacy endpoint kept for backward compatibility; prefer /trigger/request-compaction. */
+    @Deprecated
     @PostMapping("/trigger/compact-snapshots")
     public Map<String, Object> triggerCompactSnapshots(HttpServletRequest request) {
         adminAccessGuard.validate(request);

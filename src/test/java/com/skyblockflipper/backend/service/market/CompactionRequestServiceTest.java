@@ -21,7 +21,7 @@ class CompactionRequestServiceTest {
         when(jdbcTemplate.update(anyString(), org.mockito.ArgumentMatchers.<Object[]>any())).thenReturn(1);
         CompactionRequestService service = new CompactionRequestService(jdbcTemplate, "compaction_ops");
 
-        Map<String, Object> result = service.request("api:127.0.0.1");
+        Map<String, Object> result = service.request(" \tapi:127.0.0.1\u0000\n ");
 
         ArgumentCaptor<Object[]> argsCaptor = ArgumentCaptor.forClass(Object[].class);
         verify(jdbcTemplate).update(anyString(), argsCaptor.capture());

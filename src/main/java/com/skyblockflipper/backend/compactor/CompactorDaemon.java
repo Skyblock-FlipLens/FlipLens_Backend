@@ -3,6 +3,8 @@ package com.skyblockflipper.backend.compactor;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
 import lombok.extern.slf4j.Slf4j;
+import org.postgresql.PGConnection;
+import org.postgresql.PGNotification;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Profile;
@@ -10,9 +12,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
-import java.lang.reflect.Method;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.SQLTimeoutException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ExecutorService;
@@ -42,7 +45,7 @@ public class CompactorDaemon implements SmartLifecycle {
                            JdbcTemplate jdbcTemplate,
                            MarketDataProcessingService marketDataProcessingService,
                            @Value("${config.compactor.channel:compaction}") String channel,
-                           @Value("${config.compactor.safety-tick-interval-ms:600000}") long safetyTickIntervalMillis,
+                           @Value("${config.compactor.safety-tick-interval-ms:60000}") long safetyTickIntervalMillis,
                            @Value("${config.compactor.listen-poll-interval-ms:500}") long listenPollIntervalMillis,
                            @Value("${config.compactor.listen-reconnect-delay-ms:2000}") long listenReconnectDelayMillis,
                            @Value("${config.compactor.advisory-lock-key:912345678}") long advisoryLockKey) {
@@ -114,7 +117,7 @@ public class CompactorDaemon implements SmartLifecycle {
             try (Connection connection = dataSource.getConnection();
                  Statement statement = connection.createStatement()) {
                 statement.execute("listen " + channel);
-                Object pgConnection = tryUnwrapPgConnection(connection);
+                PGConnection pgConnection = tryUnwrapPgConnection(connection);
                 log.info("LISTEN {} registered (postgresNotificationsSupported={})", channel, pgConnection != null);
 
                 while (running) {
@@ -128,7 +131,18 @@ public class CompactorDaemon implements SmartLifecycle {
                     }
                     sleepQuietly(listenPollIntervalMillis);
                 }
+            } catch (SQLTimeoutException e) {
+                if (!running) {
+                    return;
+                }
+                log.warn("Compactor connection acquire timed out; retrying in {} ms: {}",
+                        listenReconnectDelayMillis,
+                        e.toString());
+                sleepQuietly(listenReconnectDelayMillis);
             } catch (Exception e) {
+                if (!running) {
+                    return;
+                }
                 log.warn("Compactor listen loop error; retrying in {} ms: {}",
                         listenReconnectDelayMillis,
                         e.toString());
@@ -222,27 +236,23 @@ public class CompactorDaemon implements SmartLifecycle {
         return "compaction";
     }
 
-    private Object tryUnwrapPgConnection(Connection connection) {
+    private PGConnection tryUnwrapPgConnection(Connection connection) {
         try {
-            Class<?> pgConnectionClass = Class.forName("org.postgresql.PGConnection");
-            return connection.unwrap(pgConnectionClass);
+            return connection.unwrap(PGConnection.class);
         } catch (Exception e) {
             return null;
         }
     }
 
-    private int drainNotifications(Object pgConnection) {
+    private int drainNotifications(PGConnection pgConnection) {
         if (pgConnection == null) {
             return 0;
         }
         try {
-            Method method = pgConnection.getClass().getMethod("getNotifications");
-            Object notifications = method.invoke(pgConnection);
-            if (notifications instanceof Object[] entries) {
-                return entries.length;
-            }
-        } catch (Exception e) {
-            log.debug("Failed to read PG notifications via reflection: {}", e.toString());
+            PGNotification[] notifications = pgConnection.getNotifications();
+            return notifications == null ? 0 : notifications.length;
+        } catch (SQLException e) {
+            log.debug("Failed to read PG notifications", e);
         }
         return 0;
     }

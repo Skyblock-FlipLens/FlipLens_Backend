@@ -1,4 +1,4 @@
-create table if not exists compaction_control (
+create table compaction_control (
     id            integer primary key default 1,
     requested     boolean not null default false,
     requested_at  timestamptz,

@@ -24,7 +24,7 @@ public class CompactionRequestService {
 
     @Transactional
     public Map<String, Object> request(String requestedBy) {
-        String safeRequestedBy = requestedBy == null || requestedBy.isBlank() ? "unknown" : requestedBy;
+        String safeRequestedBy = sanitizeRequestedBy(requestedBy);
         int updated = jdbcTemplate.update("""
                 insert into compaction_control (id, requested, requested_at, requested_by)
                 values (1, true, now(), ?)
@@ -55,5 +55,12 @@ public class CompactionRequestService {
         }
         log.warn("Invalid compactor channel '{}' configured; falling back to 'compaction'", configuredChannel);
         return "compaction";
+    }
+
+    private String sanitizeRequestedBy(String requestedBy) {
+        String normalized = requestedBy == null
+                ? ""
+                : requestedBy.trim().replaceAll("\\p{Cntrl}", "").trim();
+        return normalized.isBlank() ? "unknown" : normalized;
     }
 }

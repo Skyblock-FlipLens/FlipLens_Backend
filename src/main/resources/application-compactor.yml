@@ -1,6 +1,9 @@
 spring:
   main:
     web-application-type: none
+  datasource:
+    hikari:
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:5000}
 
 config:
   hypixel:
