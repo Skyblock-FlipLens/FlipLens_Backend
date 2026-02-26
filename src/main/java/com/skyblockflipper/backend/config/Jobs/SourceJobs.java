@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.repository.AhItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import com.skyblockflipper.backend.service.market.SnapshotRetentionProperties;
+import com.skyblockflipper.backend.service.market.polling.ElectionPollFreshnessService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,7 @@ public class SourceJobs {
     private final AhItemSnapshotRepository ahItemSnapshotRepository;
     private final BzItemSnapshotRepository bzItemSnapshotRepository;
     private final SnapshotRetentionProperties snapshotRetentionProperties;
+    private final ElectionPollFreshnessService electionPollFreshnessService;
 
     @Autowired
     public SourceJobs(NeuRepoIngestionService neuRepoIngestionService,
@@ -34,16 +36,21 @@ public class SourceJobs {
                       FlipGenerationService flipGenerationService,
                       AhItemSnapshotRepository ahItemSnapshotRepository,
                       BzItemSnapshotRepository bzItemSnapshotRepository,
-                      SnapshotRetentionProperties snapshotRetentionProperties) {
+                      SnapshotRetentionProperties snapshotRetentionProperties,
+                      ElectionPollFreshnessService electionPollFreshnessService) {
         this.neuRepoIngestionService = neuRepoIngestionService;
         this.marketDataProcessingService = marketDataProcessingService;
         this.flipGenerationService = flipGenerationService;
         this.ahItemSnapshotRepository = ahItemSnapshotRepository;
         this.bzItemSnapshotRepository = bzItemSnapshotRepository;
         this.snapshotRetentionProperties = snapshotRetentionProperties;
+        this.electionPollFreshnessService = electionPollFreshnessService;
     }
 
-    @Scheduled(fixedDelayString = "30000")
+    @Scheduled(
+            fixedDelayString = "${config.snapshot.retention.compaction-interval-ms:300000}",
+            initialDelayString = "${config.snapshot.retention.compaction-initial-delay-ms:60000}"
+    )
     public void compactSnapshots() {
         try {
             var result = marketDataProcessingService.compactSnapshots();
@@ -78,6 +85,18 @@ public class SourceJobs {
             }
         } catch (Exception e) {
             log.warn("Failed to compact aggregate snapshots: {}", ExceptionUtils.getStackTrace(e));
+        }
+    }
+
+    @Scheduled(
+            fixedDelayString = "${config.hypixel.polling.election-refresh-interval-ms:300000}",
+            initialDelayString = "${config.hypixel.polling.election-refresh-initial-delay-ms:60000}"
+    )
+    public void refreshElectionPoll() {
+        try {
+            electionPollFreshnessService.ensureRecentElectionPoll();
+        } catch (Exception e) {
+            log.warn("Failed to refresh election poll freshness: {}", ExceptionUtils.getStackTrace(e));
         }
     }
 

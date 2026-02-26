@@ -31,6 +31,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 @Slf4j
@@ -43,11 +44,12 @@ public class AdaptivePollingCoordinator {
     private final FlipGenerationService flipGenerationService;
     private final CycleInstrumentationService cycleInstrumentationService;
     private final NeuRepoIngestionService neuRepoIngestionService;
-    private final ElectionPollFreshnessService electionPollFreshnessService;
     private final String apiUrl;
     private final String apiKey;
     private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
     private final AtomicBoolean auctionsStarted = new AtomicBoolean(false);
+    private final AtomicLong latestSnapshotEpochMillisToGenerate = new AtomicLong(-1L);
+    private final AtomicBoolean generationWorkerScheduledOrRunning = new AtomicBoolean(false);
     private volatile boolean shutdownRequested = false;
 
     private AdaptivePoller<AuctionResponse> auctionsPoller;
@@ -60,7 +62,6 @@ public class AdaptivePollingCoordinator {
                                       FlipGenerationService flipGenerationService,
                                       CycleInstrumentationService cycleInstrumentationService,
                                       NeuRepoIngestionService neuRepoIngestionService,
-                                      ElectionPollFreshnessService electionPollFreshnessService,
                                       @Value("${config.hypixel.api-url}") String apiUrl,
                                       @Value("${config.hypixel.api-key:}") String apiKey) {
         this.adaptivePollingProperties = adaptivePollingProperties;
@@ -70,7 +71,6 @@ public class AdaptivePollingCoordinator {
         this.flipGenerationService = flipGenerationService;
         this.cycleInstrumentationService = cycleInstrumentationService;
         this.neuRepoIngestionService = neuRepoIngestionService;
-        this.electionPollFreshnessService = electionPollFreshnessService;
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
     }
@@ -237,14 +237,15 @@ public class AdaptivePollingCoordinator {
 
     private void processAuctionsUpdate(AuctionResponse response) {
         processUpdate("auctions", estimateAuctionBytes(response), () -> marketDataProcessingService
-                .ingestAuctionPayload(response, "adaptive-auctions").ifPresent(snapshot -> flipGenerationService.generateIfMissingForSnapshot(snapshot.snapshotTimestamp())));
+                .ingestAuctionPayload(response, "adaptive-auctions")
+                .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "auctions")));
     }
 
     private void processBazaarUpdate(BazaarResponse response) {
         processUpdate("bazaar", estimateBazaarBytes(response), () -> {
             marketDataProcessingService
                     .ingestBazaarPayload(response, "adaptive-bazaar")
-                    .ifPresent(snapshot -> flipGenerationService.generateIfMissingForSnapshot(snapshot.snapshotTimestamp()));
+                    .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "bazaar"));
             startAuctionsIfBazaarReady();
         });
     }
@@ -268,7 +269,6 @@ public class AdaptivePollingCoordinator {
         boolean success = false;
         long totalStart = cycleInstrumentationService.startPhase();
         try {
-            electionPollFreshnessService.ensureRecentElectionPoll();
             processor.run();
             success = true;
         } catch (RuntimeException e) {
@@ -277,6 +277,45 @@ public class AdaptivePollingCoordinator {
             cycleInstrumentationService.endPhase("total_cycle", totalStart, success, payloadBytes);
             cycleInstrumentationService.finishCycle(success);
             meterRegistry.counter("skyblock.adaptive.processed_updates", "endpoint", endpoint).increment();
+        }
+    }
+
+    private void enqueueFlipGeneration(Instant snapshotTimestamp, String endpoint) {
+        if (snapshotTimestamp == null) {
+            return;
+        }
+        long snapshotEpochMillis = snapshotTimestamp.toEpochMilli();
+        latestSnapshotEpochMillisToGenerate.accumulateAndGet(snapshotEpochMillis, Math::max);
+        meterRegistry.counter("skyblock.adaptive.flip_generation_enqueued", "endpoint", endpoint).increment();
+        if (generationWorkerScheduledOrRunning.compareAndSet(false, true)) {
+            taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
+        }
+    }
+
+    private void drainFlipGenerationQueue() {
+        try {
+            while (!shutdownRequested) {
+                long snapshotEpochMillis = latestSnapshotEpochMillisToGenerate.getAndSet(-1L);
+                if (snapshotEpochMillis < 0L) {
+                    break;
+                }
+                try {
+                    flipGenerationService.generateIfMissingForSnapshot(Instant.ofEpochMilli(snapshotEpochMillis));
+                    meterRegistry.counter("skyblock.adaptive.flip_generation_runs", "status", "success").increment();
+                } catch (RuntimeException e) {
+                    meterRegistry.counter("skyblock.adaptive.flip_generation_runs", "status", "error").increment();
+                    log.warn("Async flip generation failed for snapshot {}: {}",
+                            Instant.ofEpochMilli(snapshotEpochMillis),
+                            ExceptionUtils.getStackTrace(e));
+                }
+            }
+        } finally {
+            generationWorkerScheduledOrRunning.set(false);
+            if (!shutdownRequested
+                    && latestSnapshotEpochMillisToGenerate.get() >= 0L
+                    && generationWorkerScheduledOrRunning.compareAndSet(false, true)) {
+                taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
+            }
         }
     }
 
