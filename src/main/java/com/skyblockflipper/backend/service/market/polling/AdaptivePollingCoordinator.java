@@ -25,18 +25,23 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 @Slf4j
 public class AdaptivePollingCoordinator {
+    private static final int MAX_GENERATION_SCHEDULE_RETRY_ATTEMPTS = 3;
+    private static final Duration GENERATION_SCHEDULE_RETRY_BASE_DELAY = Duration.ofMillis(250);
 
     private final AdaptivePollingProperties adaptivePollingProperties;
     private final TaskScheduler taskScheduler;
@@ -48,6 +53,7 @@ public class AdaptivePollingCoordinator {
     private final String apiUrl;
     private final String apiKey;
     private final Counter flipGenerationScheduleFailureCounter;
+    private final ExecutorService generationFallbackExecutor;
     private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
     private final AtomicBoolean auctionsStarted = new AtomicBoolean(false);
     private final AtomicLong latestSnapshotEpochMillisToGenerate = new AtomicLong(-1L);
@@ -76,6 +82,11 @@ public class AdaptivePollingCoordinator {
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
         this.flipGenerationScheduleFailureCounter = meterRegistry.counter("skyblock.adaptive.flip_generation_schedule_failures");
+        this.generationFallbackExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "adaptive-flip-generation-fallback");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     @PostConstruct
@@ -139,6 +150,7 @@ public class AdaptivePollingCoordinator {
         if (bazaarPoller != null) {
             bazaarPoller.stop();
         }
+        generationFallbackExecutor.shutdownNow();
     }
 
     private AdaptivePoller<AuctionResponse> buildAuctionsPoller(GlobalRequestLimiter globalLimiter) {
@@ -329,13 +341,71 @@ public class AdaptivePollingCoordinator {
     }
 
     private void scheduleGenerationDrain(String reason) {
+        scheduleGenerationDrain(reason, 0);
+    }
+
+    private void scheduleGenerationDrain(String reason, int attempt) {
+        if (shutdownRequested) {
+            generationWorkerScheduledOrRunning.compareAndSet(true, false);
+            return;
+        }
+        long delayMillis = calculateRetryDelayMillis(attempt);
         try {
-            taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now());
+            taskScheduler.schedule(this::drainFlipGenerationQueue, Instant.now().plusMillis(delayMillis));
+            if (attempt > 0) {
+                log.warn("Scheduled flip generation drain retry (reason={}, attempt={}, delayMs={})",
+                        reason,
+                        attempt,
+                        delayMillis);
+            }
         } catch (RuntimeException e) {
             generationWorkerScheduledOrRunning.compareAndSet(true, false);
             flipGenerationScheduleFailureCounter.increment();
-            log.error("Failed to schedule flip generation drain (reason={}): {}", reason, ExceptionUtils.getStackTrace(e));
+            log.error("Failed to schedule flip generation drain (reason={}, attempt={}, delayMs={}): {}",
+                    reason,
+                    attempt,
+                    delayMillis,
+                    ExceptionUtils.getStackTrace(e));
+            int nextAttempt = attempt + 1;
+            if (nextAttempt <= MAX_GENERATION_SCHEDULE_RETRY_ATTEMPTS && generationWorkerScheduledOrRunning.compareAndSet(false, true)) {
+                log.warn("Retrying flip generation drain scheduling (reason={}, attempt={}, delayMs={})",
+                        reason,
+                        nextAttempt,
+                        calculateRetryDelayMillis(nextAttempt));
+                scheduleGenerationDrain(reason, nextAttempt);
+                return;
+            }
+            if (nextAttempt <= MAX_GENERATION_SCHEDULE_RETRY_ATTEMPTS) {
+                log.warn("Skipping flip generation drain retry because a worker is already scheduled (reason={}, attempt={})",
+                        reason,
+                        nextAttempt);
+                return;
+            }
+            log.error("Exhausted flip generation scheduling retries (reason={}, maxAttempts={}). Falling back to executor.",
+                    reason,
+                    MAX_GENERATION_SCHEDULE_RETRY_ATTEMPTS);
+            if (generationWorkerScheduledOrRunning.compareAndSet(false, true)) {
+                try {
+                    generationFallbackExecutor.execute(this::drainFlipGenerationQueue);
+                    log.warn("Submitted flip generation drain to fallback executor (reason={})", reason);
+                } catch (RuntimeException fallbackException) {
+                    generationWorkerScheduledOrRunning.compareAndSet(true, false);
+                    flipGenerationScheduleFailureCounter.increment();
+                    log.error("Failed to submit fallback flip generation drain (reason={}): {}",
+                            reason,
+                            ExceptionUtils.getStackTrace(fallbackException));
+                }
+            }
         }
+    }
+
+    private long calculateRetryDelayMillis(int attempt) {
+        if (attempt <= 0) {
+            return 0L;
+        }
+        long base = GENERATION_SCHEDULE_RETRY_BASE_DELAY.toMillis();
+        long multiplier = 1L << Math.min(attempt - 1, 10);
+        return base * multiplier;
     }
 
     private String hashAuctionsProbe(AuctionResponse response) {
