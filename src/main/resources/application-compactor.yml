@@ -4,8 +4,6 @@ spring:
   datasource:
     hikari:
       connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:5000}
-  flyway:
-    enabled: false
 
 config:
   hypixel:
@@ -14,11 +12,6 @@ config:
   snapshot:
     retention:
       raw-compaction-enabled: false
-  compaction:
-    scheduler:
-      api-readiness:
-        url: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_URL:http://api:1881/actuator/compactionReadiness}
-        allowed-hosts: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_ALLOWED_HOSTS:api,skyblockflipper-api,localhost,127.0.0.1,::1}
 
 instrumentation:
   jfr:
