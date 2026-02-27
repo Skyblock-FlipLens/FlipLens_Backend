@@ -70,10 +70,10 @@ public class CompactorDaemon implements SmartLifecycle {
     private boolean adaptiveSchedulerEnabled = true;
     @Value("${config.compaction.scheduler.decision-interval-seconds:30}")
     private long decisionIntervalSeconds = 30L;
-    @Value("${config.compaction.scheduler.min-interval-minutes:15}")
-    private long minIntervalMinutes = 15L;
-    @Value("${config.compaction.scheduler.fallback-interval-minutes:45}")
-    private long fallbackIntervalMinutes = 45L;
+    @Value("${config.compaction.scheduler.min-interval-seconds:30}")
+    private long minIntervalSeconds = 30L;
+    @Value("${config.compaction.scheduler.fallback-interval-seconds:60}")
+    private long fallbackIntervalSeconds = 60L;
     @Value("${config.compaction.scheduler.api-readiness.enabled:true}")
     private boolean apiReadinessEnabled = true;
     @Value("${config.compaction.scheduler.api-readiness.url:http://api:1880/actuator/compactionReadiness}")
@@ -336,10 +336,11 @@ public class CompactorDaemon implements SmartLifecycle {
 
         Instant now = Instant.now();
         Duration sinceLastRun = controlState.lastRunAt() == null ? null : Duration.between(controlState.lastRunAt(), now);
+        long sinceLastRunSeconds = sinceLastRun == null ? -1L : sinceLastRun.toSeconds();
         boolean fallbackDue = controlState.lastRunAt() == null
-                || sinceLastRun != null && sinceLastRun.toMinutes() >= Math.max(1L, fallbackIntervalMinutes);
-        if (!fallbackDue && sinceLastRun != null && sinceLastRun.toMinutes() < Math.max(1L, minIntervalMinutes)) {
-            log.debug("Adaptive decision skipped: min interval not reached yet (sinceLastRunMinutes={}).", sinceLastRun.toMinutes());
+                || sinceLastRunSeconds >= Math.max(1L, fallbackIntervalSeconds);
+        if (!fallbackDue && sinceLastRunSeconds >= 0L && sinceLastRunSeconds < Math.max(1L, minIntervalSeconds)) {
+            log.debug("Adaptive decision skipped: min interval not reached yet (sinceLastRunSeconds={}).", sinceLastRunSeconds);
             return;
         }
 

@@ -143,8 +143,8 @@ config:
     scheduler:
       enabled: ${CONFIG_COMPACTION_SCHEDULER_ENABLED:true}
       decision-interval-seconds: ${CONFIG_COMPACTION_SCHEDULER_DECISION_INTERVAL_SECONDS:30}
-      min-interval-minutes: ${CONFIG_COMPACTION_SCHEDULER_MIN_INTERVAL_MINUTES:15}
-      fallback-interval-minutes: ${CONFIG_COMPACTION_SCHEDULER_FALLBACK_INTERVAL_MINUTES:45}
+      min-interval-seconds: ${CONFIG_COMPACTION_SCHEDULER_MIN_INTERVAL_SECONDS:30}
+      fallback-interval-seconds: ${CONFIG_COMPACTION_SCHEDULER_FALLBACK_INTERVAL_SECONDS:60}
       api-readiness:
         enabled: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_ENABLED:true}
         url: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_URL:http://api:1880/actuator/compactionReadiness}

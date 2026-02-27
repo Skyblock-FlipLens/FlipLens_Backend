@@ -238,8 +238,11 @@ class CompactorDaemonTest {
         setField(daemon, "apiReadinessAllowedHosts", "skyblockflipper-api,localhost,127.0.0.1");
 
         Object result = invokePrivate(daemon, "probeApiReadiness");
+        Method stateMethod = result.getClass().getDeclaredMethod("state");
+        Object state = stateMethod.invoke(result);
         Method reasonMethod = result.getClass().getDeclaredMethod("reason");
         String reason = (String) reasonMethod.invoke(result);
+        assertEquals("UNKNOWN", String.valueOf(state));
         assertEquals("api_readiness_url_blocked", reason);
     }
 
