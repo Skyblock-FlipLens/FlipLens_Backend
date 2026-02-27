@@ -147,7 +147,7 @@ config:
       fallback-interval-seconds: ${CONFIG_COMPACTION_SCHEDULER_FALLBACK_INTERVAL_SECONDS:60}
       api-readiness:
         enabled: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_ENABLED:true}
-        url: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_URL:http://api:1880/actuator/compactionReadiness}
+        url: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_URL:http://api:1881/actuator/compactionReadiness}
         allowed-hosts: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_ALLOWED_HOSTS:api,skyblockflipper-api,localhost,127.0.0.1,::1}
         connect-timeout-ms: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_CONNECT_TIMEOUT_MS:500}
         read-timeout-ms: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_READ_TIMEOUT_MS:1000}
@@ -158,6 +158,9 @@ config:
         max-lock-waits: ${CONFIG_COMPACTION_SCHEDULER_DB_READINESS_MAX_LOCK_WAITS:0}
 
 management:
+  server:
+    address: ${MANAGEMENT_SERVER_ADDRESS:127.0.0.1}
+    port: ${MANAGEMENT_SERVER_PORT:1881}
   endpoints:
     web:
       exposure:
