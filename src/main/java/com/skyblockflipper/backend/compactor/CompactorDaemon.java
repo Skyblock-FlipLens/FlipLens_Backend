@@ -435,7 +435,7 @@ public class CompactorDaemon implements SmartLifecycle {
         }
         return jdbcTemplate.query("""
                 select
-                  count(*) filter (where state = 'active') as active,
+                  count(*) as active,
                   count(*) filter (
                     where wait_event_type is not null
                       and wait_event not in ('ClientRead', 'ClientWrite')
@@ -444,6 +444,8 @@ public class CompactorDaemon implements SmartLifecycle {
                 from pg_stat_activity
                 where datname = current_database()
                   and pid <> pg_backend_pid()
+                  and backend_type = 'client backend'
+                  and state = 'active'
                 """, rs -> {
             if (!rs.next()) {
                 return new DbReadiness(false, false, -1L, -1L, -1L, "db_readiness_no_data");
@@ -489,6 +491,9 @@ public class CompactorDaemon implements SmartLifecycle {
             return ok
                     ? new ApiReadiness(ApiReadinessState.READY, reason)
                     : new ApiReadiness(ApiReadinessState.NOT_READY, reason);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while probing API readiness", e);
         } catch (Exception e) {
             return new ApiReadiness(ApiReadinessState.UNKNOWN, "api_unreachable");
         }
