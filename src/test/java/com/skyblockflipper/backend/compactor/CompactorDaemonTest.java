@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceServi
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ResultSetExtractor;
+import tools.jackson.databind.ObjectMapper;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Field;
@@ -37,6 +38,7 @@ class CompactorDaemonTest {
                 dataSource,
                 jdbcTemplate,
                 marketDataProcessingService,
+                new ObjectMapper(),
                 "compaction",
                 60_000L,
                 500L,
@@ -63,6 +65,7 @@ class CompactorDaemonTest {
                 dataSource,
                 jdbcTemplate,
                 marketDataProcessingService,
+                new ObjectMapper(),
                 "compaction",
                 60_000L,
                 500L,
@@ -91,6 +94,7 @@ class CompactorDaemonTest {
                 dataSource,
                 jdbcTemplate,
                 marketDataProcessingService,
+                new ObjectMapper(),
                 "compaction",
                 60_000L,
                 500L,
@@ -119,6 +123,7 @@ class CompactorDaemonTest {
                 dataSource,
                 jdbcTemplate,
                 marketDataProcessingService,
+                new ObjectMapper(),
                 "compaction",
                 60_000L,
                 500L,
@@ -135,6 +140,35 @@ class CompactorDaemonTest {
     }
 
     @Test
+    void startDoesNotHardFailWhenControlRowCreationIsUnavailable() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        when(jdbcTemplate.update(contains("insert into compaction_control")))
+                .thenThrow(new RuntimeException("relation compaction_control does not exist"));
+        when(dataSource.getConnection()).thenThrow(new SQLTimeoutException("pool busy"));
+
+        CompactorDaemon daemon = new CompactorDaemon(
+                dataSource,
+                jdbcTemplate,
+                marketDataProcessingService,
+                new ObjectMapper(),
+                "compaction",
+                60_000L,
+                500L,
+                500L,
+                912345678L
+        );
+
+        daemon.start();
+        invokePrivate(daemon, "tryRunIfRequested");
+        daemon.stop();
+
+        assertFalse(daemon.isRunning());
+        verify(marketDataProcessingService, never()).compactSnapshots();
+    }
+
+    @Test
     void ensureCompactionControlConsistentRequeuesWhenRequestedFalse() throws Exception {
         DataSource dataSource = mock(DataSource.class);
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
@@ -147,6 +181,7 @@ class CompactorDaemonTest {
                 dataSource,
                 jdbcTemplate,
                 marketDataProcessingService,
+                new ObjectMapper(),
                 "compaction",
                 60_000L,
                 500L,
@@ -169,6 +204,7 @@ class CompactorDaemonTest {
                 dataSource,
                 jdbcTemplate,
                 marketDataProcessingService,
+                new ObjectMapper(),
                 "bad-channel-name",
                 60_000L,
                 500L,
@@ -179,6 +215,35 @@ class CompactorDaemonTest {
         Field channelField = CompactorDaemon.class.getDeclaredField("channel");
         channelField.setAccessible(true);
         assertEquals("compaction", channelField.get(daemon));
+    }
+
+    @Test
+    void probeApiReadinessBlocksDisallowedHost() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        CompactorDaemon daemon = new CompactorDaemon(
+                dataSource,
+                jdbcTemplate,
+                marketDataProcessingService,
+                new ObjectMapper(),
+                "compaction",
+                60_000L,
+                500L,
+                500L,
+                912345678L
+        );
+        setField(daemon, "apiReadinessEnabled", true);
+        setField(daemon, "apiReadinessUrl", "http://example.org:1880/actuator/compactionReadiness");
+        setField(daemon, "apiReadinessAllowedHosts", "skyblockflipper-api,localhost,127.0.0.1");
+
+        Object result = invokePrivate(daemon, "probeApiReadiness");
+        Method stateMethod = result.getClass().getDeclaredMethod("state");
+        Object state = stateMethod.invoke(result);
+        Method reasonMethod = result.getClass().getDeclaredMethod("reason");
+        String reason = (String) reasonMethod.invoke(result);
+        assertEquals("UNKNOWN", String.valueOf(state));
+        assertEquals("api_readiness_url_blocked", reason);
     }
 
     private Connection mockLockConnection(boolean lockAcquired, boolean unlockResult) throws Exception {
@@ -206,13 +271,19 @@ class CompactorDaemonTest {
         field.setBoolean(daemon, running);
     }
 
-    private void invokePrivate(Object target, String methodName) throws Exception {
-        invokePrivate(target, methodName, new Class<?>[0]);
+    private void setField(CompactorDaemon daemon, String fieldName, Object value) throws Exception {
+        Field field = CompactorDaemon.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(daemon, value);
     }
 
-    private void invokePrivate(Object target, String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {
+    private Object invokePrivate(Object target, String methodName) throws Exception {
+        return invokePrivate(target, methodName, new Class<?>[0]);
+    }
+
+    private Object invokePrivate(Object target, String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {
         Method method = target.getClass().getDeclaredMethod(methodName, parameterTypes);
         method.setAccessible(true);
-        method.invoke(target, args);
+        return method.invoke(target, args);
     }
 }
