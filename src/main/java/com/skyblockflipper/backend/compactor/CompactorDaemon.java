@@ -42,6 +42,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class CompactorDaemon implements SmartLifecycle {
 
+    private static final long CONTROL_ROW_RETRY_INITIAL_BACKOFF_MILLIS = 1_000L;
+    private static final long CONTROL_ROW_RETRY_MAX_BACKOFF_MILLIS = 60_000L;
+
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
     private final MarketDataProcessingService marketDataProcessingService;
@@ -59,6 +62,9 @@ public class CompactorDaemon implements SmartLifecycle {
     private ScheduledExecutorService adaptiveDecisionExecutor;
     private final AtomicBoolean claimedCompactionInProgress = new AtomicBoolean(false);
     private volatile boolean running;
+    private volatile boolean controlRowReady;
+    private volatile long nextControlRowEnsureAttemptEpochMillis;
+    private volatile long controlRowEnsureBackoffMillis = CONTROL_ROW_RETRY_INITIAL_BACKOFF_MILLIS;
 
     @Value("${config.compaction.scheduler.enabled:true}")
     private boolean adaptiveSchedulerEnabled = true;
@@ -116,8 +122,13 @@ public class CompactorDaemon implements SmartLifecycle {
             return;
         }
         ensureExecutorsReady();
-        ensureControlRowExists();
+        controlRowReady = false;
+        nextControlRowEnsureAttemptEpochMillis = 0L;
+        controlRowEnsureBackoffMillis = CONTROL_ROW_RETRY_INITIAL_BACKOFF_MILLIS;
         running = true;
+        if (!ensureControlRowReady("startup")) {
+            log.warn("Compactor startup deferred control-row creation; background workers will skip work until schema is ready.");
+        }
         try {
             submitCompactorTasks();
         } catch (RejectedExecutionException e) {
@@ -219,6 +230,9 @@ public class CompactorDaemon implements SmartLifecycle {
         if (!running) {
             return;
         }
+        if (!ensureControlRowReady("try_run_if_requested")) {
+            return;
+        }
 
         Boolean claimed = jdbcTemplate.query("""
                 update compaction_control
@@ -307,6 +321,9 @@ public class CompactorDaemon implements SmartLifecycle {
         if (!running || !adaptiveSchedulerEnabled) {
             return;
         }
+        if (!ensureControlRowReady("adaptive_decision")) {
+            return;
+        }
 
         CompactionControlState controlState = readCompactionControlState();
         if (controlState == null) {
@@ -358,6 +375,42 @@ public class CompactorDaemon implements SmartLifecycle {
                 values (1, false)
                 on conflict (id) do nothing
                 """);
+    }
+
+    private boolean ensureControlRowReady(String trigger) {
+        if (controlRowReady) {
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        if (now < nextControlRowEnsureAttemptEpochMillis) {
+            return false;
+        }
+        synchronized (this) {
+            if (controlRowReady) {
+                return true;
+            }
+            now = System.currentTimeMillis();
+            if (now < nextControlRowEnsureAttemptEpochMillis) {
+                return false;
+            }
+            try {
+                ensureControlRowExists();
+                controlRowReady = true;
+                nextControlRowEnsureAttemptEpochMillis = 0L;
+                controlRowEnsureBackoffMillis = CONTROL_ROW_RETRY_INITIAL_BACKOFF_MILLIS;
+                log.info("Compaction control row is ready (trigger={})", trigger);
+                return true;
+            } catch (Exception e) {
+                long backoffMillis = Math.max(CONTROL_ROW_RETRY_INITIAL_BACKOFF_MILLIS, controlRowEnsureBackoffMillis);
+                nextControlRowEnsureAttemptEpochMillis = now + backoffMillis;
+                controlRowEnsureBackoffMillis = Math.min(CONTROL_ROW_RETRY_MAX_BACKOFF_MILLIS, backoffMillis * 2L);
+                log.warn("Compaction control row unavailable (trigger={}); postponing work and retrying in {} ms: {}",
+                        trigger,
+                        backoffMillis,
+                        e.toString());
+                return false;
+            }
+        }
     }
 
     private CompactionControlState readCompactionControlState() {

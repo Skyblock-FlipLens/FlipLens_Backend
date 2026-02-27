@@ -140,6 +140,35 @@ class CompactorDaemonTest {
     }
 
     @Test
+    void startDoesNotHardFailWhenControlRowCreationIsUnavailable() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        when(jdbcTemplate.update(contains("insert into compaction_control")))
+                .thenThrow(new RuntimeException("relation compaction_control does not exist"));
+        when(dataSource.getConnection()).thenThrow(new SQLTimeoutException("pool busy"));
+
+        CompactorDaemon daemon = new CompactorDaemon(
+                dataSource,
+                jdbcTemplate,
+                marketDataProcessingService,
+                new ObjectMapper(),
+                "compaction",
+                60_000L,
+                500L,
+                500L,
+                912345678L
+        );
+
+        daemon.start();
+        invokePrivate(daemon, "tryRunIfRequested");
+        daemon.stop();
+
+        assertFalse(daemon.isRunning());
+        verify(marketDataProcessingService, never()).compactSnapshots();
+    }
+
+    @Test
     void ensureCompactionControlConsistentRequeuesWhenRequestedFalse() throws Exception {
         DataSource dataSource = mock(DataSource.class);
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
