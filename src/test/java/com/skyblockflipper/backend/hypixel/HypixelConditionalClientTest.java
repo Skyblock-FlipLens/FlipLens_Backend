@@ -2,9 +2,16 @@ package com.skyblockflipper.backend.hypixel;
 
 import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
+import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.List;
@@ -13,12 +20,117 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
 
 class HypixelConditionalClientTest {
+
+    @Test
+    void fetchBazaarSuccessIncludesConditionalHeadersAndBody() throws Exception {
+        HypixelConditionalClient client = new HypixelConditionalClient(
+                "https://api.hypixel.net/v2",
+                "secret",
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1)
+        );
+        RestClient restClient = mock(RestClient.class);
+        RestClient.RequestHeadersUriSpec<?> uriSpec =
+                (RestClient.RequestHeadersUriSpec<?>) mock(RestClient.RequestHeadersUriSpec.class);
+        RestClient.RequestHeadersSpec<?> headersSpec =
+                (RestClient.RequestHeadersSpec<?>) mock(RestClient.RequestHeadersSpec.class);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        doReturn(uriSpec).when(restClient).get();
+        doReturn(headersSpec).when(uriSpec).uri(anyString());
+        doReturn(headersSpec).when(headersSpec).header(anyString(), any(String[].class));
+        doReturn(responseSpec).when(headersSpec).retrieve();
+
+        BazaarResponse body = new BazaarResponse(true, 123L, null);
+        ResponseEntity<BazaarResponse> entity = ResponseEntity.status(200).header(HttpHeaders.ETAG, "\"v1\"").body(body);
+        when(responseSpec.toEntity(any(org.springframework.core.ParameterizedTypeReference.class))).thenReturn(entity);
+        setField(client, "restClient", restClient);
+
+        HypixelHttpResult<BazaarResponse> result = client.fetchBazaar("/bazaar", "\"etag\"", "Wed, 21 Oct 2015 07:28:00 GMT");
+
+        assertTrue(result.isSuccessful());
+        assertEquals(200, result.statusCode());
+        assertEquals(body, result.body());
+        verify(headersSpec).header("API-Key", "secret");
+        verify(headersSpec).header(HttpHeaders.IF_NONE_MATCH, "\"etag\"");
+        verify(headersSpec).header(HttpHeaders.IF_MODIFIED_SINCE, "Wed, 21 Oct 2015 07:28:00 GMT");
+    }
+
+    @Test
+    void fetchBazaarMapsHttpErrorToErrorResult() throws Exception {
+        HypixelConditionalClient client = new HypixelConditionalClient(
+                "https://api.hypixel.net/v2",
+                "",
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1)
+        );
+        RestClient restClient = mock(RestClient.class);
+        RestClient.RequestHeadersUriSpec<?> uriSpec =
+                (RestClient.RequestHeadersUriSpec<?>) mock(RestClient.RequestHeadersUriSpec.class);
+        RestClient.RequestHeadersSpec<?> headersSpec =
+                (RestClient.RequestHeadersSpec<?>) mock(RestClient.RequestHeadersSpec.class);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        doReturn(uriSpec).when(restClient).get();
+        doReturn(headersSpec).when(uriSpec).uri(anyString());
+        doReturn(headersSpec).when(headersSpec).header(anyString(), any(String[].class));
+        doReturn(responseSpec).when(headersSpec).retrieve();
+
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.add(HttpHeaders.RETRY_AFTER, "5");
+        HttpServerErrorException exception = HttpServerErrorException.create(
+                HttpStatus.BAD_GATEWAY,
+                "bad gateway",
+                responseHeaders,
+                "upstream".getBytes(),
+                null
+        );
+        when(responseSpec.toEntity(any(org.springframework.core.ParameterizedTypeReference.class))).thenThrow(exception);
+        setField(client, "restClient", restClient);
+
+        HypixelHttpResult<BazaarResponse> result = client.fetchBazaar("/bazaar", null, null);
+
+        assertFalse(result.isSuccessful());
+        assertEquals(502, result.statusCode());
+        assertEquals("5", result.headers().getFirst(HttpHeaders.RETRY_AFTER));
+    }
+
+    @Test
+    void fetchBazaarMapsTransportError() throws Exception {
+        HypixelConditionalClient client = new HypixelConditionalClient(
+                "https://api.hypixel.net/v2",
+                "",
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1)
+        );
+        RestClient restClient = mock(RestClient.class);
+        RestClient.RequestHeadersUriSpec<?> uriSpec =
+                (RestClient.RequestHeadersUriSpec<?>) mock(RestClient.RequestHeadersUriSpec.class);
+        RestClient.RequestHeadersSpec<?> headersSpec =
+                (RestClient.RequestHeadersSpec<?>) mock(RestClient.RequestHeadersSpec.class);
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
+
+        doReturn(uriSpec).when(restClient).get();
+        doReturn(headersSpec).when(uriSpec).uri(anyString());
+        doReturn(headersSpec).when(headersSpec).header(anyString(), any(String[].class));
+        doReturn(responseSpec).when(headersSpec).retrieve();
+
+        when(responseSpec.toEntity(any(org.springframework.core.ParameterizedTypeReference.class)))
+                .thenThrow(new RestClientException("socket closed"));
+        setField(client, "restClient", restClient);
+
+        HypixelHttpResult<BazaarResponse> result = client.fetchBazaar("/bazaar", null, null);
+
+        assertFalse(result.isSuccessful());
+        assertTrue(result.transportError());
+        assertEquals(0, result.statusCode());
+        assertEquals("socket closed", result.errorMessage());
+    }
 
     @Test
     void fetchAllAuctionPagesReturnsErrorForInvalidFirstPage() {
@@ -131,5 +243,11 @@ class HypixelConditionalClientTest {
         Auction auction = new Auction();
         auction.setUuid(uuid);
         return auction;
+    }
+
+    private void setField(HypixelConditionalClient client, String fieldName, Object value) throws Exception {
+        Field field = HypixelConditionalClient.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(client, value);
     }
 }

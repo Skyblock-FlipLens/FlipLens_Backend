@@ -9,6 +9,7 @@ import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -370,6 +371,139 @@ class UnifiedFlipDtoMapperTest {
     }
 
     @Test
+    void parseItemStackHandlesAmountMarketAndNpcPriceVariants() throws Exception {
+        Object parsed = invokePrivate(
+                mapper,
+                "parseItemStack",
+                new Class<?>[]{String.class},
+                "{\"itemId\":\"NPC_ITEM\",\"amount\":\" 3 \",\"market\":\"npc_shop\",\"coinCost\":\"123.5\"}"
+        );
+
+        assertNotNull(parsed);
+        assertEquals("NPC_ITEM", invokeAccessor(parsed, "itemId"));
+        assertEquals(3, invokeAccessor(parsed, "amount"));
+        assertEquals("NPC", String.valueOf(invokeAccessor(parsed, "marketPreference")));
+        assertEquals(123.5D, (Double) invokeAccessor(parsed, "npcUnitPrice"), 1e-9);
+    }
+
+    @Test
+    void parseItemStackFallsBackToDefaultsForUnsupportedAmountAndSourceField() throws Exception {
+        Object parsed = invokePrivate(
+                mapper,
+                "parseItemStack",
+                new Class<?>[]{String.class},
+                "{\"itemId\":\"A\",\"amount\":\"not-a-number\",\"source\":\"AUCTION\"}"
+        );
+
+        assertNotNull(parsed);
+        assertEquals("A", invokeAccessor(parsed, "itemId"));
+        assertEquals(1, invokeAccessor(parsed, "amount"));
+        assertEquals("AUCTION", String.valueOf(invokeAccessor(parsed, "marketPreference")));
+        assertEquals(null, invokeAccessor(parsed, "npcUnitPrice"));
+    }
+
+    @Test
+    void parseItemStackReturnsNullForInvalidJsonOrMissingItemId() throws Exception {
+        Object malformed = invokePrivate(
+                mapper,
+                "parseItemStack",
+                new Class<?>[]{String.class},
+                "{bad-json"
+        );
+        Object missingItem = invokePrivate(
+                mapper,
+                "parseItemStack",
+                new Class<?>[]{String.class},
+                "{\"amount\":2}"
+        );
+        Object blankItem = invokePrivate(
+                mapper,
+                "parseItemStack",
+                new Class<?>[]{String.class},
+                "{\"itemId\":\"   \"}"
+        );
+
+        assertNull(malformed);
+        assertNull(missingItem);
+        assertNull(blankItem);
+    }
+
+    @Test
+    void resolveConservativeAuctionSellUnitPriceUsesExpectedFallbackOrder() throws Exception {
+        Method method = UnifiedFlipDtoMapper.class.getDeclaredMethod(
+                "resolveConservativeAuctionSellUnitPrice",
+                UnifiedFlipInputSnapshot.AuctionQuote.class
+        );
+        method.setAccessible(true);
+
+        double withP25AndSecond = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(80L, 90L, 150L, 120D, 110D, 100D, 10)
+        );
+        double withP25Only = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(0L, 0L, 150L, 120D, 110D, 100D, 10)
+        );
+        double withSecondAndMedian = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(1L, 120L, 150L, 120D, 100D, 0D, 10)
+        );
+        double withSecondOnly = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(1L, 120L, 150L, 0D, 0D, 0D, 10)
+        );
+        double withMedianOnly = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(0L, 0L, 150L, 0D, 100D, 0D, 10)
+        );
+        double withAverageOnly = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(0L, 0L, 150L, 200D, 0D, 0D, 10)
+        );
+        double withHighestOnly = (double) method.invoke(
+                mapper,
+                new UnifiedFlipInputSnapshot.AuctionQuote(0L, 0L, 150L, 0D, 0D, 0D, 10)
+        );
+
+        assertEquals(90D, withP25AndSecond, 1e-9);
+        assertEquals(100D, withP25Only, 1e-9);
+        assertEquals(97D, withSecondAndMedian, 1e-9);
+        assertEquals(120D, withSecondOnly, 1e-9);
+        assertEquals(97D, withMedianOnly, 1e-9);
+        assertEquals(190D, withAverageOnly, 1e-9);
+        assertEquals(150D, withHighestOnly, 1e-9);
+    }
+
+    @Test
+    void unsupportedAndInvalidAuctionDurationFallBackToDefaultAndMarkPartial() {
+        UnifiedFlipInputSnapshot snapshot = new UnifiedFlipInputSnapshot(
+                Instant.parse("2026-02-16T14:00:00Z"),
+                Map.of(),
+                Map.of("ITEM", new UnifiedFlipInputSnapshot.AuctionQuote(10_000L, 12_000L, 11_000D, 12))
+        );
+        Flip unsupportedDuration = new Flip(
+                UUID.randomUUID(),
+                FlipType.AUCTION,
+                List.of(Step.forSellMarketBased(15L, "{\"itemId\":\"ITEM\",\"amount\":1,\"market\":\"AUCTION\",\"durationHours\":5}")),
+                "ITEM",
+                List.of()
+        );
+        Flip invalidDuration = new Flip(
+                UUID.randomUUID(),
+                FlipType.AUCTION,
+                List.of(Step.forSellMarketBased(15L, "{\"itemId\":\"ITEM\",\"amount\":1,\"market\":\"AUCTION\",\"durationHours\":\"x\"}")),
+                "ITEM",
+                List.of()
+        );
+
+        UnifiedFlipDto unsupportedDto = mapper.toDto(unsupportedDuration, FlipCalculationContext.standard(snapshot));
+        UnifiedFlipDto invalidDto = mapper.toDto(invalidDuration, FlipCalculationContext.standard(snapshot));
+
+        assertTrue(unsupportedDto.partialReasons().contains("UNSUPPORTED_AUCTION_DURATION_PRESET"));
+        assertTrue(invalidDto.partialReasons().contains("INVALID_AUCTION_DURATION"));
+    }
+
+    @Test
     void toDtoParsesStepJsonOncePerStepWithinSingleMapping() throws Exception {
         ObjectMapper spyMapper = spy(new ObjectMapper());
         UnifiedFlipDtoMapper localMapper = new UnifiedFlipDtoMapper(spyMapper, new FlipRiskScorer());
@@ -393,6 +527,18 @@ class UnifiedFlipDtoMapperTest {
         localMapper.toDto(flip, FlipCalculationContext.standard(snapshot));
 
         verify(spyMapper, times(3)).readTree(anyString());
+    }
+
+    private Object invokePrivate(Object target, String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {
+        Method method = target.getClass().getDeclaredMethod(methodName, parameterTypes);
+        method.setAccessible(true);
+        return method.invoke(target, args);
+    }
+
+    private Object invokeAccessor(Object target, String accessor) throws Exception {
+        Method method = target.getClass().getDeclaredMethod(accessor);
+        method.setAccessible(true);
+        return method.invoke(target);
     }
 
 }
