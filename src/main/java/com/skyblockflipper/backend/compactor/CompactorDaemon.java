@@ -76,8 +76,8 @@ public class CompactorDaemon implements SmartLifecycle {
     private long fallbackIntervalSeconds = 60L;
     @Value("${config.compaction.scheduler.api-readiness.enabled:true}")
     private boolean apiReadinessEnabled = true;
-    @Value("${config.compaction.scheduler.api-readiness.url:http://api:1881/actuator/compactionReadiness}")
-    private String apiReadinessUrl = "http://api:1881/actuator/compactionReadiness";
+    @Value("${config.compaction.scheduler.api-readiness.url:http://api:1880/actuator/compactionReadiness}")
+    private String apiReadinessUrl = "http://api:1880/actuator/compactionReadiness";
     @Value("${config.compaction.scheduler.api-readiness.allowed-hosts:api,skyblockflipper-api,localhost,127.0.0.1,::1}")
     private String apiReadinessAllowedHosts = "api,skyblockflipper-api,localhost,127.0.0.1,::1";
     @Value("${config.compaction.scheduler.api-readiness.connect-timeout-ms:500}")
@@ -438,7 +438,7 @@ public class CompactorDaemon implements SmartLifecycle {
                   count(*) filter (where state = 'active') as active,
                   count(*) filter (
                     where wait_event_type is not null
-                      and wait_event_type not in ('ClientRead', 'ClientWrite')
+                      and wait_event not in ('ClientRead', 'ClientWrite')
                   ) as waiting,
                   count(*) filter (where wait_event_type = 'Lock') as lock_waits
                 from pg_stat_activity
