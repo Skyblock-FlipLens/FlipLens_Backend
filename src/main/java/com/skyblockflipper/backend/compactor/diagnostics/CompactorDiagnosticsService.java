@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.sql.DataSource;
 import java.net.URI;
@@ -156,15 +156,19 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
         if (properties.getDb().isEnabled()) {
             try (Connection connection = dataSource.getConnection()) {
                 connection.setReadOnly(true);
+                String previousStatementTimeout = readCurrentStatementTimeout(connection);
                 applyStatementTimeout(connection);
-
-                topLongQueries = readTopLongQueries(connection, dbWaitSummary, errors);
-                readLocks(connection, dbWaitSummary, errors);
-                vacuumHotTables = readVacuumStats(connection, errors);
-                cacheHitRatio = readCacheHitRatio(connection, errors);
-                TopStatementsResult topStatementsResult = readTopStatements(connection, errors);
-                topStatements = topStatementsResult.statements();
-                pgStatStatementsAvailable = topStatementsResult.available();
+                try {
+                    topLongQueries = readTopLongQueries(connection, dbWaitSummary, errors);
+                    readLocks(connection, dbWaitSummary, errors);
+                    vacuumHotTables = readVacuumStats(connection, errors);
+                    cacheHitRatio = readCacheHitRatio(connection, errors);
+                    TopStatementsResult topStatementsResult = readTopStatements(connection, errors);
+                    topStatements = topStatementsResult.statements();
+                    pgStatStatementsAvailable = topStatementsResult.available();
+                } finally {
+                    restoreStatementTimeout(connection, previousStatementTimeout, errors);
+                }
             } catch (Exception e) {
                 errors.add("db_probe_failed:" + summarize(e));
             }
@@ -200,7 +204,7 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
             HttpResponse<String> response = getApiClient()
                     .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             JsonNode node = objectMapper.readTree(response.body());
-            String status = node.path("status").asString("UNKNOWN");
+            String status = node.path("status").asText("UNKNOWN");
             Map<String, Object> details = node.has("details")
                     ? objectMapper.convertValue(node.get("details"),
                         objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class))
@@ -224,6 +228,26 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
         long timeoutMillis = Math.max(100L, properties.getDb().getStatementTimeout().toMillis());
         try (Statement statement = connection.createStatement()) {
             statement.execute("SET statement_timeout TO '" + timeoutMillis + "ms'");
+        }
+    }
+
+    private String readCurrentStatementTimeout(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("SHOW statement_timeout")) {
+            return resultSet.next() ? resultSet.getString(1) : null;
+        }
+    }
+
+    private void restoreStatementTimeout(Connection connection, String previousStatementTimeout, List<String> errors) {
+        try (Statement statement = connection.createStatement()) {
+            if (previousStatementTimeout == null || previousStatementTimeout.isBlank()) {
+                statement.execute("RESET statement_timeout");
+            } else {
+                String escaped = previousStatementTimeout.replace("'", "''");
+                statement.execute("SET statement_timeout TO '" + escaped + "'");
+            }
+        } catch (Exception e) {
+            errors.add("db_restore_statement_timeout_failed:" + summarize(e));
         }
     }
 

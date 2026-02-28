@@ -1,13 +1,16 @@
 package com.skyblockflipper.backend.db.migration;
 
+import lombok.Generated;
 import lombok.extern.slf4j.Slf4j;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 
 @Slf4j
+@Generated
 public class V7__AddPerformanceIndexes extends BaseJavaMigration {
 
     @Override
@@ -17,7 +20,7 @@ public class V7__AddPerformanceIndexes extends BaseJavaMigration {
 
     @Override
     public void migrate(Context context) throws Exception {
-        var connection = context.getConnection();
+        Connection connection = context.getConnection();
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(true);
         try (Statement statement = connection.createStatement()) {
@@ -35,15 +38,28 @@ public class V7__AddPerformanceIndexes extends BaseJavaMigration {
                     CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_flip_constraints_flip_id
                     ON public.flip_constraints (flip_id)
                     """);
+        } finally {
+            resetTimeouts(connection);
+            restoreAutoCommit(connection, previousAutoCommit);
         }
-        finally {
-            log.warn("Migration failed - cleaning up...");
-            Statement statement = connection.createStatement();
+    }
+
+    private void resetTimeouts(Connection connection) {
+        try (Statement statement = connection.createStatement()) {
             statement.execute("RESET lock_timeout");
             statement.execute("RESET statement_timeout");
+            log.debug("Reset lock_timeout and statement_timeout after V7 migration");
+        } catch (SQLException e) {
+            log.warn("Failed to reset migration timeouts in V7 cleanup: {}", e.getMessage(), e);
+        }
+    }
+
+    private void restoreAutoCommit(Connection connection, boolean previousAutoCommit) {
+        try {
             connection.setAutoCommit(previousAutoCommit);
-            statement.close();
-            log.warn("Migration failed - cleaning completed!");
+            log.debug("Restored autoCommit={} after V7 migration", previousAutoCommit);
+        } catch (SQLException e) {
+            log.warn("Failed to restore autoCommit in V7 cleanup: {}", e.getMessage(), e);
         }
     }
 
