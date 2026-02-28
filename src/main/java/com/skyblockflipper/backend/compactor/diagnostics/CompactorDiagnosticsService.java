@@ -141,7 +141,7 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
             lastSnapshot.set(snapshot);
             log.info("diagnostics_summary={}", objectMapper.writeValueAsString(snapshot));
         } catch (Exception e) {
-            log.warn("Compactor diagnostics probe failed: {}", e.toString(), e);
+            log.warn("Compactor diagnostics probe failed: {}", e, e);
         }
     }
 
