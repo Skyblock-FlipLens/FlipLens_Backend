@@ -29,7 +29,7 @@ class CompactorDiagnosticsServiceTest {
         DataSource dataSource = Mockito.mock(DataSource.class);
         CompactorDiagnosticsProperties properties = new CompactorDiagnosticsProperties();
         properties.setEnabled(false);
-        CompactorDiagnosticsService service = new CompactorDiagnosticsService(dataSource, properties, new com.fasterxml.jackson.databind.ObjectMapper());
+        CompactorDiagnosticsService service = new CompactorDiagnosticsService(dataSource, properties, new ObjectMapper());
 
         service.start();
 

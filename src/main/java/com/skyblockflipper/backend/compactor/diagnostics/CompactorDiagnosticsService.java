@@ -236,7 +236,7 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
             HttpResponse<String> response = getApiClient()
                     .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             JsonNode node = objectMapper.readTree(response.body());
-            String status = node.path("status").asText("UNKNOWN");
+            String status = node.path("status").asString("UNKNOWN");
             Map<String, Object> details = node.has("details")
                     ? objectMapper.convertValue(node.get("details"),
                         objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class))
