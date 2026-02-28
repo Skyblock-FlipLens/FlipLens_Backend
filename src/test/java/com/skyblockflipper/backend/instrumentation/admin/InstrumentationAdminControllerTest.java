@@ -146,4 +146,27 @@ class InstrumentationAdminControllerTest {
         verify(adminAccessGuard, times(1)).validate(request);
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
     }
+
+    @Test
+    void latestReportReturnsPrimaryWhenFallbackAlsoFails() {
+        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
+        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
+        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        InstrumentationProperties properties = new InstrumentationProperties();
+        Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
+        Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-1.jfr");
+        Map<String, Object> primary = Map.of("error", "Primary parse failed");
+        Map<String, Object> fallbackError = Map.of("error", "Fallback also failed");
+        when(jfrRecordingManager.latestRecordingFile()).thenReturn(latestPath);
+        when(reportService.summarize(latestPath)).thenReturn(primary);
+        when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
+        when(reportService.summarize(snapshotPath)).thenReturn(fallbackError);
+        InstrumentationAdminController controller = new InstrumentationAdminController(
+                adminAccessGuard, jfrRecordingManager, reportService, properties);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        Map<String, Object> result = controller.latestReport(request);
+
+        assertEquals(primary, result);  // Should return primary when fallback also fails
+    }
 }

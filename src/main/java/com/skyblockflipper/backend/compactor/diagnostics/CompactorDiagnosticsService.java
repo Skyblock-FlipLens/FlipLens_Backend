@@ -119,11 +119,6 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
     }
 
     @Override
-    public boolean isAutoStartup() {
-        return true;
-    }
-
-    @Override
     public int getPhase() {
         return Integer.MAX_VALUE - 10;
     }
@@ -207,7 +202,8 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
             JsonNode node = objectMapper.readTree(response.body());
             String status = node.path("status").asString("UNKNOWN");
             Map<String, Object> details = node.has("details")
-                    ? objectMapper.convertValue(node.get("details"), Map.class)
+                    ? objectMapper.convertValue(node.get("details"),
+                        objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class))
                     : Collections.emptyMap();
             boolean healthy = response.statusCode() >= 200
                     && response.statusCode() < 300

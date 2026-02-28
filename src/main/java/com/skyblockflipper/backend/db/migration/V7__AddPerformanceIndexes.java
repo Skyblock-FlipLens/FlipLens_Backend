@@ -35,11 +35,15 @@ public class V7__AddPerformanceIndexes extends BaseJavaMigration {
                     CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_flip_constraints_flip_id
                     ON public.flip_constraints (flip_id)
                     """);
-            statement.execute("RESET lock_timeout");
-            statement.execute("RESET statement_timeout");
         }
         finally {
+            log.warn("Migration failed - cleaning up...");
+            Statement statement = connection.createStatement();
+            statement.execute("RESET lock_timeout");
+            statement.execute("RESET statement_timeout");
             connection.setAutoCommit(previousAutoCommit);
+            statement.close();
+            log.warn("Migration failed - cleaning completed!");
         }
     }
 
