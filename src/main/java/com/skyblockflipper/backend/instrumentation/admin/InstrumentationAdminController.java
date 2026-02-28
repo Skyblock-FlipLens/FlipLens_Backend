@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.instrumentation.JfrBlockingReportService;
 import com.skyblockflipper.backend.instrumentation.JfrRecordingManager;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,7 @@ import java.util.stream.Stream;
 @RestController
 @RequestMapping("/internal/admin/instrumentation")
 @RequiredArgsConstructor
+@Slf4j
 public class InstrumentationAdminController {
 
     private final AdminAccessGuard adminAccessGuard;
@@ -41,7 +44,22 @@ public class InstrumentationAdminController {
     @GetMapping("/jfr/report/latest")
     public Map<String, Object> latestReport(HttpServletRequest request) {
         adminAccessGuard.validate(request);
-        return jfrBlockingReportService.summarize(jfrRecordingManager.latestRecordingFile());
+        Path latest = jfrRecordingManager.latestRecordingFile();
+        Map<String, Object> primary = jfrBlockingReportService.summarize(latest);
+        if (!primary.containsKey("error")) {
+            return primary;
+        }
+
+        try {
+            Path snapshot = jfrRecordingManager.dumpSnapshot();
+            Map<String, Object> fallback = jfrBlockingReportService.summarize(snapshot);
+            if (!fallback.containsKey("error")) {
+                return fallback;
+            }
+        } catch (Exception ex) {
+            log.error("Fallback snapshot dump/parse also failed: {}", Arrays.toString(ex.getStackTrace()));
+        }
+        return primary;
     }
 
     @PostMapping("/async-profiler/run")

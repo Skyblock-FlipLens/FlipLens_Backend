@@ -20,6 +20,15 @@ config:
         url: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_URL:http://api:1881/actuator/compactionReadiness}
         allowed-hosts: ${CONFIG_COMPACTION_SCHEDULER_API_READINESS_ALLOWED_HOSTS:api,skyblockflipper-api,localhost,127.0.0.1,::1}
 
+diagnostics:
+  enabled: ${DIAGNOSTICS_ENABLED:true}
+  interval: ${DIAGNOSTICS_INTERVAL:60s}
+  api:
+    base-url: ${DIAGNOSTICS_API_BASE_URL:http://api:1881}
+  db:
+    enabled: ${DIAGNOSTICS_DB_ENABLED:true}
+    statement-timeout: ${DIAGNOSTICS_DB_STATEMENT_TIMEOUT:2s}
+
 instrumentation:
   jfr:
     enabled: false
