@@ -140,7 +140,7 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
         }
     }
 
-    private CompactorDiagnosticsDto.Snapshot collectSnapshot() {
+    CompactorDiagnosticsDto.Snapshot collectSnapshot() {
         Instant now = Instant.now();
         List<String> errors = new ArrayList<>();
 

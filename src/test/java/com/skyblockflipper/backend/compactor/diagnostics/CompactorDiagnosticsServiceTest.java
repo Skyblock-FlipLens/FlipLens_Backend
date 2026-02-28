@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import javax.sql.DataSource;
-import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -19,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +36,7 @@ class CompactorDiagnosticsServiceTest {
         assertFalse(service.isRunning());
         service.stop();
         assertFalse(service.isRunning());
+        verifyNoInteractions(dataSource);
     }
 
     @Test
@@ -109,7 +110,7 @@ class CompactorDiagnosticsServiceTest {
         properties.getDb().setStatementTimeout(Duration.ofSeconds(2));
         CompactorDiagnosticsService service = new CompactorDiagnosticsService(dataSource, properties, new ObjectMapper());
 
-        CompactorDiagnosticsDto.Snapshot snapshot = invokeCollectSnapshot(service);
+        CompactorDiagnosticsDto.Snapshot snapshot = service.collectSnapshot();
 
         assertNotNull(snapshot);
         assertEquals("DOWN", snapshot.apiHealth().status());
@@ -125,11 +126,5 @@ class CompactorDiagnosticsServiceTest {
         verify(connection, atLeastOnce()).setReadOnly(true);
         verify(statement).execute("SET statement_timeout TO '2000ms'");
         verify(statement).execute("SET statement_timeout TO '1s'");
-    }
-
-    private CompactorDiagnosticsDto.Snapshot invokeCollectSnapshot(CompactorDiagnosticsService service) throws Exception {
-        Method method = CompactorDiagnosticsService.class.getDeclaredMethod("collectSnapshot");
-        method.setAccessible(true);
-        return (CompactorDiagnosticsDto.Snapshot) method.invoke(service);
     }
 }
