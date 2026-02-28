@@ -31,7 +31,7 @@ import java.util.UUID;
 public class MarketSnapshotPersistenceService {
 
     private static final long SECONDS_PER_DAY = 86_400L;
-    private static final int FLIP_DELETE_BATCH_SIZE = 1_000;
+    private static final int DEFAULT_FLIP_DELETE_BATCH_SIZE = 1_000;
 
     private static final TypeReference<List<AuctionMarketRecord>> AUCTIONS_TYPE = new TypeReference<>() {};
     private static final TypeReference<Map<String, BazaarMarketRecord>> BAZAAR_TYPE = new TypeReference<>() {};
@@ -45,6 +45,8 @@ public class MarketSnapshotPersistenceService {
     private final long twoHourTierUpperSeconds;
     private final long minuteIntervalMillis;
     private final long twoHourIntervalMillis;
+    private final int flipDeleteBatchSize;
+    private final long flipDeleteBatchPauseMillis;
 
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
                                             FlipRepository flipRepository,
@@ -66,10 +68,19 @@ public class MarketSnapshotPersistenceService {
         long twoHourIntervalSeconds = sanitizeSeconds(configuredRetention.getTwoHourIntervalSeconds(), 2L * 60L * 60L);
         this.minuteIntervalMillis = minuteIntervalSeconds * 1_000L;
         this.twoHourIntervalMillis = twoHourIntervalSeconds * 1_000L;
+        this.flipDeleteBatchSize = sanitizePositiveInt(configuredRetention.getFlipDeleteBatchSize(), DEFAULT_FLIP_DELETE_BATCH_SIZE);
+        this.flipDeleteBatchPauseMillis = Math.max(0L, configuredRetention.getFlipDeleteBatchPauseMillis());
     }
 
     private long sanitizeSeconds(long configured, long fallback) {
         if (configured <= 0L) {
+            return fallback;
+        }
+        return configured;
+    }
+
+    private int sanitizePositiveInt(int configured, int fallback) {
+        if (configured <= 0) {
             return fallback;
         }
         return configured;
@@ -190,16 +201,45 @@ public class MarketSnapshotPersistenceService {
                 .toList();
 
         int deletedFlips = 0;
-        for (int fromIndex = 0; fromIndex < deletedSnapshotTimestamps.size(); fromIndex += FLIP_DELETE_BATCH_SIZE) {
-            int toIndex = Math.min(fromIndex + FLIP_DELETE_BATCH_SIZE, deletedSnapshotTimestamps.size());
+        int deletedStepRows = 0;
+        int deletedConstraintRows = 0;
+        for (int fromIndex = 0; fromIndex < deletedSnapshotTimestamps.size(); fromIndex += flipDeleteBatchSize) {
+            int toIndex = Math.min(fromIndex + flipDeleteBatchSize, deletedSnapshotTimestamps.size());
             List<Long> timestampBatch = deletedSnapshotTimestamps.subList(fromIndex, toIndex);
+            deletedStepRows += blockingTimeTracker.record(
+                    "db.flip.deleteOrphanStepsBySnapshotBatch",
+                    "db",
+                    () -> flipRepository.deleteOrphanStepRowsBySnapshotTimestampEpochMillisIn(timestampBatch)
+            );
+            deletedConstraintRows += blockingTimeTracker.record(
+                    "db.flip.deleteOrphanConstraintsBySnapshotBatch",
+                    "db",
+                    () -> flipRepository.deleteOrphanConstraintRowsBySnapshotTimestampEpochMillisIn(timestampBatch)
+            );
             deletedFlips += blockingTimeTracker.record(
                     "db.flip.deleteOrphansBySnapshotBatch",
                     "db",
                     () -> flipRepository.deleteOrphansBySnapshotTimestampEpochMillisIn(timestampBatch)
             );
+            if (flipDeleteBatchPauseMillis > 0L && toIndex < deletedSnapshotTimestamps.size()) {
+                pauseBetweenDeleteBatches();
+            }
+        }
+        if (deletedStepRows > 0 || deletedConstraintRows > 0) {
+            log.info("Compaction orphan child cleanup: deletedStepRows={} deletedConstraintRows={}",
+                    deletedStepRows,
+                    deletedConstraintRows);
         }
         return deletedFlips;
+    }
+
+    private void pauseBetweenDeleteBatches() {
+        try {
+            Thread.sleep(flipDeleteBatchPauseMillis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted during compaction delete batch pause");
+        }
     }
 
     private MarketSnapshot toDomain(MarketSnapshotEntity entity) {

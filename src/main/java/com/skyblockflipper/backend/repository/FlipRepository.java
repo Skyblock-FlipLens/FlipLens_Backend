@@ -68,6 +68,40 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
+    @Query(value = """
+            delete from flip_step
+            where flip_id in (
+                select f.id
+                from flip f
+                where f.snapshot_timestamp_epoch_millis in (:timestamps)
+                  and not exists (
+                        select 1
+                        from market_snapshot ms
+                        where ms.snapshot_timestamp_epoch_millis = f.snapshot_timestamp_epoch_millis
+                  )
+            )
+            """, nativeQuery = true)
+    int deleteOrphanStepRowsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query(value = """
+            delete from flip_constraints
+            where flip_id in (
+                select f.id
+                from flip f
+                where f.snapshot_timestamp_epoch_millis in (:timestamps)
+                  and not exists (
+                        select 1
+                        from market_snapshot ms
+                        where ms.snapshot_timestamp_epoch_millis = f.snapshot_timestamp_epoch_millis
+                  )
+            )
+            """, nativeQuery = true)
+    int deleteOrphanConstraintRowsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
     @Query("""
             delete from Flip f
             where f.snapshotTimestampEpochMillis in :timestamps

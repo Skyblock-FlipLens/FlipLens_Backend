@@ -12,6 +12,8 @@ public class SnapshotRetentionProperties {
     private long twoHourIntervalSeconds = 2L * 60L * 60L;
     private long ahAggregateDays = 30L;
     private long bzAggregateDays = 30L;
+    private int flipDeleteBatchSize = 1_000;
+    private long flipDeleteBatchPauseMillis = 0L;
 
     public long getRawWindowSeconds() {
         return rawWindowSeconds;
@@ -67,5 +69,21 @@ public class SnapshotRetentionProperties {
 
     public void setBzAggregateDays(long bzAggregateDays) {
         this.bzAggregateDays = bzAggregateDays;
+    }
+
+    public int getFlipDeleteBatchSize() {
+        return flipDeleteBatchSize;
+    }
+
+    public void setFlipDeleteBatchSize(int flipDeleteBatchSize) {
+        this.flipDeleteBatchSize = flipDeleteBatchSize;
+    }
+
+    public long getFlipDeleteBatchPauseMillis() {
+        return flipDeleteBatchPauseMillis;
+    }
+
+    public void setFlipDeleteBatchPauseMillis(long flipDeleteBatchPauseMillis) {
+        this.flipDeleteBatchPauseMillis = flipDeleteBatchPauseMillis;
     }
 }
