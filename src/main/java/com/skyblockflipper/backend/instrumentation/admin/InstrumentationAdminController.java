@@ -41,7 +41,21 @@ public class InstrumentationAdminController {
     @GetMapping("/jfr/report/latest")
     public Map<String, Object> latestReport(HttpServletRequest request) {
         adminAccessGuard.validate(request);
-        return jfrBlockingReportService.summarize(jfrRecordingManager.latestRecordingFile());
+        Path latest = jfrRecordingManager.latestRecordingFile();
+        Map<String, Object> primary = jfrBlockingReportService.summarize(latest);
+        if (!primary.containsKey("error")) {
+            return primary;
+        }
+
+        try {
+            Path snapshot = jfrRecordingManager.dumpSnapshot();
+            Map<String, Object> fallback = jfrBlockingReportService.summarize(snapshot);
+            if (!fallback.containsKey("error")) {
+                return fallback;
+            }
+        } catch (Exception ignored) {
+        }
+        return primary;
     }
 
     @PostMapping("/async-profiler/run")

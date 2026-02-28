@@ -86,11 +86,11 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
         if (running) {
             return;
         }
-        running = true;
         if (!properties.isEnabled()) {
             log.info("Compactor diagnostics disabled");
             return;
         }
+        running = true;
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "compactor-diagnostics");
             thread.setDaemon(true);

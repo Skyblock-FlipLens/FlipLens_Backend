@@ -72,6 +72,38 @@ class InstrumentationAdminControllerTest {
     }
 
     @Test
+    void latestReportFallsBackToSnapshotWhenLatestParseFails() {
+        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
+        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
+        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        InstrumentationProperties properties = new InstrumentationProperties();
+        Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
+        Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-1.jfr");
+        Map<String, Object> first = Map.of("error", "Failed to parse JFR: Not a Flight Recorder file");
+        Map<String, Object> fallback = Map.of("status", "ok");
+        when(jfrRecordingManager.latestRecordingFile()).thenReturn(latestPath);
+        when(reportService.summarize(latestPath)).thenReturn(first);
+        when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
+        when(reportService.summarize(snapshotPath)).thenReturn(fallback);
+        InstrumentationAdminController controller = new InstrumentationAdminController(
+                adminAccessGuard,
+                jfrRecordingManager,
+                reportService,
+                properties
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        Map<String, Object> result = controller.latestReport(request);
+
+        verify(adminAccessGuard, times(1)).validate(request);
+        verify(jfrRecordingManager, times(1)).latestRecordingFile();
+        verify(jfrRecordingManager, times(1)).dumpSnapshot();
+        verify(reportService, times(1)).summarize(latestPath);
+        verify(reportService, times(1)).summarize(snapshotPath);
+        assertEquals(fallback, result);
+    }
+
+    @Test
     void runAsyncProfilerReturnsNotFoundWhenDisabled() {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);

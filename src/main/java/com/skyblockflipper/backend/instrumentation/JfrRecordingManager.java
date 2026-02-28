@@ -103,6 +103,7 @@ public class JfrRecordingManager {
             try (Stream<Path> stream = Files.list(outputDir)) {
                 files = stream
                         .filter(path -> path.getFileName().toString().endsWith(".jfr"))
+                        .filter(path -> !path.getFileName().toString().startsWith("err_"))
                         .sorted(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed())
                         .toList();
             }

@@ -17,8 +17,10 @@ public class V7__AddPerformanceIndexes extends BaseJavaMigration {
 
     @Override
     public void migrate(Context context) throws Exception {
-        context.getConnection().setAutoCommit(true);
-        try (Statement statement = context.getConnection().createStatement()) {
+        var connection = context.getConnection();
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(true);
+        try (Statement statement = connection.createStatement()) {
             statement.execute("SET lock_timeout TO '5s'");
             statement.execute("SET statement_timeout TO '30min'");
             createIndex(statement, "idx_flip_snapshot_ts", """
@@ -33,6 +35,11 @@ public class V7__AddPerformanceIndexes extends BaseJavaMigration {
                     CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_flip_constraints_flip_id
                     ON public.flip_constraints (flip_id)
                     """);
+            statement.execute("RESET lock_timeout");
+            statement.execute("RESET statement_timeout");
+        }
+        finally {
+            connection.setAutoCommit(previousAutoCommit);
         }
     }
 
