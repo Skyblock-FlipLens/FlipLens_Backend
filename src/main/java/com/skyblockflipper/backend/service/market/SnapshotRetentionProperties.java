@@ -1,7 +1,11 @@
 package com.skyblockflipper.backend.service.market;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+@Setter
+@Getter
 @ConfigurationProperties(prefix = "config.snapshot.retention")
 public class SnapshotRetentionProperties {
 
@@ -12,60 +16,7 @@ public class SnapshotRetentionProperties {
     private long twoHourIntervalSeconds = 2L * 60L * 60L;
     private long ahAggregateDays = 30L;
     private long bzAggregateDays = 30L;
+    private int flipDeleteBatchSize = 1_000;
+    private long flipDeleteBatchPauseMillis = 0L;
 
-    public long getRawWindowSeconds() {
-        return rawWindowSeconds;
-    }
-
-    public void setRawWindowSeconds(long rawWindowSeconds) {
-        this.rawWindowSeconds = rawWindowSeconds;
-    }
-
-    public long getMinuteTierUpperSeconds() {
-        return minuteTierUpperSeconds;
-    }
-
-    public void setMinuteTierUpperSeconds(long minuteTierUpperSeconds) {
-        this.minuteTierUpperSeconds = minuteTierUpperSeconds;
-    }
-
-    public long getTwoHourTierUpperSeconds() {
-        return twoHourTierUpperSeconds;
-    }
-
-    public void setTwoHourTierUpperSeconds(long twoHourTierUpperSeconds) {
-        this.twoHourTierUpperSeconds = twoHourTierUpperSeconds;
-    }
-
-    public long getMinuteIntervalSeconds() {
-        return minuteIntervalSeconds;
-    }
-
-    public void setMinuteIntervalSeconds(long minuteIntervalSeconds) {
-        this.minuteIntervalSeconds = minuteIntervalSeconds;
-    }
-
-    public long getTwoHourIntervalSeconds() {
-        return twoHourIntervalSeconds;
-    }
-
-    public void setTwoHourIntervalSeconds(long twoHourIntervalSeconds) {
-        this.twoHourIntervalSeconds = twoHourIntervalSeconds;
-    }
-
-    public long getAhAggregateDays() {
-        return ahAggregateDays;
-    }
-
-    public void setAhAggregateDays(long ahAggregateDays) {
-        this.ahAggregateDays = ahAggregateDays;
-    }
-
-    public long getBzAggregateDays() {
-        return bzAggregateDays;
-    }
-
-    public void setBzAggregateDays(long bzAggregateDays) {
-        this.bzAggregateDays = bzAggregateDays;
-    }
 }
