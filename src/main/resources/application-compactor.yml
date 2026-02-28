@@ -28,6 +28,9 @@ diagnostics:
   db:
     enabled: ${DIAGNOSTICS_DB_ENABLED:true}
     statement-timeout: ${DIAGNOSTICS_DB_STATEMENT_TIMEOUT:2s}
+  output:
+    enabled: ${DIAGNOSTICS_OUTPUT_ENABLED:false}
+    file: ${DIAGNOSTICS_OUTPUT_FILE:var/profiling/diagnostics/compactor-diagnostics.jsonl}
 
 instrumentation:
   jfr:

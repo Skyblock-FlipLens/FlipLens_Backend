@@ -14,6 +14,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -134,9 +137,38 @@ public class CompactorDiagnosticsService implements SmartLifecycle {
         try {
             CompactorDiagnosticsDto.Snapshot snapshot = collectSnapshot();
             lastSnapshot.set(snapshot);
-            log.info("diagnostics_summary={}", objectMapper.writeValueAsString(snapshot));
+            String serialized = objectMapper.writeValueAsString(snapshot);
+            log.info("diagnostics_summary={}", serialized);
+            writeSnapshotToFile(serialized);
         } catch (Exception e) {
             log.warn("Compactor diagnostics probe failed: {}", e, e);
+        }
+    }
+
+    private void writeSnapshotToFile(String serializedSnapshot) {
+        CompactorDiagnosticsProperties.Output output = properties.getOutput();
+        if (!output.isEnabled()) {
+            return;
+        }
+        Path file = output.getFile();
+        if (file == null) {
+            log.warn("Diagnostics file output enabled but no file path configured");
+            return;
+        }
+        try {
+            Path parent = file.toAbsolutePath().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(
+                    file,
+                    serializedSnapshot + System.lineSeparator(),
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            );
+        } catch (Exception e) {
+            log.warn("Failed to append diagnostics snapshot to {}: {}", file, summarize(e), e);
         }
     }
 
