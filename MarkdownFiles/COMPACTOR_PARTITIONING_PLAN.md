@@ -49,7 +49,7 @@ Instead of large `DELETE ... WHERE ...`:
 
 - Create upcoming partitions proactively.
 - Mark old partitions as out-of-retention.
-- Use `DETACH PARTITION` and then `DROP TABLE` (or direct `DROP PARTITION` path) during low-load windows.
+- Use either `ALTER TABLE ... DETACH PARTITION` followed by `DROP TABLE` on the detached partition, or directly `DROP TABLE` on the partition table, during low-load windows.
 
 Expected outcome:
 
@@ -156,4 +156,3 @@ Partitioning work can start when:
 2. Migration plan (backfill + cutover + rollback) is approved.
 3. Observability and safety guards are specified and testable.
 4. CI/integration tests cover partitioned retention behavior and fallback logic.
-
