@@ -70,46 +70,37 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
     @Transactional
     @Query(value = """
             delete from flip_step
-            where flip_id in (
-                select f.id
-                from flip f
-                where f.snapshot_timestamp_epoch_millis in (:timestamps)
-                  and not exists (
-                        select 1
-                        from market_snapshot ms
-                        where ms.snapshot_timestamp_epoch_millis = f.snapshot_timestamp_epoch_millis
-                  )
-            )
+            where flip_id in (:flipIds)
             """, nativeQuery = true)
-    int deleteOrphanStepRowsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps);
+    int deleteStepRowsByFlipIdIn(@Param("flipIds") Collection<UUID> flipIds);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query(value = """
             delete from flip_constraints
-            where flip_id in (
-                select f.id
-                from flip f
-                where f.snapshot_timestamp_epoch_millis in (:timestamps)
-                  and not exists (
-                        select 1
-                        from market_snapshot ms
-                        where ms.snapshot_timestamp_epoch_millis = f.snapshot_timestamp_epoch_millis
-                  )
-            )
+            where flip_id in (:flipIds)
             """, nativeQuery = true)
-    int deleteOrphanConstraintRowsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps);
+    int deleteConstraintRowsByFlipIdIn(@Param("flipIds") Collection<UUID> flipIds);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query("""
             delete from Flip f
+            where f.id in :flipIds
+            """)
+    int deleteByIdIn(@Param("flipIds") Collection<UUID> flipIds);
+
+    @Query("""
+            select f.id
+            from Flip f
             where f.snapshotTimestampEpochMillis in :timestamps
               and not exists (
                     select 1
                     from MarketSnapshotEntity ms
                     where ms.snapshotTimestampEpochMillis = f.snapshotTimestampEpochMillis
               )
+            order by f.id
             """)
-    int deleteOrphansBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps);
+    List<UUID> findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps,
+                                                                  Pageable pageable);
 }
