@@ -1,7 +1,9 @@
 package com.skyblockflipper.backend.service.market;
 
+import com.skyblockflipper.backend.hypixel.AuctionProbeInfo;
 import com.skyblockflipper.backend.hypixel.HypixelClient;
 import com.skyblockflipper.backend.hypixel.HypixelMarketSnapshotMapper;
+import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
 import com.skyblockflipper.backend.instrumentation.CycleInstrumentationService;
@@ -19,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -407,30 +410,39 @@ public class MarketDataProcessingService {
             return;
         }
 
-        AuctionResponse fetched;
+        AuctionProbeInfo probe;
         try {
-            fetched = hypixelClient.fetchAllAuctionPages();
+            probe = hypixelClient.probeAuctionsLastUpdated();
         } catch (RuntimeException e) {
-            log.warn("Auction refresh failed, keeping cached payload: {}", e.getMessage());
-            fetched = null;
+            log.warn("Auction probe failed, keeping cached payload: {}", e.getMessage());
+            probe = null;
         }
         synchronized (pollStateLock) {
             try {
                 long decisionNow = nowSupplier.getAsLong();
-                if (fetched == null) {
+                if (probe == null) {
                     auctionCurrentIntervalMillis = growInterval(auctionCurrentIntervalMillis, auctionBaseIntervalMillis, auctionMaxIntervalMillis);
                     nextAuctionFetchAtMillis = decisionNow + Math.min(retryIntervalMillis, auctionCurrentIntervalMillis);
                     return;
                 }
 
-                long fetchedLastUpdated = fetched.getLastUpdated();
+                long fetchedLastUpdated = probe.lastUpdated();
                 boolean accepted = fetchedLastUpdated > 0L && fetchedLastUpdated >= lastAuctionLastUpdated;
                 boolean advanced = accepted && fetchedLastUpdated > lastAuctionLastUpdated;
                 if (accepted) {
-                    cachedAuctionResponse = fetched;
                     if (advanced) {
-                        lastAuctionLastUpdated = fetchedLastUpdated;
-                        auctionCurrentIntervalMillis = auctionBaseIntervalMillis;
+                        AuctionResponse streamedSnapshot = fetchFilteredAuctionSnapshotStreaming(probe);
+                        if (streamedSnapshot != null) {
+                            cachedAuctionResponse = streamedSnapshot;
+                            lastAuctionLastUpdated = fetchedLastUpdated;
+                            auctionCurrentIntervalMillis = auctionBaseIntervalMillis;
+                        } else {
+                            auctionCurrentIntervalMillis = growInterval(
+                                    auctionCurrentIntervalMillis,
+                                    auctionBaseIntervalMillis,
+                                    auctionMaxIntervalMillis
+                            );
+                        }
                     } else {
                         auctionCurrentIntervalMillis = growInterval(
                                 auctionCurrentIntervalMillis,
@@ -450,6 +462,52 @@ public class MarketDataProcessingService {
                 auctionRefreshInFlight = false;
             }
         }
+    }
+
+    private AuctionResponse fetchFilteredAuctionSnapshotStreaming(AuctionProbeInfo probe) {
+        List<Auction> filteredAuctions = new ArrayList<>();
+        try {
+            AuctionProbeInfo scanned = hypixelClient.fetchAllAuctionPages(auction -> {
+                if (auction == null || !auction.isBin() || auction.isClaimed()) {
+                    return;
+                }
+                filteredAuctions.add(toMinimalAuction(auction));
+            });
+            long lastUpdated = scanned.lastUpdated() > 0L ? scanned.lastUpdated() : probe.lastUpdated();
+            return new AuctionResponse(
+                    true,
+                    0,
+                    scanned.totalPages(),
+                    scanned.totalAuctions(),
+                    lastUpdated,
+                    filteredAuctions
+            );
+        } catch (RuntimeException e) {
+            log.warn("Auction commit scan failed, keeping cached payload: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Auction toMinimalAuction(Auction auction) {
+        return new Auction(
+                auction.getUuid(),
+                null,
+                null,
+                List.of(),
+                auction.getStart(),
+                auction.getEnd(),
+                auction.getItemName(),
+                null,
+                null,
+                auction.getCategory(),
+                auction.getTier(),
+                auction.getStartingBid(),
+                auction.isClaimed(),
+                auction.isBin(),
+                List.of(),
+                auction.getHighestBidAmount(),
+                List.of()
+        );
     }
 
     private void maybeRefreshBazaar(long now) {
