@@ -95,6 +95,16 @@ public class AdaptivePollingProperties {
         private long burstIntervalMs = 500;
         @Min(1)
         private long burstWindowMs = 4000;
+        @Min(1)
+        private long leadTimeMs = 2_000;
+        @Min(1)
+        private long graceWindowMs = 8_000;
+        @Min(1)
+        private long minProbeIntervalMs = 1_000;
+        @Min(1)
+        private long maxProbeIntervalMs = 15_000;
+        @Min(0)
+        private long jitterMs = 200;
         @NotNull
         private Duration backoffInterval = Duration.ofSeconds(2);
         @DecimalMin("0.1")

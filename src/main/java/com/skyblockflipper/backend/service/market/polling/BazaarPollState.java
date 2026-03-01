@@ -12,6 +12,8 @@ public class BazaarPollState {
     private long ewmaPeriodMs = 60_000L;
     private long nextExpectedAtMs = -1L;
     private Phase phase = Phase.SLEEP;
+    private long probeIntervalMs = 1_000L;
+    private int probeBackoffStep = 0;
 
     public synchronized long getLastSeenLastUpdated() {
         return lastSeenLastUpdated;
@@ -43,5 +45,21 @@ public class BazaarPollState {
 
     public synchronized void setPhase(Phase phase) {
         this.phase = phase;
+    }
+
+    public synchronized long getProbeIntervalMs() {
+        return probeIntervalMs;
+    }
+
+    public synchronized void setProbeIntervalMs(long probeIntervalMs) {
+        this.probeIntervalMs = probeIntervalMs;
+    }
+
+    public synchronized int getProbeBackoffStep() {
+        return probeBackoffStep;
+    }
+
+    public synchronized void setProbeBackoffStep(int probeBackoffStep) {
+        this.probeBackoffStep = probeBackoffStep;
     }
 }
