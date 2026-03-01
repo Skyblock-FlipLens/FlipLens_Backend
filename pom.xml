@@ -32,7 +32,8 @@
 		<maven.compiler.target>21</maven.compiler.target>
 		<assertj.version>3.27.7</assertj.version>
 		<logback.version>1.5.25</logback.version>
-		<jackson.core.version>3.1.0</jackson.core.version>
+		<jackson.tools.version>3.1.0</jackson.tools.version>
+		<jackson.fasterxml.core>2.21.1</jackson.fasterxml.core>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -105,7 +106,12 @@
 		<dependency>
 			<groupId>tools.jackson.core</groupId>
 			<artifactId>jackson-core</artifactId>
-			<version>${jackson.core.version}</version>
+			<version>${jackson.tools.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-core</artifactId>
+			<version>${jackson.fasterxml.core}</version>
 		</dependency>
 	</dependencies>
 
