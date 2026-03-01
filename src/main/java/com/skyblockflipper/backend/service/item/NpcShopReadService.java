@@ -1,7 +1,7 @@
 package com.skyblockflipper.backend.service.item;
 
 import com.skyblockflipper.backend.NEU.NEUClient;
-import com.skyblockflipper.backend.api.NpcShopOfferDto;
+import com.skyblockflipper.backend.api.dto.NpcShopOfferDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;

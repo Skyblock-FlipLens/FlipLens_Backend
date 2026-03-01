@@ -1,11 +1,11 @@
 package com.skyblockflipper.backend.service.item;
 
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.ItemQuickStatsDto;
-import com.skyblockflipper.backend.api.PriceHistoryRange;
-import com.skyblockflipper.backend.api.PricePointDto;
-import com.skyblockflipper.backend.api.ScorePointDto;
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.ItemQuickStatsDto;
+import com.skyblockflipper.backend.api.dto.PriceHistoryRange;
+import com.skyblockflipper.backend.api.dto.PricePointDto;
+import com.skyblockflipper.backend.api.dto.ScorePointDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;

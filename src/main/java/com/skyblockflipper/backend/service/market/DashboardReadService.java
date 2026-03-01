@@ -2,10 +2,10 @@ package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.NEU.model.Item;
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.DashboardOverviewDto;
-import com.skyblockflipper.backend.api.MarketplaceType;
-import com.skyblockflipper.backend.api.TrendingItemDto;
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.DashboardOverviewDto;
+import com.skyblockflipper.backend.api.dto.MarketplaceType;
+import com.skyblockflipper.backend.api.dto.TrendingItemDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;

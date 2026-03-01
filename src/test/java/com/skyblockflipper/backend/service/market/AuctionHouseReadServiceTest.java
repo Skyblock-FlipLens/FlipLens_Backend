@@ -2,9 +2,9 @@ package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.NEU.model.Item;
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.AhListingDto;
-import com.skyblockflipper.backend.api.AhListingSortBy;
-import com.skyblockflipper.backend.api.AhRecentSaleDto;
+import com.skyblockflipper.backend.api.dto.AhListingDto;
+import com.skyblockflipper.backend.api.dto.AhListingSortBy;
+import com.skyblockflipper.backend.api.dto.AhRecentSaleDto;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import org.junit.jupiter.api.Test;

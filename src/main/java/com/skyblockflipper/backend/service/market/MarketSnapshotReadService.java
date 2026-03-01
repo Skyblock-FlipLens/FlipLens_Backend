@@ -1,6 +1,6 @@
 package com.skyblockflipper.backend.service.market;
 
-import com.skyblockflipper.backend.api.MarketSnapshotDto;
+import com.skyblockflipper.backend.api.dto.MarketSnapshotDto;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
 import org.springframework.data.domain.Page;

@@ -1,10 +1,10 @@
 package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.AhListingBreakdownDto;
-import com.skyblockflipper.backend.api.AhListingDto;
-import com.skyblockflipper.backend.api.AhListingSortBy;
-import com.skyblockflipper.backend.api.AhRecentSaleDto;
+import com.skyblockflipper.backend.api.dto.AhListingBreakdownDto;
+import com.skyblockflipper.backend.api.dto.AhListingDto;
+import com.skyblockflipper.backend.api.dto.AhListingSortBy;
+import com.skyblockflipper.backend.api.dto.AhRecentSaleDto;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import org.springframework.data.domain.Page;

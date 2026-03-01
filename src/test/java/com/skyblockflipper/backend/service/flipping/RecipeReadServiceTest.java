@@ -1,7 +1,7 @@
 package com.skyblockflipper.backend.service.flipping;
 
 import com.skyblockflipper.backend.NEU.model.Item;
-import com.skyblockflipper.backend.api.RecipeDto;
+import com.skyblockflipper.backend.api.dto.RecipeDto;
 import com.skyblockflipper.backend.model.Flipping.Recipe.Recipe;
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeIngredient;
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeProcessType;

@@ -1,9 +1,9 @@
 package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.BazaarOrderBookDto;
-import com.skyblockflipper.backend.api.BazaarProductDto;
-import com.skyblockflipper.backend.api.BazaarQuickFlipDto;
+import com.skyblockflipper.backend.api.dto.BazaarOrderBookDto;
+import com.skyblockflipper.backend.api.dto.BazaarProductDto;
+import com.skyblockflipper.backend.api.dto.BazaarQuickFlipDto;
 import com.skyblockflipper.backend.hypixel.HypixelClient;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;

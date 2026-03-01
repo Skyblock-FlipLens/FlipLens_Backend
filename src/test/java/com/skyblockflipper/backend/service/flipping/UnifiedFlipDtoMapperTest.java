@@ -1,6 +1,6 @@
 package com.skyblockflipper.backend.service.flipping;
 
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Constraint;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;

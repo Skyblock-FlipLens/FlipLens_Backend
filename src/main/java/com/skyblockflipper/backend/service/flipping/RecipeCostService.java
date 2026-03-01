@@ -1,7 +1,7 @@
 package com.skyblockflipper.backend.service.flipping;
 
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.RecipeCostBreakdownDto;
+import com.skyblockflipper.backend.api.dto.RecipeCostBreakdownDto;
 import com.skyblockflipper.backend.model.Flipping.Recipe.Recipe;
 import com.skyblockflipper.backend.model.Flipping.Recipe.RecipeIngredient;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;

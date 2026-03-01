@@ -2,8 +2,8 @@ package com.skyblockflipper.backend.service.item;
 
 import com.skyblockflipper.backend.NEU.model.Item;
 import com.skyblockflipper.backend.NEU.repository.ItemRepository;
-import com.skyblockflipper.backend.api.ItemDto;
-import com.skyblockflipper.backend.api.MarketplaceType;
+import com.skyblockflipper.backend.api.dto.ItemDto;
+import com.skyblockflipper.backend.api.dto.MarketplaceType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;

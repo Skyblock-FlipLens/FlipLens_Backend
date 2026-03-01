@@ -1,7 +1,7 @@
 package com.skyblockflipper.backend.service.flipping.storage;
 
 import com.skyblockflipper.backend.NEU.model.Item;
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.Flipping.Recipe.Recipe;

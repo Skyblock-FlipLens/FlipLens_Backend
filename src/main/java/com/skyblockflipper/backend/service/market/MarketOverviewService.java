@@ -1,7 +1,7 @@
 package com.skyblockflipper.backend.service.market;
 
-import com.skyblockflipper.backend.api.MarketOverviewDto;
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.MarketOverviewDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;

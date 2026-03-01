@@ -1,13 +1,13 @@
 package com.skyblockflipper.backend.service.flipping;
 
-import com.skyblockflipper.backend.api.FlipCoverageDto;
-import com.skyblockflipper.backend.api.FlipGoodnessDto;
-import com.skyblockflipper.backend.api.FlipSnapshotStatsDto;
-import com.skyblockflipper.backend.api.FlipSortBy;
-import com.skyblockflipper.backend.api.FlipTypesDto;
-import com.skyblockflipper.backend.api.FlipSummaryStatsDto;
-import com.skyblockflipper.backend.api.OffsetLimitPageRequest;
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.FlipCoverageDto;
+import com.skyblockflipper.backend.api.dto.FlipGoodnessDto;
+import com.skyblockflipper.backend.api.dto.FlipSnapshotStatsDto;
+import com.skyblockflipper.backend.api.dto.FlipSortBy;
+import com.skyblockflipper.backend.api.dto.FlipTypesDto;
+import com.skyblockflipper.backend.api.dto.FlipSummaryStatsDto;
+import com.skyblockflipper.backend.api.dto.OffsetLimitPageRequest;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.config.properties.FlippingModelProperties;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;

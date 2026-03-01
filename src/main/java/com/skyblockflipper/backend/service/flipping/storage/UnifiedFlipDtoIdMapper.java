@@ -1,6 +1,6 @@
 package com.skyblockflipper.backend.service.flipping.storage;
 
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 
 import java.util.UUID;
 

@@ -1,6 +1,6 @@
 package com.skyblockflipper.backend.service.flipping.storage;
 
-import com.skyblockflipper.backend.api.UnifiedFlipDto;
+import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import org.junit.jupiter.api.Test;
 

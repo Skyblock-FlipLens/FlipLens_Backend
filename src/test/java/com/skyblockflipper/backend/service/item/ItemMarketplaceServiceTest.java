@@ -1,7 +1,7 @@
 package com.skyblockflipper.backend.service.item;
 
 import com.skyblockflipper.backend.NEU.model.Item;
-import com.skyblockflipper.backend.api.MarketplaceType;
+import com.skyblockflipper.backend.api.dto.MarketplaceType;
 import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
