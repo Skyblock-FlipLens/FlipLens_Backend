@@ -18,15 +18,13 @@ import tools.jackson.databind.JsonNode;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
 public class HypixelClient {
     // Base URL already contains /v2 (see config.hypixel.api-url), so this stays resource-relative.
     private static final String ELECTION_RESOURCE_PATH = "/resources/skyblock/election";
-    private static final int MAX_AUCTION_PREALLOC = 100_000;
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(8);
 
@@ -65,20 +63,34 @@ public class HypixelClient {
         return result;
     }
 
-    public List<Auction> fetchAllAuctions() {
-        return fetchAllAuctionPages().getAuctions();
+    public AuctionProbeInfo probeAuctionsLastUpdated() {
+        AuctionResponse firstPage = fetchAuctionPage(0);
+        if (firstPage == null || !firstPage.isSuccess()) {
+            throw new IllegalStateException("Failed to probe auctions page 0 from Hypixel API.");
+        }
+        return new AuctionProbeInfo(
+                firstPage.getLastUpdated(),
+                firstPage.getTotalPages(),
+                firstPage.getTotalAuctions()
+        );
     }
 
-    public AuctionResponse fetchAllAuctionPages() {
+    public AuctionProbeInfo fetchAllAuctionPages(Consumer<Auction> onAuction) {
         AuctionResponse firstPage = fetchAuctionPage(0);
         if (firstPage == null) {
             throw new IllegalStateException("Failed to fetch auctions page 0 from Hypixel API.");
         }
+        scanAllAuctionPages(firstPage, onAuction);
+        return new AuctionProbeInfo(
+                firstPage.getLastUpdated(),
+                firstPage.getTotalPages(),
+                firstPage.getTotalAuctions()
+        );
+    }
 
-        int expectedSize = Math.min(Math.max(0, firstPage.getTotalAuctions()), MAX_AUCTION_PREALLOC);
-        List<Auction> allAuctions = new ArrayList<>(expectedSize);
+    private void scanAllAuctionPages(AuctionResponse firstPage, Consumer<Auction> onAuction) {
         if (firstPage.getAuctions() != null) {
-            allAuctions.addAll(firstPage.getAuctions());
+            firstPage.getAuctions().forEach(onAuction);
         }
         for (int page = 1; page < firstPage.getTotalPages(); page++) {
             AuctionResponse nextPage = fetchAuctionPage(page);
@@ -86,17 +98,9 @@ public class HypixelClient {
                 throw new IllegalStateException("Failed to fetch auctions page " + page + " from Hypixel API.");
             }
             if (nextPage.getAuctions() != null) {
-                allAuctions.addAll(nextPage.getAuctions());
+                nextPage.getAuctions().forEach(onAuction);
             }
         }
-        return new AuctionResponse(
-                true,
-                0,
-                firstPage.getTotalPages(),
-                firstPage.getTotalAuctions(),
-                firstPage.getLastUpdated(),
-                allAuctions
-        );
     }
 
     public BazaarResponse fetchBazaar() {

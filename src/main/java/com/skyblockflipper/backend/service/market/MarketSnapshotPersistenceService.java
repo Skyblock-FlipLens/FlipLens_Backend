@@ -11,7 +11,9 @@ import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -48,12 +50,14 @@ public class MarketSnapshotPersistenceService {
     private final long twoHourIntervalMillis;
     private final int flipDeleteBatchSize;
     private final long flipDeleteBatchPauseMillis;
+    private final TransactionTemplate requiresNewTransactionTemplate;
 
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
                                             FlipRepository flipRepository,
                                             ObjectMapper objectMapper,
                                             BlockingTimeTracker blockingTimeTracker,
-                                            SnapshotRetentionProperties retentionProperties) {
+                                            SnapshotRetentionProperties retentionProperties,
+                                            PlatformTransactionManager transactionManager) {
         this.marketSnapshotRepository = marketSnapshotRepository;
         this.flipRepository = flipRepository;
         this.objectMapper = objectMapper;
@@ -71,6 +75,8 @@ public class MarketSnapshotPersistenceService {
         this.twoHourIntervalMillis = twoHourIntervalSeconds * 1_000L;
         this.flipDeleteBatchSize = sanitizePositiveInt(configuredRetention.getFlipDeleteBatchSize(), DEFAULT_FLIP_DELETE_BATCH_SIZE);
         this.flipDeleteBatchPauseMillis = Math.max(0L, configuredRetention.getFlipDeleteBatchPauseMillis());
+        this.requiresNewTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.requiresNewTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     private long sanitizeSeconds(long configured, long fallback) {
@@ -134,7 +140,6 @@ public class MarketSnapshotPersistenceService {
         return compactSnapshots(Instant.now());
     }
 
-    @Transactional
     public SnapshotCompactionResult compactSnapshots(Instant now) {
         Instant safeNow = now == null ? Instant.now() : now;
         long nowMillis = safeNow.toEpochMilli();
@@ -178,8 +183,7 @@ public class MarketSnapshotPersistenceService {
         }
 
         if (!toDelete.isEmpty()) {
-            blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(toDelete));
-            int deletedFlips = deleteOrphanedFlipsForDeletedSnapshots(candidates, toDelete);
+            int deletedFlips = deleteSnapshotsAndOrphansInBatches(candidates, toDelete);
             if (deletedFlips > 0) {
                 log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
             }
@@ -189,65 +193,42 @@ public class MarketSnapshotPersistenceService {
         return new SnapshotCompactionResult(candidates.size(), toDelete.size(), keptCount);
     }
 
-    private int deleteOrphanedFlipsForDeletedSnapshots(List<MarketSnapshotCompactionCandidate> candidates, List<UUID> deletedSnapshotIds) {
+    private int deleteSnapshotsAndOrphansInBatches(List<MarketSnapshotCompactionCandidate> candidates, List<UUID> deletedSnapshotIds) {
         if (deletedSnapshotIds.isEmpty()) {
             return 0;
         }
 
         Set<UUID> deletedSnapshotIdSet = new HashSet<>(deletedSnapshotIds);
-        List<Long> deletedSnapshotTimestamps = candidates.stream()
+        List<SnapshotDeleteCandidate> deleteCandidates = candidates.stream()
                 .filter(candidate -> deletedSnapshotIdSet.contains(candidate.getId()))
-                .map(MarketSnapshotCompactionCandidate::getSnapshotTimestampEpochMillis)
-                .distinct()
+                .map(candidate -> new SnapshotDeleteCandidate(candidate.getId(), candidate.getSnapshotTimestampEpochMillis()))
                 .toList();
 
         int deletedFlips = 0;
         int deletedStepRows = 0;
         int deletedConstraintRows = 0;
-        for (int fromIndex = 0; fromIndex < deletedSnapshotTimestamps.size(); fromIndex += flipDeleteBatchSize) {
-            int toIndex = Math.min(fromIndex + flipDeleteBatchSize, deletedSnapshotTimestamps.size());
-            List<Long> timestampBatch = deletedSnapshotTimestamps.subList(fromIndex, toIndex);
-            while (true) {
-                List<UUID> orphanFlipIds = blockingTimeTracker.record(
-                        "db.flip.findOrphanIdsBySnapshotBatch",
-                        "db",
-                        () -> flipRepository.findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(
-                                timestampBatch,
-                                PageRequest.of(0, flipDeleteBatchSize)
-                        )
-                );
-                if (orphanFlipIds.isEmpty()) {
-                    break;
-                }
+        for (int fromIndex = 0; fromIndex < deleteCandidates.size(); fromIndex += flipDeleteBatchSize) {
+            int toIndex = Math.min(fromIndex + flipDeleteBatchSize, deleteCandidates.size());
+            int batchFromIndex = fromIndex;
+            int batchToIndex = toIndex;
+            List<SnapshotDeleteCandidate> deleteBatch = deleteCandidates.subList(fromIndex, toIndex);
+            List<UUID> snapshotIdBatch = deleteBatch.stream().map(SnapshotDeleteCandidate::id).toList();
+            List<Long> timestampBatch = deleteBatch.stream()
+                    .map(SnapshotDeleteCandidate::timestampEpochMillis)
+                    .distinct()
+                    .toList();
 
-                deletedStepRows += blockingTimeTracker.record(
-                        "db.flip.deleteStepsByFlipIdBatch",
-                        "db",
-                        () -> flipRepository.deleteStepRowsByFlipIdIn(orphanFlipIds)
-                );
-                deletedConstraintRows += blockingTimeTracker.record(
-                        "db.flip.deleteConstraintsByFlipIdBatch",
-                        "db",
-                        () -> flipRepository.deleteConstraintRowsByFlipIdIn(orphanFlipIds)
-                );
-                int deletedFlipsInChunk = blockingTimeTracker.record(
-                        "db.flip.deleteByFlipIdBatch",
-                        "db",
-                        () -> flipRepository.deleteByIdIn(orphanFlipIds)
-                );
-                deletedFlips += deletedFlipsInChunk;
-
-                if (deletedFlipsInChunk == 0) {
-                    log.warn("Compaction orphan cleanup made no progress for timestamp batch {}-{}; stopping this batch to avoid tight loop.",
-                            fromIndex,
-                            toIndex);
-                    break;
-                }
-                if (flipDeleteBatchPauseMillis > 0L) {
-                    pauseBetweenDeleteBatches();
-                }
+            BatchDeleteStats batchStats = requiresNewTransactionTemplate.execute(status -> {
+                blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(snapshotIdBatch));
+                return deleteOrphanedFlipsForSnapshotTimestampBatch(timestampBatch, batchFromIndex, batchToIndex);
+            });
+            if (batchStats != null) {
+                deletedFlips += batchStats.deletedFlips();
+                deletedStepRows += batchStats.deletedStepRows();
+                deletedConstraintRows += batchStats.deletedConstraintRows();
             }
-            if (flipDeleteBatchPauseMillis > 0L && toIndex < deletedSnapshotTimestamps.size()) {
+
+            if (flipDeleteBatchPauseMillis > 0L && toIndex < deleteCandidates.size()) {
                 pauseBetweenDeleteBatches();
             }
         }
@@ -257,6 +238,52 @@ public class MarketSnapshotPersistenceService {
                     deletedConstraintRows);
         }
         return deletedFlips;
+    }
+
+    private BatchDeleteStats deleteOrphanedFlipsForSnapshotTimestampBatch(List<Long> timestampBatch,
+                                                                           int fromIndex,
+                                                                           int toIndex) {
+        int deletedFlips = 0;
+        int deletedStepRows = 0;
+        int deletedConstraintRows = 0;
+        while (true) {
+            List<UUID> orphanFlipIds = blockingTimeTracker.record(
+                    "db.flip.findOrphanIdsBySnapshotBatch",
+                    "db",
+                    () -> flipRepository.findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(
+                            timestampBatch,
+                            PageRequest.of(0, flipDeleteBatchSize)
+                    )
+            );
+            if (orphanFlipIds.isEmpty()) {
+                break;
+            }
+
+            deletedStepRows += blockingTimeTracker.record(
+                    "db.flip.deleteStepsByFlipIdBatch",
+                    "db",
+                    () -> flipRepository.deleteStepRowsByFlipIdIn(orphanFlipIds)
+            );
+            deletedConstraintRows += blockingTimeTracker.record(
+                    "db.flip.deleteConstraintsByFlipIdBatch",
+                    "db",
+                    () -> flipRepository.deleteConstraintRowsByFlipIdIn(orphanFlipIds)
+            );
+            int deletedFlipsInChunk = blockingTimeTracker.record(
+                    "db.flip.deleteByFlipIdBatch",
+                    "db",
+                    () -> flipRepository.deleteByIdIn(orphanFlipIds)
+            );
+            deletedFlips += deletedFlipsInChunk;
+
+            if (deletedFlipsInChunk == 0) {
+                log.warn("Compaction orphan cleanup made no progress for timestamp batch {}-{}; stopping this batch to avoid tight loop.",
+                        fromIndex,
+                        toIndex);
+                break;
+            }
+        }
+        return new BatchDeleteStats(deletedFlips, deletedStepRows, deletedConstraintRows);
     }
 
     private void pauseBetweenDeleteBatches() {
@@ -283,5 +310,11 @@ public class MarketSnapshotPersistenceService {
             int deletedCount,
             int keptCount
     ) {
+    }
+
+    private record SnapshotDeleteCandidate(UUID id, long timestampEpochMillis) {
+    }
+
+    private record BatchDeleteStats(int deletedFlips, int deletedStepRows, int deletedConstraintRows) {
     }
 }

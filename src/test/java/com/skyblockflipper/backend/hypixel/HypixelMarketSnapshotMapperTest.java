@@ -15,6 +15,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HypixelMarketSnapshotMapperTest {
@@ -45,6 +46,8 @@ class HypixelMarketSnapshotMapperTest {
         assertEquals(1, snapshot.auctions().size());
         assertEquals("ENCHANTED_DIAMOND", snapshot.auctions().getFirst().itemName());
         assertTrue(snapshot.auctions().getFirst().bin());
+        assertNull(snapshot.auctions().getFirst().itemLore());
+        assertNull(snapshot.auctions().getFirst().extra());
         assertEquals(1, snapshot.bazaarProducts().size());
 
         BazaarMarketRecord record = snapshot.bazaarProducts().get("ENCHANTED_DIAMOND");

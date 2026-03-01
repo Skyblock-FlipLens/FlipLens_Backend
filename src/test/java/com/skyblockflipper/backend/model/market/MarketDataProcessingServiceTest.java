@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.model.market;
 
+import com.skyblockflipper.backend.hypixel.AuctionProbeInfo;
 import com.skyblockflipper.backend.hypixel.HypixelClient;
 import com.skyblockflipper.backend.hypixel.HypixelMarketSnapshotMapper;
 import com.skyblockflipper.backend.hypixel.model.Auction;
@@ -66,7 +67,7 @@ class MarketDataProcessingServiceTest {
         BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
         BazaarResponse bazaarResponse = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
 
-        when(client.fetchAllAuctionPages()).thenReturn(auctionResponse);
+        mockAuctionStreaming(client, auctionResponse);
         when(client.fetchBazaar()).thenReturn(bazaarResponse);
         when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -87,7 +88,7 @@ class MarketDataProcessingServiceTest {
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         MarketDataProcessingService service = new MarketDataProcessingService(client, snapshotMapper, persistenceService, inputMapper);
 
-        when(client.fetchAllAuctionPages()).thenReturn(null);
+        when(client.probeAuctionsLastUpdated()).thenThrow(new RuntimeException("probe failed"));
         when(client.fetchBazaar()).thenReturn(null);
 
         assertTrue(service.captureCurrentSnapshotAndPrepareInput().isEmpty());
@@ -112,7 +113,7 @@ class MarketDataProcessingServiceTest {
         BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
         BazaarResponse bazaarResponse = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
 
-        when(client.fetchAllAuctionPages()).thenReturn(auctionResponse);
+        mockAuctionStreaming(client, auctionResponse);
         when(client.fetchBazaar()).thenReturn(bazaarResponse);
         when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -120,7 +121,7 @@ class MarketDataProcessingServiceTest {
         service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
         service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
 
-        verify(client, times(1)).fetchAllAuctionPages();
+        verify(client, times(1)).probeAuctionsLastUpdated();
         verify(client, times(1)).fetchBazaar();
         verify(persistenceService, times(2)).save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class));
     }
@@ -153,9 +154,23 @@ class MarketDataProcessingServiceTest {
         BazaarResponse staleCachedBazaar = new BazaarResponse(true, 9_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
         BazaarResponse freshBazaar = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
 
-        when(client.fetchAllAuctionPages()).thenAnswer(invocation -> {
+        when(client.probeAuctionsLastUpdated()).thenAnswer(invocation -> {
             nowMillis.addAndGet(40L);
-            return auctionResponse;
+            return new AuctionProbeInfo(
+                    auctionResponse.getLastUpdated(),
+                    auctionResponse.getTotalPages(),
+                    auctionResponse.getTotalAuctions()
+            );
+        });
+        when(client.fetchAllAuctionPages(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<Auction> consumer = invocation.getArgument(0);
+            auctionResponse.getAuctions().forEach(consumer);
+            return new AuctionProbeInfo(
+                    auctionResponse.getLastUpdated(),
+                    auctionResponse.getTotalPages(),
+                    auctionResponse.getTotalAuctions()
+            );
         });
         when(client.fetchBazaar()).thenReturn(freshBazaar);
         when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
@@ -203,7 +218,21 @@ class MarketDataProcessingServiceTest {
         BazaarResponse freshBazaar = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
         BazaarResponse staleBazaar = new BazaarResponse(true, 10_500L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
 
-        when(client.fetchAllAuctionPages()).thenReturn(freshAuction, staleAuction);
+        when(client.probeAuctionsLastUpdated())
+                .thenReturn(
+                        new AuctionProbeInfo(freshAuction.getLastUpdated(), freshAuction.getTotalPages(), freshAuction.getTotalAuctions()),
+                        new AuctionProbeInfo(staleAuction.getLastUpdated(), staleAuction.getTotalPages(), staleAuction.getTotalAuctions())
+                );
+        when(client.fetchAllAuctionPages(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<Auction> consumer = invocation.getArgument(0);
+            freshAuction.getAuctions().forEach(consumer);
+            return new AuctionProbeInfo(
+                    freshAuction.getLastUpdated(),
+                    freshAuction.getTotalPages(),
+                    freshAuction.getTotalAuctions()
+            );
+        });
         when(client.fetchBazaar()).thenReturn(freshBazaar, staleBazaar);
         when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -257,7 +286,7 @@ class MarketDataProcessingServiceTest {
 
         AuctionResponse auctionResponse = auctionResponse(10_000L);
         BazaarResponse bazaarResponse = bazaarResponse(11_000L);
-        when(client.fetchAllAuctionPages()).thenReturn(auctionResponse);
+        mockAuctionStreaming(client, auctionResponse);
         when(client.fetchBazaar()).thenReturn(bazaarResponse);
         when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(ahAggregator.aggregate(any(Instant.class), anyList()))
@@ -317,7 +346,7 @@ class MarketDataProcessingServiceTest {
                 System::currentTimeMillis
         );
 
-        when(client.fetchAllAuctionPages()).thenReturn(auctionResponse(10_000L));
+        mockAuctionStreaming(client, auctionResponse(10_000L));
         when(client.fetchBazaar()).thenReturn(bazaarResponse(11_000L));
 
         UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
@@ -411,5 +440,23 @@ class MarketDataProcessingServiceTest {
                 new SimpleMeterRegistry(),
                 new BlockingTimeTracker(new InstrumentationProperties())
         );
+    }
+
+    private static void mockAuctionStreaming(HypixelClient client, AuctionResponse response) {
+        when(client.probeAuctionsLastUpdated()).thenReturn(new AuctionProbeInfo(
+                response.getLastUpdated(),
+                response.getTotalPages(),
+                response.getTotalAuctions()
+        ));
+        when(client.fetchAllAuctionPages(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<Auction> consumer = invocation.getArgument(0);
+            response.getAuctions().forEach(consumer);
+            return new AuctionProbeInfo(
+                    response.getLastUpdated(),
+                    response.getTotalPages(),
+                    response.getTotalAuctions()
+            );
+        });
     }
 }

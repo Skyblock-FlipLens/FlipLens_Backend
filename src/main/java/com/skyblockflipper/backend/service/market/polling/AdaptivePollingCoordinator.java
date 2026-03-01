@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.hypixel.HypixelConditionalClient;
 import com.skyblockflipper.backend.hypixel.HypixelHttpResult;
 import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
+import com.skyblockflipper.backend.hypixel.model.Auction.Bid;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarQuickStatus;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,6 +47,8 @@ public class AdaptivePollingCoordinator {
     private static final int MAX_GENERATION_SCHEDULE_RETRY_ATTEMPTS = 3;
     private static final Duration GENERATION_SCHEDULE_RETRY_BASE_DELAY = Duration.ofMillis(250);
     private static final Duration START_SCHEDULE_FAILURE_RETRY_DELAY = Duration.ofSeconds(1);
+    private static final double AUCTIONS_EWMA_ALPHA = 0.25d;
+    private static final double BAZAAR_EWMA_ALPHA = 0.25d;
 
     private final AdaptivePollingProperties adaptivePollingProperties;
     private final TaskScheduler taskScheduler;
@@ -59,6 +63,11 @@ public class AdaptivePollingCoordinator {
     private final ExecutorService generationFallbackExecutor;
     private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
     private final AtomicBoolean auctionsStarted = new AtomicBoolean(false);
+    private final AtomicLong lastCommittedAuctionLastUpdated = new AtomicLong(-1L);
+    private final AtomicBoolean auctionCommitInFlight = new AtomicBoolean(false);
+    private final AtomicBoolean bazaarCommitInFlight = new AtomicBoolean(false);
+    private final AuctionPollState auctionPollState = new AuctionPollState();
+    private final BazaarPollState bazaarPollState = new BazaarPollState();
     private final AtomicLong latestSnapshotEpochMillisToGenerate = new AtomicLong(-1L);
     private final AtomicBoolean generationWorkerScheduledOrRunning = new AtomicBoolean(false);
     private volatile boolean shutdownRequested = false;
@@ -196,6 +205,20 @@ public class AdaptivePollingCoordinator {
                 this::processAuctionsUpdate
         );
         AdaptivePoller.PollExecutor<AuctionResponse> pollExecutor = detector -> {
+            long nowMillis = System.currentTimeMillis();
+            long sleepDelay = computeSleepDelay(nowMillis, auctionPollState.getNextExpectedAtMs(), endpointCfg.getLeadTimeMs(), endpointCfg.getJitterMs());
+            if (sleepDelay > 0L) {
+                setAuctionPhase(AuctionPollState.Phase.SLEEP);
+                return new AdaptivePoller.PollExecution<>(
+                        ChangeDetector.ChangeDecision.noChange(),
+                        null,
+                        auctionPollState.getLastSeenLastUpdated(),
+                        HypixelHttpResult.success(200, org.springframework.http.HttpHeaders.EMPTY, null),
+                        sleepDelay
+                );
+            }
+
+            setAuctionPhase(AuctionPollState.Phase.PROBE);
             ChangeDetector.ConditionalHeaders conditionalHeaders = detector.conditionalHeaders();
             HypixelHttpResult<AuctionResponse> probe = client.fetchAuctionPage(
                     endpointCfg.getPath(),
@@ -203,20 +226,118 @@ public class AdaptivePollingCoordinator {
                     conditionalHeaders.ifNoneMatch(),
                     conditionalHeaders.ifModifiedSince()
             );
-            String probeHash = hashAuctionsProbe(probe.body());
-            ChangeDetector.ChangeDecision decision = detector.evaluate(probe, probeHash);
-            if (!decision.isChanged()) {
-                long changeTs = probe.body() == null ? 0L : probe.body().getLastUpdated();
-                return new AdaptivePoller.PollExecution<>(decision, null, changeTs, probe);
+            AuctionResponse probeBody = probe.body();
+            if (adaptivePollingProperties.getDebug().isLogPhaseTransitions()) {
+                log.info("Adaptive auctions phase=PROBE status={} transportError={}",
+                        probe.statusCode(),
+                        probe.transportError());
             }
-            if (probe.body() == null || !probe.body().isSuccess()) {
+            String probeHash = hashAuctionsProbe(probeBody);
+            ChangeDetector.ChangeDecision decision = detector.evaluate(probe, probeHash);
+            if (decision.isChanged() && probeBody != null && probeBody.isSuccess()) {
+                long probeLastUpdated = probeBody.getLastUpdated();
+                long lastCommitted = lastCommittedAuctionLastUpdated.get();
+                if (adaptivePollingProperties.getDebug().isLogLastUpdated()) {
+                    log.info("Adaptive auctions probe lastUpdated={} lastCommitted={} ewmaPeriodMs={} nextExpectedAtMs={}",
+                            probeLastUpdated,
+                            lastCommitted,
+                            auctionPollState.getEwmaPeriodMs(),
+                            auctionPollState.getNextExpectedAtMs());
+                }
+                if (probeLastUpdated > 0L && probeLastUpdated <= lastCommitted) {
+                    long noChangeDelay = updateProbeBackoff(
+                            nowMillis,
+                            auctionPollState.getNextExpectedAtMs(),
+                            endpointCfg,
+                            true,
+                            auctionPollState.getProbeBackoffStep(),
+                            auctionPollState.getProbeIntervalMs(),
+                            true
+                    );
+                    setAuctionPhase(AuctionPollState.Phase.SLEEP);
+                    return new AdaptivePoller.PollExecution<>(
+                            ChangeDetector.ChangeDecision.noChange(),
+                            null,
+                            probeLastUpdated,
+                            probe,
+                            noChangeDelay
+                    );
+                }
+            }
+            if (!decision.isChanged()) {
+                long changeTs = probeBody == null ? 0L : probeBody.getLastUpdated();
+                long noChangeDelay = updateProbeBackoff(
+                        nowMillis,
+                        auctionPollState.getNextExpectedAtMs(),
+                        endpointCfg,
+                        true,
+                        auctionPollState.getProbeBackoffStep(),
+                        auctionPollState.getProbeIntervalMs(),
+                        true
+                );
+                setAuctionPhase(AuctionPollState.Phase.SLEEP);
+                return new AdaptivePoller.PollExecution<>(decision, null, changeTs, probe, noChangeDelay);
+            }
+            if (probeBody == null || !probeBody.isSuccess()) {
+                setAuctionPhase(AuctionPollState.Phase.SLEEP);
                 return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.error(), null, 0L, probe);
             }
-            HypixelHttpResult<AuctionResponse> full = client.fetchAllAuctionPages(endpointCfg.getPath(), probe.body());
-            if (!full.isSuccessful() || full.body() == null || !full.body().isSuccess()) {
-                return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.error(), null, 0L, full);
+            if (!auctionCommitInFlight.compareAndSet(false, true)) {
+                long delay = Math.max(endpointCfg.getMinProbeIntervalMs(), auctionPollState.getProbeIntervalMs());
+                return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.noChange(), null, probeBody.getLastUpdated(), probe, applyJitter(delay, endpointCfg.getJitterMs()));
             }
-            return new AdaptivePoller.PollExecution<>(decision, full.body(), full.body().getLastUpdated(), full);
+            setAuctionPhase(AuctionPollState.Phase.COMMIT_IN_FLIGHT);
+            long commitStartNanos = System.nanoTime();
+            List<Auction> filteredAuctions = new ArrayList<>();
+            try {
+                HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> full = client.fetchAllAuctionPages(
+                        endpointCfg.getPath(),
+                        probeBody,
+                        auction -> {
+                            if (auction == null || !auction.isBin() || auction.isClaimed()) {
+                                return;
+                            }
+                            filteredAuctions.add(toMinimalAuction(auction));
+                        }
+                );
+                if (!full.isSuccessful() || full.body() == null) {
+                    setAuctionPhase(AuctionPollState.Phase.SLEEP);
+                    return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.error(), null, 0L, full);
+                }
+                HypixelConditionalClient.AuctionScanSummary scanSummary = full.body();
+                updateAuctionPredictionState(scanSummary.lastUpdated(), nowMillis, endpointCfg);
+                if (adaptivePollingProperties.getDebug().isLogCommitStats()) {
+                    long durationMillis = (System.nanoTime() - commitStartNanos) / 1_000_000L;
+                    log.info("Adaptive auctions commit lastUpdated={} totalPages={} pagesFetched={} auctionsSeen={} auctionsKept={} durationMs={}",
+                            scanSummary.lastUpdated(),
+                            scanSummary.totalPages(),
+                            scanSummary.pagesFetched(),
+                            scanSummary.auctionsSeen(),
+                            filteredAuctions.size(),
+                            durationMillis);
+                }
+                meterRegistry.summary("skyblock.adaptive.auctions.pages_fetched").record(scanSummary.pagesFetched());
+                meterRegistry.summary("skyblock.adaptive.auctions.seen_count").record(scanSummary.auctionsSeen());
+                meterRegistry.summary("skyblock.adaptive.auctions.kept_count").record(filteredAuctions.size());
+                AuctionResponse payload = new AuctionResponse(
+                        true,
+                        0,
+                        scanSummary.totalPages(),
+                        scanSummary.totalAuctions(),
+                        scanSummary.lastUpdated(),
+                        filteredAuctions
+                );
+                setAuctionPhase(AuctionPollState.Phase.SLEEP);
+                long nextDelay = computeSleepDelay(
+                        System.currentTimeMillis(),
+                        auctionPollState.getNextExpectedAtMs(),
+                        endpointCfg.getLeadTimeMs(),
+                        endpointCfg.getJitterMs()
+                );
+                return new AdaptivePoller.PollExecution<>(decision, payload, payload.getLastUpdated(), full, nextDelay > 0 ? nextDelay : endpointCfg.getMinProbeIntervalMs());
+            } finally {
+                auctionCommitInFlight.set(false);
+            }
         };
 
         return new AdaptivePoller<>(
@@ -247,6 +368,19 @@ public class AdaptivePollingCoordinator {
                 this::processBazaarUpdate
         );
         AdaptivePoller.PollExecutor<BazaarResponse> pollExecutor = detector -> {
+            long nowMillis = System.currentTimeMillis();
+            long sleepDelay = computeSleepDelay(nowMillis, bazaarPollState.getNextExpectedAtMs(), endpointCfg.getLeadTimeMs(), endpointCfg.getJitterMs());
+            if (sleepDelay > 0L) {
+                setBazaarPhase(BazaarPollState.Phase.SLEEP);
+                return new AdaptivePoller.PollExecution<>(
+                        ChangeDetector.ChangeDecision.noChange(),
+                        null,
+                        bazaarPollState.getLastSeenLastUpdated(),
+                        HypixelHttpResult.success(200, org.springframework.http.HttpHeaders.EMPTY, null),
+                        sleepDelay
+                );
+            }
+            setBazaarPhase(BazaarPollState.Phase.PROBE);
             ChangeDetector.ConditionalHeaders conditionalHeaders = detector.conditionalHeaders();
             HypixelHttpResult<BazaarResponse> response = client.fetchBazaar(
                     endpointCfg.getPath(),
@@ -260,10 +394,36 @@ public class AdaptivePollingCoordinator {
                 decision = ChangeDetector.ChangeDecision.changed();
             }
             if (decision.isChanged() && body != null && body.isSuccess()) {
-                return new AdaptivePoller.PollExecution<>(decision, body, body.getLastUpdated(), response);
+                if (!bazaarCommitInFlight.compareAndSet(false, true)) {
+                    long delay = Math.max(endpointCfg.getMinProbeIntervalMs(), bazaarPollState.getProbeIntervalMs());
+                    return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.noChange(), null, body.getLastUpdated(), response, applyJitter(delay, endpointCfg.getJitterMs()));
+                }
+                try {
+                    updateBazaarPredictionState(body.getLastUpdated(), nowMillis, endpointCfg);
+                    setBazaarPhase(BazaarPollState.Phase.COMMIT_IN_FLIGHT);
+                    long nextDelay = computeSleepDelay(
+                            System.currentTimeMillis(),
+                            bazaarPollState.getNextExpectedAtMs(),
+                            endpointCfg.getLeadTimeMs(),
+                            endpointCfg.getJitterMs()
+                    );
+                    return new AdaptivePoller.PollExecution<>(decision, body, body.getLastUpdated(), response, nextDelay > 0 ? nextDelay : endpointCfg.getMinProbeIntervalMs());
+                } finally {
+                    bazaarCommitInFlight.set(false);
+                }
             }
             long changeTs = body == null ? 0L : body.getLastUpdated();
-            return new AdaptivePoller.PollExecution<>(decision, null, changeTs, response);
+            long noChangeDelay = updateProbeBackoff(
+                    nowMillis,
+                    bazaarPollState.getNextExpectedAtMs(),
+                    endpointCfg,
+                    false,
+                    bazaarPollState.getProbeBackoffStep(),
+                    bazaarPollState.getProbeIntervalMs(),
+                    false
+            );
+            setBazaarPhase(BazaarPollState.Phase.SLEEP);
+            return new AdaptivePoller.PollExecution<>(decision, null, changeTs, response, noChangeDelay);
         };
 
         return new AdaptivePoller<>(
@@ -280,7 +440,12 @@ public class AdaptivePollingCoordinator {
     private void processAuctionsUpdate(AuctionResponse response) {
         processUpdate("auctions", estimateAuctionBytes(response), () -> marketDataProcessingService
                 .ingestAuctionPayload(response, "adaptive-auctions")
-                .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "auctions")));
+                .ifPresent(snapshot -> {
+                    if (response != null && response.getLastUpdated() > 0L) {
+                        lastCommittedAuctionLastUpdated.accumulateAndGet(response.getLastUpdated(), Math::max);
+                    }
+                    enqueueFlipGeneration(snapshot.snapshotTimestamp(), "auctions");
+                }));
     }
 
     private void processBazaarUpdate(BazaarResponse response) {
@@ -289,6 +454,7 @@ public class AdaptivePollingCoordinator {
                     .ingestBazaarPayload(response, "adaptive-bazaar")
                     .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "bazaar"));
             startAuctionsIfBazaarReady();
+            bazaarPollState.setPhase(BazaarPollState.Phase.SLEEP);
         });
     }
 
@@ -510,5 +676,127 @@ public class AdaptivePollingCoordinator {
             return 0L;
         }
         return response.getProducts().size() * 220L;
+    }
+
+    private Auction toMinimalAuction(Auction auction) {
+        return new Auction(
+                auction.getUuid(),
+                null,
+                null,
+                List.of(),
+                auction.getStart(),
+                auction.getEnd(),
+                auction.getItemName(),
+                null,
+                null,
+                auction.getCategory(),
+                auction.getTier(),
+                auction.getStartingBid(),
+                auction.isClaimed(),
+                auction.isBin(),
+                List.of(),
+                auction.getHighestBidAmount(),
+                List.<Bid>of()
+        );
+    }
+
+    private void updateAuctionPredictionState(long newLastUpdated, long nowMillis, AdaptivePollingProperties.Endpoint endpointCfg) {
+        long previous = auctionPollState.getLastSeenLastUpdated();
+        if (previous > 0L && newLastUpdated > previous) {
+            long observedPeriod = newLastUpdated - previous;
+            long ewma = auctionPollState.getEwmaPeriodMs();
+            long updatedEwma = Math.round((AUCTIONS_EWMA_ALPHA * observedPeriod) + ((1.0d - AUCTIONS_EWMA_ALPHA) * ewma));
+            auctionPollState.setEwmaPeriodMs(Math.max(endpointCfg.getMinProbeIntervalMs(), updatedEwma));
+            meterRegistry.summary("skyblock.adaptive.auctions.observed_period_ms").record(observedPeriod);
+        }
+        auctionPollState.setLastSeenLastUpdated(newLastUpdated);
+        auctionPollState.setNextExpectedAtMs(nowMillis + auctionPollState.getEwmaPeriodMs());
+        auctionPollState.setProbeBackoffStep(0);
+        auctionPollState.setProbeIntervalMs(endpointCfg.getMinProbeIntervalMs());
+    }
+
+    private long updateProbeBackoff(long nowMillis,
+                                    long nextExpected,
+                                    AdaptivePollingProperties.Endpoint endpointCfg,
+                                    boolean auction,
+                                    int currentBackoffStep,
+                                    long currentInterval,
+                                    boolean recordMetric) {
+        if (nextExpected <= 0L || nowMillis <= (nextExpected + endpointCfg.getGraceWindowMs())) {
+            if (auction) {
+                auctionPollState.setProbeBackoffStep(0);
+                auctionPollState.setProbeIntervalMs(endpointCfg.getMinProbeIntervalMs());
+            } else {
+                bazaarPollState.setProbeBackoffStep(0);
+                bazaarPollState.setProbeIntervalMs(endpointCfg.getMinProbeIntervalMs());
+            }
+            return applyJitter(endpointCfg.getMinProbeIntervalMs(), endpointCfg.getJitterMs());
+        }
+        int nextStep = Math.min(10, currentBackoffStep + 1);
+        long base = Math.max(endpointCfg.getMinProbeIntervalMs(), currentInterval);
+        long interval = Math.min(endpointCfg.getMaxProbeIntervalMs(), base * (1L << Math.min(nextStep, 2)));
+        if (auction) {
+            auctionPollState.setProbeBackoffStep(nextStep);
+            auctionPollState.setProbeIntervalMs(interval);
+        } else {
+            bazaarPollState.setProbeBackoffStep(nextStep);
+            bazaarPollState.setProbeIntervalMs(interval);
+        }
+        if (recordMetric) {
+            meterRegistry.summary("skyblock.adaptive.auctions.probe_interval_ms").record(interval);
+        } else {
+            meterRegistry.summary("skyblock.adaptive.bazaar.probe_interval_ms").record(interval);
+        }
+        return applyJitter(interval, endpointCfg.getJitterMs());
+    }
+
+    private void updateBazaarPredictionState(long newLastUpdated, long nowMillis, AdaptivePollingProperties.Endpoint endpointCfg) {
+        long previous = bazaarPollState.getLastSeenLastUpdated();
+        if (previous > 0L && newLastUpdated > previous) {
+            long observedPeriod = newLastUpdated - previous;
+            long ewma = bazaarPollState.getEwmaPeriodMs();
+            long updatedEwma = Math.round((BAZAAR_EWMA_ALPHA * observedPeriod) + ((1.0d - BAZAAR_EWMA_ALPHA) * ewma));
+            bazaarPollState.setEwmaPeriodMs(Math.max(endpointCfg.getMinProbeIntervalMs(), updatedEwma));
+            meterRegistry.summary("skyblock.adaptive.bazaar.observed_period_ms").record(observedPeriod);
+        }
+        bazaarPollState.setLastSeenLastUpdated(newLastUpdated);
+        bazaarPollState.setNextExpectedAtMs(nowMillis + bazaarPollState.getEwmaPeriodMs());
+        bazaarPollState.setProbeBackoffStep(0);
+        bazaarPollState.setProbeIntervalMs(endpointCfg.getMinProbeIntervalMs());
+    }
+
+    private long computeSleepDelay(long nowMillis, long nextExpectedAtMs, long leadTimeMs, long jitterMs) {
+        if (nextExpectedAtMs <= 0L) {
+            return 0L;
+        }
+        long probeAt = nextExpectedAtMs - Math.max(0L, leadTimeMs);
+        if (nowMillis >= probeAt) {
+            return 0L;
+        }
+        return applyJitter(probeAt - nowMillis, jitterMs);
+    }
+
+    private long applyJitter(long delayMs, long jitterMs) {
+        if (delayMs <= 0L || jitterMs <= 0L) {
+            return Math.max(0L, delayMs);
+        }
+        long jitter = ThreadLocalRandom.current().nextLong(-jitterMs, jitterMs + 1L);
+        return Math.max(0L, delayMs + jitter);
+    }
+
+    private void setAuctionPhase(AuctionPollState.Phase phase) {
+        AuctionPollState.Phase previous = auctionPollState.getPhase();
+        if (previous != phase && adaptivePollingProperties.getDebug().isLogPhaseTransitions()) {
+            log.info("Adaptive auctions phase transition {} -> {}", previous, phase);
+        }
+        auctionPollState.setPhase(phase);
+    }
+
+    private void setBazaarPhase(BazaarPollState.Phase phase) {
+        BazaarPollState.Phase previous = bazaarPollState.getPhase();
+        if (previous != phase && adaptivePollingProperties.getDebug().isLogPhaseTransitions()) {
+            log.info("Adaptive bazaar phase transition {} -> {}", previous, phase);
+        }
+        bazaarPollState.setPhase(phase);
     }
 }

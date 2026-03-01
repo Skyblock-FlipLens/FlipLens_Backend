@@ -15,6 +15,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -141,7 +142,12 @@ class HypixelConditionalClientTest {
                 Duration.ofSeconds(1)
         );
 
-        HypixelHttpResult<AuctionResponse> result = client.fetchAllAuctionPages("/skyblock/auctions", null);
+        HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> result = client.fetchAllAuctionPages(
+                "/skyblock/auctions",
+                null,
+                auction -> {
+                }
+        );
 
         assertEquals(500, result.statusCode());
         assertFalse(result.isSuccessful());
@@ -149,7 +155,7 @@ class HypixelConditionalClientTest {
     }
 
     @Test
-    void fetchAllAuctionPagesMergesAllPages() {
+    void fetchAllAuctionPagesStreamsAllPages() {
         HypixelConditionalClient baseClient = new HypixelConditionalClient(
                 "https://api.hypixel.net/v2",
                 "",
@@ -176,14 +182,18 @@ class HypixelConditionalClientTest {
                 new AuctionResponse(true, 2, 3, 3, 123L, List.of(auction("a2")))
         )).when(client).fetchAuctionPage("/skyblock/auctions", 2, null, null);
 
-        HypixelHttpResult<AuctionResponse> result = client.fetchAllAuctionPages("/skyblock/auctions", firstPage);
+        AtomicInteger streamed = new AtomicInteger();
+        HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> result = client.fetchAllAuctionPages(
+                "/skyblock/auctions",
+                firstPage,
+                auction -> streamed.incrementAndGet()
+        );
 
         assertTrue(result.isSuccessful());
         assertNotNull(result.body());
-        assertEquals(3, result.body().getAuctions().size());
-        assertEquals("a0", result.body().getAuctions().get(0).getUuid());
-        assertEquals("a1", result.body().getAuctions().get(1).getUuid());
-        assertEquals("a2", result.body().getAuctions().get(2).getUuid());
+        assertEquals(3, streamed.get());
+        assertEquals(3, result.body().pagesFetched());
+        assertEquals(3L, result.body().auctionsSeen());
         verify(client, times(1)).fetchAuctionPage("/skyblock/auctions", 1, null, null);
         verify(client, times(1)).fetchAuctionPage("/skyblock/auctions", 2, null, null);
     }
@@ -209,11 +219,55 @@ class HypixelConditionalClientTest {
                 .when(client)
                 .fetchAuctionPage("/skyblock/auctions", 1, null, null);
 
-        HypixelHttpResult<AuctionResponse> result = client.fetchAllAuctionPages("/skyblock/auctions", firstPage);
+        HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> result = client.fetchAllAuctionPages(
+                "/skyblock/auctions",
+                firstPage,
+                auction -> {
+                }
+        );
 
         assertFalse(result.isSuccessful());
         assertEquals(503, result.statusCode());
         assertEquals("Failed to fetch auctions page 1", result.errorMessage());
+    }
+
+    @Test
+    void fetchAllAuctionPagesStreamsViaConsumer() {
+        HypixelConditionalClient baseClient = new HypixelConditionalClient(
+                "https://api.hypixel.net/v2",
+                "",
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1)
+        );
+        HypixelConditionalClient client = spy(baseClient);
+        AuctionResponse firstPage = new AuctionResponse(
+                true,
+                0,
+                2,
+                2,
+                123L,
+                List.of(auction("a0"))
+        );
+        doReturn(HypixelHttpResult.success(
+                200,
+                HttpHeaders.EMPTY,
+                new AuctionResponse(true, 1, 2, 2, 123L, List.of(auction("a1")))
+        )).when(client).fetchAuctionPage("/skyblock/auctions", 1, null, null);
+
+        AtomicInteger streamed = new AtomicInteger();
+        HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> result = client.fetchAllAuctionPages(
+                "/skyblock/auctions",
+                firstPage,
+                auction -> streamed.incrementAndGet()
+        );
+
+        assertTrue(result.isSuccessful());
+        assertNotNull(result.body());
+        assertEquals(2, streamed.get());
+        assertEquals(2, result.body().totalPages());
+        assertEquals(2, result.body().totalAuctions());
+        assertEquals(2, result.body().pagesFetched());
+        assertEquals(2L, result.body().auctionsSeen());
     }
 
     @Test
