@@ -90,17 +90,17 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
             """)
     int deleteByIdIn(@Param("flipIds") Collection<UUID> flipIds);
 
-    @Query(value = """
+    @Query("""
             select f.id
-            from flip f
-            where f.snapshot_timestamp_epoch_millis in (:timestamps)
+            from Flip f
+            where f.snapshotTimestampEpochMillis in :timestamps
               and not exists (
                     select 1
-                    from market_snapshot ms
-                    where ms.snapshot_timestamp_epoch_millis = f.snapshot_timestamp_epoch_millis
+                    from MarketSnapshotEntity ms
+                    where ms.snapshotTimestampEpochMillis = f.snapshotTimestampEpochMillis
               )
-            limit :limit
-            """, nativeQuery = true)
+            order by f.id
+            """)
     List<UUID> findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps,
-                                                                  @Param("limit") int limit);
+                                                                  Pageable pageable);
 }

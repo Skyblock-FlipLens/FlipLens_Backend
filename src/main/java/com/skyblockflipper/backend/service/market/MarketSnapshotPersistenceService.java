@@ -9,6 +9,7 @@ import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotCompactionCandidate;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
@@ -210,7 +211,10 @@ public class MarketSnapshotPersistenceService {
                 List<UUID> orphanFlipIds = blockingTimeTracker.record(
                         "db.flip.findOrphanIdsBySnapshotBatch",
                         "db",
-                        () -> flipRepository.findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(timestampBatch, flipDeleteBatchSize)
+                        () -> flipRepository.findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(
+                                timestampBatch,
+                                PageRequest.of(0, flipDeleteBatchSize)
+                        )
                 );
                 if (orphanFlipIds.isEmpty()) {
                     break;
