@@ -38,12 +38,12 @@ public class HypixelMarketSnapshotMapper {
             return List.of();
         }
         return auctionResponse.getAuctions().stream()
-                .map(this::toAuctionRecord)
+                .map(this::toAuctionRecordMinimal)
                 .filter(Objects::nonNull)
                 .toList();
     }
 
-    private AuctionMarketRecord toAuctionRecord(Auction auction) {
+    private AuctionMarketRecord toAuctionRecordMinimal(Auction auction) {
         if (auction == null) {
             return null;
         }
@@ -58,8 +58,8 @@ public class HypixelMarketSnapshotMapper {
                 auction.getEnd(),
                 auction.isClaimed(),
                 auction.isBin(),
-                auction.getItemLore(),
-                auction.getExtra()
+                null,
+                null
         );
     }
 
