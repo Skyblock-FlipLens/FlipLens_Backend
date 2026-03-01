@@ -15,6 +15,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -214,6 +215,45 @@ class HypixelConditionalClientTest {
         assertFalse(result.isSuccessful());
         assertEquals(503, result.statusCode());
         assertEquals("Failed to fetch auctions page 1", result.errorMessage());
+    }
+
+    @Test
+    void fetchAllAuctionPagesStreamsViaConsumer() {
+        HypixelConditionalClient baseClient = new HypixelConditionalClient(
+                "https://api.hypixel.net/v2",
+                "",
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1)
+        );
+        HypixelConditionalClient client = spy(baseClient);
+        AuctionResponse firstPage = new AuctionResponse(
+                true,
+                0,
+                2,
+                2,
+                123L,
+                List.of(auction("a0"))
+        );
+        doReturn(HypixelHttpResult.success(
+                200,
+                HttpHeaders.EMPTY,
+                new AuctionResponse(true, 1, 2, 2, 123L, List.of(auction("a1")))
+        )).when(client).fetchAuctionPage("/skyblock/auctions", 1, null, null);
+
+        AtomicInteger streamed = new AtomicInteger();
+        HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> result = client.fetchAllAuctionPages(
+                "/skyblock/auctions",
+                firstPage,
+                auction -> streamed.incrementAndGet()
+        );
+
+        assertTrue(result.isSuccessful());
+        assertNotNull(result.body());
+        assertEquals(2, streamed.get());
+        assertEquals(2, result.body().totalPages());
+        assertEquals(2, result.body().totalAuctions());
+        assertEquals(2, result.body().pagesFetched());
+        assertEquals(2L, result.body().auctionsSeen());
     }
 
     @Test

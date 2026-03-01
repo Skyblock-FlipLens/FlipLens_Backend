@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.hypixel;
 
+import com.skyblockflipper.backend.hypixel.AuctionProbeInfo;
 import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
@@ -14,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -127,6 +129,51 @@ class HypixelClientTest {
         ReflectionTestUtils.setField(client, "restClient", restClient);
 
         assertThrows(IllegalStateException.class, client::fetchAllAuctions);
+    }
+
+    @Test
+    void probeAuctionsLastUpdatedReturnsMetadataOnly() {
+        RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
+
+        Auction auction = new Auction("uuid1", "a1", "p1", List.of(), 1L, 2L, "item1", "lore1", "e1", "c1", "COMMON", 100L, true, List.of(), 100L, List.of());
+        AuctionResponse page0 = new AuctionResponse(true, 0, 2, 2, 12345L, List.of(auction));
+
+        when(restClient.get().uri(anyString()).retrieve().body(any(ParameterizedTypeReference.class)))
+                .thenReturn(page0);
+
+        HypixelClient client = new HypixelClient("http://localhost", "");
+        ReflectionTestUtils.setField(client, "restClient", restClient);
+
+        AuctionProbeInfo probe = client.probeAuctionsLastUpdated();
+
+        assertEquals(12345L, probe.lastUpdated());
+        assertEquals(2, probe.totalPages());
+        assertEquals(2, probe.totalAuctions());
+    }
+
+    @Test
+    void fetchAllAuctionPagesStreamsAuctionsViaConsumer() {
+        RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
+
+        Auction auction1 = new Auction("uuid1", "a1", "p1", List.of(), 1L, 2L, "item1", "lore1", "e1", "c1", "COMMON", 100L, true, List.of(), 100L, List.of());
+        Auction auction2 = new Auction("uuid2", "a2", "p2", List.of(), 1L, 2L, "item2", "lore2", "e2", "c2", "RARE", 200L, true, List.of(), 200L, List.of());
+        AuctionResponse page0 = new AuctionResponse(true, 0, 2, 2, 3L, List.of(auction1));
+        AuctionResponse page1 = new AuctionResponse(true, 1, 2, 2, 4L, List.of(auction2));
+
+        when(restClient.get().uri(anyString()).retrieve().body(any(ParameterizedTypeReference.class)))
+                .thenReturn(page0, page1);
+
+        HypixelClient client = new HypixelClient("http://localhost", "");
+        ReflectionTestUtils.setField(client, "restClient", restClient);
+
+        AtomicInteger count = new AtomicInteger();
+        AuctionProbeInfo probe = client.fetchAllAuctionPages(a -> count.incrementAndGet());
+
+        assertEquals(2, count.get());
+        assertEquals(2, probe.totalPages());
+        assertEquals(2, probe.totalAuctions());
+        verify(restClient.get(), atLeastOnce()).uri("/skyblock/auctions?page=0");
+        verify(restClient.get(), atLeastOnce()).uri("/skyblock/auctions?page=1");
     }
 
     @Test

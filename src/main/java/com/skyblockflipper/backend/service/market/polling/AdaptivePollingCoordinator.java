@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.hypixel.HypixelConditionalClient;
 import com.skyblockflipper.backend.hypixel.HypixelHttpResult;
 import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
+import com.skyblockflipper.backend.hypixel.model.Auction.Bid;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarQuickStatus;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
@@ -59,6 +60,7 @@ public class AdaptivePollingCoordinator {
     private final ExecutorService generationFallbackExecutor;
     private final AtomicBoolean startScheduledOrRunning = new AtomicBoolean(false);
     private final AtomicBoolean auctionsStarted = new AtomicBoolean(false);
+    private final AtomicLong lastCommittedAuctionLastUpdated = new AtomicLong(-1L);
     private final AtomicLong latestSnapshotEpochMillisToGenerate = new AtomicLong(-1L);
     private final AtomicBoolean generationWorkerScheduledOrRunning = new AtomicBoolean(false);
     private volatile boolean shutdownRequested = false;
@@ -203,20 +205,71 @@ public class AdaptivePollingCoordinator {
                     conditionalHeaders.ifNoneMatch(),
                     conditionalHeaders.ifModifiedSince()
             );
-            String probeHash = hashAuctionsProbe(probe.body());
+            AuctionResponse probeBody = probe.body();
+            if (adaptivePollingProperties.getDebug().isLogPhaseTransitions()) {
+                log.info("Adaptive auctions phase=PROBE status={} transportError={}",
+                        probe.statusCode(),
+                        probe.transportError());
+            }
+            String probeHash = hashAuctionsProbe(probeBody);
             ChangeDetector.ChangeDecision decision = detector.evaluate(probe, probeHash);
+            if (decision.isChanged() && probeBody != null && probeBody.isSuccess()) {
+                long probeLastUpdated = probeBody.getLastUpdated();
+                long lastCommitted = lastCommittedAuctionLastUpdated.get();
+                if (adaptivePollingProperties.getDebug().isLogLastUpdated()) {
+                    log.info("Adaptive auctions probe lastUpdated={} lastCommitted={}",
+                            probeLastUpdated,
+                            lastCommitted);
+                }
+                if (probeLastUpdated > 0L && probeLastUpdated <= lastCommitted) {
+                    return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.noChange(), null, probeLastUpdated, probe);
+                }
+            }
             if (!decision.isChanged()) {
-                long changeTs = probe.body() == null ? 0L : probe.body().getLastUpdated();
+                long changeTs = probeBody == null ? 0L : probeBody.getLastUpdated();
                 return new AdaptivePoller.PollExecution<>(decision, null, changeTs, probe);
             }
-            if (probe.body() == null || !probe.body().isSuccess()) {
+            if (probeBody == null || !probeBody.isSuccess()) {
                 return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.error(), null, 0L, probe);
             }
-            HypixelHttpResult<AuctionResponse> full = client.fetchAllAuctionPages(endpointCfg.getPath(), probe.body());
-            if (!full.isSuccessful() || full.body() == null || !full.body().isSuccess()) {
+            long commitStartNanos = System.nanoTime();
+            List<Auction> filteredAuctions = new ArrayList<>();
+            HypixelHttpResult<HypixelConditionalClient.AuctionScanSummary> full = client.fetchAllAuctionPages(
+                    endpointCfg.getPath(),
+                    probeBody,
+                    auction -> {
+                        if (auction == null || !auction.isBin() || auction.isClaimed()) {
+                            return;
+                        }
+                        filteredAuctions.add(toMinimalAuction(auction));
+                    }
+            );
+            if (!full.isSuccessful() || full.body() == null) {
                 return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.error(), null, 0L, full);
             }
-            return new AdaptivePoller.PollExecution<>(decision, full.body(), full.body().getLastUpdated(), full);
+            HypixelConditionalClient.AuctionScanSummary scanSummary = full.body();
+            if (adaptivePollingProperties.getDebug().isLogCommitStats()) {
+                long durationMillis = (System.nanoTime() - commitStartNanos) / 1_000_000L;
+                log.info("Adaptive auctions commit lastUpdated={} totalPages={} pagesFetched={} auctionsSeen={} auctionsKept={} durationMs={}",
+                        scanSummary.lastUpdated(),
+                        scanSummary.totalPages(),
+                        scanSummary.pagesFetched(),
+                        scanSummary.auctionsSeen(),
+                        filteredAuctions.size(),
+                        durationMillis);
+            }
+            meterRegistry.summary("skyblock.adaptive.auctions.pages_fetched").record(scanSummary.pagesFetched());
+            meterRegistry.summary("skyblock.adaptive.auctions.seen_count").record(scanSummary.auctionsSeen());
+            meterRegistry.summary("skyblock.adaptive.auctions.kept_count").record(filteredAuctions.size());
+            AuctionResponse payload = new AuctionResponse(
+                    true,
+                    0,
+                    scanSummary.totalPages(),
+                    scanSummary.totalAuctions(),
+                    scanSummary.lastUpdated(),
+                    filteredAuctions
+            );
+            return new AdaptivePoller.PollExecution<>(decision, payload, payload.getLastUpdated(), full);
         };
 
         return new AdaptivePoller<>(
@@ -280,7 +333,12 @@ public class AdaptivePollingCoordinator {
     private void processAuctionsUpdate(AuctionResponse response) {
         processUpdate("auctions", estimateAuctionBytes(response), () -> marketDataProcessingService
                 .ingestAuctionPayload(response, "adaptive-auctions")
-                .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "auctions")));
+                .ifPresent(snapshot -> {
+                    if (response != null && response.getLastUpdated() > 0L) {
+                        lastCommittedAuctionLastUpdated.accumulateAndGet(response.getLastUpdated(), Math::max);
+                    }
+                    enqueueFlipGeneration(snapshot.snapshotTimestamp(), "auctions");
+                }));
     }
 
     private void processBazaarUpdate(BazaarResponse response) {
@@ -510,5 +568,27 @@ public class AdaptivePollingCoordinator {
             return 0L;
         }
         return response.getProducts().size() * 220L;
+    }
+
+    private Auction toMinimalAuction(Auction auction) {
+        return new Auction(
+                auction.getUuid(),
+                null,
+                null,
+                List.of(),
+                auction.getStart(),
+                auction.getEnd(),
+                auction.getItemName(),
+                null,
+                null,
+                auction.getCategory(),
+                auction.getTier(),
+                auction.getStartingBid(),
+                auction.isClaimed(),
+                auction.isBin(),
+                List.of(),
+                auction.getHighestBidAmount(),
+                List.<Bid>of()
+        );
     }
 }

@@ -35,6 +35,10 @@ public class AdaptivePollingProperties {
     @NotNull
     private Pipeline pipeline = new Pipeline();
 
+    @Valid
+    @NotNull
+    private Debug debug = new Debug();
+
     @PostConstruct
     void validate() {
         validateEndpoint("auctions", auctions);
@@ -117,5 +121,13 @@ public class AdaptivePollingProperties {
             endpoint.periodHint = periodHint;
             return endpoint;
         }
+    }
+
+    @Getter
+    @Setter
+    public static class Debug {
+        private boolean logPhaseTransitions = false;
+        private boolean logLastUpdated = false;
+        private boolean logCommitStats = false;
     }
 }

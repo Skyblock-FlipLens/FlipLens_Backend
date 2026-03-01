@@ -20,6 +20,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -65,10 +66,52 @@ public class HypixelClient {
         return result;
     }
 
+    public AuctionProbeInfo probeAuctionsLastUpdated() {
+        AuctionResponse firstPage = fetchAuctionPage(0);
+        if (firstPage == null || !firstPage.isSuccess()) {
+            throw new IllegalStateException("Failed to probe auctions page 0 from Hypixel API.");
+        }
+        return new AuctionProbeInfo(
+                firstPage.getLastUpdated(),
+                firstPage.getTotalPages(),
+                firstPage.getTotalAuctions()
+        );
+    }
+
+    public AuctionProbeInfo fetchAllAuctionPages(Consumer<Auction> onAuction) {
+        AuctionResponse firstPage = fetchAuctionPage(0);
+        if (firstPage == null) {
+            throw new IllegalStateException("Failed to fetch auctions page 0 from Hypixel API.");
+        }
+        scanAllAuctionPages(firstPage, onAuction);
+        return new AuctionProbeInfo(
+                firstPage.getLastUpdated(),
+                firstPage.getTotalPages(),
+                firstPage.getTotalAuctions()
+        );
+    }
+
+    private void scanAllAuctionPages(AuctionResponse firstPage, Consumer<Auction> onAuction) {
+        if (firstPage.getAuctions() != null) {
+            firstPage.getAuctions().forEach(onAuction);
+        }
+        for (int page = 1; page < firstPage.getTotalPages(); page++) {
+            AuctionResponse nextPage = fetchAuctionPage(page);
+            if (nextPage == null) {
+                throw new IllegalStateException("Failed to fetch auctions page " + page + " from Hypixel API.");
+            }
+            if (nextPage.getAuctions() != null) {
+                nextPage.getAuctions().forEach(onAuction);
+            }
+        }
+    }
+
+    @Deprecated
     public List<Auction> fetchAllAuctions() {
         return fetchAllAuctionPages().getAuctions();
     }
 
+    @Deprecated
     public AuctionResponse fetchAllAuctionPages() {
         AuctionResponse firstPage = fetchAuctionPage(0);
         if (firstPage == null) {

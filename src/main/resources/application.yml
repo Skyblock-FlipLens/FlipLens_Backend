@@ -93,6 +93,10 @@ config:
       pipeline:
         queue-capacity: ${CONFIG_HYPIXEL_ADAPTIVE_PIPELINE_QUEUE_CAPACITY:1}
         coalesce-enabled: ${CONFIG_HYPIXEL_ADAPTIVE_PIPELINE_COALESCE_ENABLED:true}
+      debug:
+        log-phase-transitions: ${CONFIG_HYPIXEL_ADAPTIVE_DEBUG_LOG_PHASE_TRANSITIONS:false}
+        log-last-updated: ${CONFIG_HYPIXEL_ADAPTIVE_DEBUG_LOG_LAST_UPDATED:false}
+        log-commit-stats: ${CONFIG_HYPIXEL_ADAPTIVE_DEBUG_LOG_COMMIT_STATS:false}
     polling:
       election-max-age: ${CONFIG_HYPIXEL_POLL_ELECTION_MAX_AGE:PT124H}
       election-refresh-interval-ms: ${CONFIG_HYPIXEL_POLL_ELECTION_REFRESH_INTERVAL_MS:300000}

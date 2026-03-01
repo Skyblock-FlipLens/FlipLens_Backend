@@ -17,6 +17,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 @Slf4j
 public class HypixelConditionalClient {
@@ -46,6 +47,7 @@ public class HypixelConditionalClient {
         return request(path, ifNoneMatch, ifModifiedSince, new ParameterizedTypeReference<>() {});
     }
 
+    @Deprecated
     public HypixelHttpResult<AuctionResponse> fetchAllAuctionPages(String auctionsPath, AuctionResponse firstPage) {
         if (firstPage == null || !firstPage.isSuccess()) {
             return HypixelHttpResult.error(500, HttpHeaders.EMPTY, "Invalid first auctions page");
@@ -79,6 +81,57 @@ public class HypixelConditionalClient {
                 allAuctions
         );
         return HypixelHttpResult.success(200, HttpHeaders.EMPTY, merged);
+    }
+
+    public HypixelHttpResult<AuctionScanSummary> fetchAllAuctionPages(String auctionsPath,
+                                                                      AuctionResponse firstPage,
+                                                                      Consumer<Auction> onAuction) {
+        if (firstPage == null || !firstPage.isSuccess()) {
+            return HypixelHttpResult.error(500, HttpHeaders.EMPTY, "Invalid first auctions page");
+        }
+        long auctionsSeen = 0L;
+        int pagesFetched = 1;
+
+        if (firstPage.getAuctions() != null) {
+            for (Auction auction : firstPage.getAuctions()) {
+                onAuction.accept(auction);
+                auctionsSeen++;
+            }
+        }
+        for (int page = 1; page < firstPage.getTotalPages(); page++) {
+            HypixelHttpResult<AuctionResponse> nextPageResult = fetchAuctionPage(auctionsPath, page, null, null);
+            if (!nextPageResult.isSuccessful() || nextPageResult.body() == null || !nextPageResult.body().isSuccess()) {
+                return HypixelHttpResult.error(
+                        nextPageResult.statusCode() == 0 ? 500 : nextPageResult.statusCode(),
+                        nextPageResult.headers(),
+                        "Failed to fetch auctions page " + page
+                );
+            }
+            pagesFetched++;
+            if (nextPageResult.body().getAuctions() != null) {
+                for (Auction auction : nextPageResult.body().getAuctions()) {
+                    onAuction.accept(auction);
+                    auctionsSeen++;
+                }
+            }
+        }
+
+        return HypixelHttpResult.success(200, HttpHeaders.EMPTY, new AuctionScanSummary(
+                firstPage.getLastUpdated(),
+                firstPage.getTotalPages(),
+                firstPage.getTotalAuctions(),
+                pagesFetched,
+                auctionsSeen
+        ));
+    }
+
+    public record AuctionScanSummary(
+            long lastUpdated,
+            int totalPages,
+            int totalAuctions,
+            int pagesFetched,
+            long auctionsSeen
+    ) {
     }
 
     private <T> HypixelHttpResult<T> request(String uri,
