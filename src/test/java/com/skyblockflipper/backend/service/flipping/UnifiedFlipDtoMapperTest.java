@@ -399,7 +399,7 @@ class UnifiedFlipDtoMapperTest {
         assertEquals("A", invokeAccessor(parsed, "itemId"));
         assertEquals(1, invokeAccessor(parsed, "amount"));
         assertEquals("AUCTION", String.valueOf(invokeAccessor(parsed, "marketPreference")));
-        assertEquals(null, invokeAccessor(parsed, "npcUnitPrice"));
+        assertNull(invokeAccessor(parsed, "npcUnitPrice"));
     }
 
     @Test
@@ -504,7 +504,7 @@ class UnifiedFlipDtoMapperTest {
     }
 
     @Test
-    void toDtoParsesStepJsonOncePerStepWithinSingleMapping() throws Exception {
+    void toDtoParsesStepJsonOncePerStepWithinSingleMapping() {
         ObjectMapper spyMapper = spy(new ObjectMapper());
         UnifiedFlipDtoMapper localMapper = new UnifiedFlipDtoMapper(spyMapper, new FlipRiskScorer());
         Flip flip = new Flip(

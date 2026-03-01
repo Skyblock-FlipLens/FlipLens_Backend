@@ -45,7 +45,6 @@ public class FlipStorageParityService {
         Long currentLatestSnapshot = unifiedFlipCurrentReadService.latestSnapshotEpochMillis().orElse(null);
         Long comparisonSnapshot = resolveComparisonSnapshot(legacyLatestSnapshot, currentLatestSnapshot);
         boolean snapshotAligned = legacyLatestSnapshot != null
-                && currentLatestSnapshot != null
                 && legacyLatestSnapshot.equals(currentLatestSnapshot);
 
         List<UnifiedFlipDto> legacyDtos = loadLegacyDtos(comparisonSnapshot);
