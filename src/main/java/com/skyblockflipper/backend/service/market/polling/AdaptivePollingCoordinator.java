@@ -160,6 +160,7 @@ public class AdaptivePollingCoordinator {
             auctionsPoller = buildAuctionsPoller(globalLimiter);
             bazaarPoller = buildBazaarPoller(globalLimiter);
             bazaarPoller.start();
+            startAuctionsAtBootstrap();
             startAuctionsIfBazaarReady();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -469,6 +470,17 @@ public class AdaptivePollingCoordinator {
             return;
         }
         log.info("Bazaar cache primed. Starting auctions poller.");
+        auctionsPoller.start();
+    }
+
+    private void startAuctionsAtBootstrap() {
+        if (shutdownRequested || auctionsPoller == null || auctionsStarted.get()) {
+            return;
+        }
+        if (!auctionsStarted.compareAndSet(false, true)) {
+            return;
+        }
+        log.info("Starting auctions poller at bootstrap.");
         auctionsPoller.start();
     }
 
