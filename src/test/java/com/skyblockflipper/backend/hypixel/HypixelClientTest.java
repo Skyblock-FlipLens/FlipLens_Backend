@@ -82,7 +82,7 @@ class HypixelClientTest {
     }
 
     @Test
-    void fetchAllAuctionsLoadsAllPages() {
+    void fetchAllAuctionPagesStreamsAllPages() {
         RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
 
         Auction auction1 = new Auction("uuid1", "a1", "p1", List.of(), 1L, 2L, "item1", "lore1", "e1", "c1", "COMMON", 100L, true, List.of(), 100L, List.of());
@@ -96,15 +96,16 @@ class HypixelClientTest {
         HypixelClient client = new HypixelClient("http://localhost", "");
         ReflectionTestUtils.setField(client, "restClient", restClient);
 
-        List<Auction> auctions = client.fetchAllAuctions();
+        AtomicInteger seen = new AtomicInteger();
+        client.fetchAllAuctionPages(auction -> seen.incrementAndGet());
 
-        assertEquals(2, auctions.size());
+        assertEquals(2, seen.get());
         verify(restClient.get(), atLeastOnce()).uri("/skyblock/auctions?page=0");
         verify(restClient.get(), atLeastOnce()).uri("/skyblock/auctions?page=1");
     }
 
     @Test
-    void fetchAllAuctionsThrowsWhenFirstPageFails() {
+    void fetchAllAuctionPagesThrowsWhenFirstPageFails() {
         RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
         when(restClient.get().uri(anyString()).retrieve().body(any(ParameterizedTypeReference.class)))
                 .thenReturn(null);
@@ -112,11 +113,12 @@ class HypixelClientTest {
         HypixelClient client = new HypixelClient("http://localhost", "");
         ReflectionTestUtils.setField(client, "restClient", restClient);
 
-        assertThrows(IllegalStateException.class, client::fetchAllAuctions);
+        assertThrows(IllegalStateException.class, () -> client.fetchAllAuctionPages(a -> {
+        }));
     }
 
     @Test
-    void fetchAllAuctionsThrowsWhenFollowUpPageFails() {
+    void fetchAllAuctionPagesThrowsWhenFollowUpPageFails() {
         RestClient restClient = mock(RestClient.class, Answers.RETURNS_DEEP_STUBS);
 
         Auction auction = new Auction("uuid1", "a1", "p1", List.of(), 1L, 2L, "item1", "lore1", "e1", "c1", "COMMON", 100L, true, List.of(), 100L, List.of());
@@ -128,7 +130,8 @@ class HypixelClientTest {
         HypixelClient client = new HypixelClient("http://localhost", "");
         ReflectionTestUtils.setField(client, "restClient", restClient);
 
-        assertThrows(IllegalStateException.class, client::fetchAllAuctions);
+        assertThrows(IllegalStateException.class, () -> client.fetchAllAuctionPages(a -> {
+        }));
     }
 
     @Test
