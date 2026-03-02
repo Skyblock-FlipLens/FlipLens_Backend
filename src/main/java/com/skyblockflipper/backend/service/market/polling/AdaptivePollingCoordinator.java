@@ -720,7 +720,7 @@ public class AdaptivePollingCoordinator {
                 auction.isBin(),
                 List.of(),
                 auction.getHighestBidAmount(),
-                List.<Bid>of()
+                List.of()
         );
     }
 
