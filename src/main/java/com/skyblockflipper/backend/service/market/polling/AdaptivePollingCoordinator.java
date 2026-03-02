@@ -302,6 +302,10 @@ public class AdaptivePollingCoordinator {
                         }
                 );
                 if (!full.isSuccessful() || full.body() == null) {
+                    log.warn("Adaptive auctions commit failed status={} transportError={} error={}",
+                            full.statusCode(),
+                            full.transportError(),
+                            full.errorMessage());
                     setAuctionPhase(AuctionPollState.Phase.SLEEP);
                     return new AdaptivePoller.PollExecution<>(ChangeDetector.ChangeDecision.error(), null, 0L, full);
                 }
@@ -388,6 +392,11 @@ public class AdaptivePollingCoordinator {
                     conditionalHeaders.ifNoneMatch(),
                     conditionalHeaders.ifModifiedSince()
             );
+            if (adaptivePollingProperties.getDebug().isLogPhaseTransitions()) {
+                log.info("Adaptive bazaar phase=PROBE status={} transportError={}",
+                        response.statusCode(),
+                        response.transportError());
+            }
             String responseHash = hashBazaar(response.body());
             ChangeDetector.ChangeDecision decision = detector.evaluate(response, responseHash);
             BazaarResponse body = response.body();
@@ -451,11 +460,14 @@ public class AdaptivePollingCoordinator {
 
     private void processBazaarUpdate(BazaarResponse response) {
         processUpdate("bazaar", estimateBazaarBytes(response), () -> {
-            marketDataProcessingService
-                    .ingestBazaarPayload(response, "adaptive-bazaar")
-                    .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "bazaar"));
-            startAuctionsIfBazaarReady();
-            bazaarPollState.setPhase(BazaarPollState.Phase.SLEEP);
+            try {
+                marketDataProcessingService
+                        .ingestBazaarPayload(response, "adaptive-bazaar")
+                        .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "bazaar"));
+                startAuctionsIfBazaarReady();
+            } finally {
+                setBazaarPhase(BazaarPollState.Phase.SLEEP);
+            }
         });
     }
 
