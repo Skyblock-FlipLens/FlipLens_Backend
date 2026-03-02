@@ -179,11 +179,14 @@ public class UnifiedFlipDtoMapper {
         if (constraints == null || constraints.isEmpty()) {
             return List.of();
         }
-        List<UnifiedFlipDto.ConstraintDto> result = new ArrayList<>(constraints.size());
+        LinkedHashSet<Constraint> uniqueConstraints = new LinkedHashSet<>();
         for (Constraint constraint : constraints) {
-            if (constraint == null) {
-                continue;
+            if (constraint != null) {
+                uniqueConstraints.add(constraint);
             }
+        }
+        List<UnifiedFlipDto.ConstraintDto> result = new ArrayList<>(uniqueConstraints.size());
+        for (Constraint constraint : uniqueConstraints) {
             result.add(new UnifiedFlipDto.ConstraintDto(
                     constraint.getType(),
                     constraint.getStringValue(),

@@ -72,6 +72,28 @@ class UnifiedFlipDtoMapperTest {
     }
 
     @Test
+    void deduplicatesDuplicateConstraintsWhilePreservingOrder() {
+        Constraint recipeA = Constraint.recipeUnlocked("A:craft:0");
+        Constraint recipeB = Constraint.recipeUnlocked("B:craft:0");
+        Flip flip = new Flip(
+                UUID.randomUUID(),
+                FlipType.CRAFTING,
+                List.of(
+                        Step.forBuyMarketBased(30L, "{\"itemId\":\"ENCHANTED_HAY_BLOCK\",\"amount\":2}"),
+                        Step.forCraftInstant(10L)
+                ),
+                "TIGHTLY_TIED_HAY_BALE",
+                List.of(recipeA, recipeA, recipeB, recipeA)
+        );
+
+        UnifiedFlipDto dto = mapper.toDto(flip);
+
+        assertEquals(2, dto.constraints().size());
+        assertEquals("A:craft:0", dto.constraints().get(0).stringValue());
+        assertEquals("B:craft:0", dto.constraints().get(1).stringValue());
+    }
+
+    @Test
     void computesBazaarProfitAndRoiUsingImplicitResultSell() {
         Flip flip = new Flip(
                 UUID.randomUUID(),
