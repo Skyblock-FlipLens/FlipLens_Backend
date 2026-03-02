@@ -310,10 +310,6 @@ public class MarketDataProcessingService {
         MarketSnapshot snapshot = marketSnapshotMapper.map(auctionResponse, bazaarResponse);
         cycleInstrumentationService.endPhase("normalize", normalizeStart, true, payloadBytes);
 
-        long computeStart = cycleInstrumentationService.startPhase();
-        UnifiedFlipInputSnapshot inputSnapshot = unifiedFlipInputMapper.map(snapshot);
-        cycleInstrumentationService.endPhase("compute_flips", computeStart, true, payloadBytes);
-
         long persistStart = cycleInstrumentationService.startPhase();
         try {
             persistAggregateSnapshots(snapshot);
@@ -324,6 +320,10 @@ public class MarketDataProcessingService {
             marketSnapshotPersistenceService.save(snapshot);
         }
         cycleInstrumentationService.endPhase("persist/cache_update", persistStart, true, payloadBytes);
+
+        long computeStart = cycleInstrumentationService.startPhase();
+        UnifiedFlipInputSnapshot inputSnapshot = unifiedFlipInputMapper.map(snapshot);
+        cycleInstrumentationService.endPhase("compute_flips", computeStart, true, payloadBytes);
 
         return Optional.of(inputSnapshot);
     }

@@ -734,7 +734,9 @@ public class AdaptivePollingCoordinator {
             meterRegistry.summary("skyblock.adaptive.auctions.observed_period_ms").record(observedPeriod);
         }
         auctionPollState.setLastSeenLastUpdated(newLastUpdated);
-        auctionPollState.setNextExpectedAtMs(nowMillis + auctionPollState.getEwmaPeriodMs());
+        long predictedFromSourceClock = newLastUpdated + auctionPollState.getEwmaPeriodMs();
+        long minFuture = nowMillis + endpointCfg.getMinProbeIntervalMs();
+        auctionPollState.setNextExpectedAtMs(Math.max(predictedFromSourceClock, minFuture));
         auctionPollState.setProbeBackoffStep(0);
         auctionPollState.setProbeIntervalMs(endpointCfg.getMinProbeIntervalMs());
     }
@@ -784,7 +786,9 @@ public class AdaptivePollingCoordinator {
             meterRegistry.summary("skyblock.adaptive.bazaar.observed_period_ms").record(observedPeriod);
         }
         bazaarPollState.setLastSeenLastUpdated(newLastUpdated);
-        bazaarPollState.setNextExpectedAtMs(nowMillis + bazaarPollState.getEwmaPeriodMs());
+        long predictedFromSourceClock = newLastUpdated + bazaarPollState.getEwmaPeriodMs();
+        long minFuture = nowMillis + endpointCfg.getMinProbeIntervalMs();
+        bazaarPollState.setNextExpectedAtMs(Math.max(predictedFromSourceClock, minFuture));
         bazaarPollState.setProbeBackoffStep(0);
         bazaarPollState.setProbeIntervalMs(endpointCfg.getMinProbeIntervalMs());
     }
