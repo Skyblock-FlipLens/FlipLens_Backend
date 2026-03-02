@@ -13,9 +13,18 @@ public class GlobalRequestLimiter {
 
     public synchronized long reserveDelayMillis() {
         long now = System.nanoTime();
-        long earliest = Math.max(now, nextAllowedNano);
-        nextAllowedNano = earliest + intervalNanos;
-        long delayNanos = Math.max(0L, earliest - now);
-        return Math.round(delayNanos / 1_000_000d);
+        if (now < nextAllowedNano) {
+            long delayNanos = nextAllowedNano - now;
+            return nanosToMillisCeil(delayNanos);
+        }
+        nextAllowedNano = now + intervalNanos;
+        return 0L;
+    }
+
+    private long nanosToMillisCeil(long nanos) {
+        if (nanos <= 0L) {
+            return 0L;
+        }
+        return (nanos + 999_999L) / 1_000_000L;
     }
 }
