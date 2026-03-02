@@ -333,6 +333,30 @@ class AdaptivePollerBehaviorTest {
     }
 
     @Test
+    void decideNextDelayChangedWithOverrideStillProcessesPayload() throws Exception {
+        Fixture fixture = fixture();
+        long now = System.currentTimeMillis();
+        AdaptivePoller.PollExecution<String> changedWithOverride = new AdaptivePoller.PollExecution<>(
+                ChangeDetector.ChangeDecision.changed(),
+                "payload",
+                now,
+                HypixelHttpResult.success(200, HttpHeaders.EMPTY, "ok"),
+                1_234L
+        );
+
+        long delay = (long) invokePrivate(
+                fixture.poller,
+                "decideNextDelay",
+                new Class<?>[]{AdaptivePoller.PollExecution.class, long.class},
+                changedWithOverride,
+                now
+        );
+
+        verify(fixture.pipeline).submit("payload");
+        assertEquals(1_234L, delay);
+    }
+
+    @Test
     void cacheFreshForMillisAndDirectiveParserHandleInvalidInput() throws Exception {
         Fixture fixture = fixture();
         HttpHeaders headers = new HttpHeaders();

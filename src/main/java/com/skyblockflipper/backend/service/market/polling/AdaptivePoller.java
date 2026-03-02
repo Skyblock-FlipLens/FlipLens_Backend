@@ -170,9 +170,6 @@ public class AdaptivePoller<T> {
         if (execution == null || execution.httpResult() == null) {
             return onError();
         }
-        if (execution.nextDelayOverrideMs() != null) {
-            return Math.max(0L, execution.nextDelayOverrideMs());
-        }
         HypixelHttpResult<?> httpResult = execution.httpResult();
         if (execution.decision().decision() == ChangeDetector.Decision.RATE_LIMITED || httpResult.statusCode() == 429) {
             meterRegistry.counter("skyblock.adaptive.http_429", "endpoint", endpoint).increment();
@@ -184,7 +181,14 @@ public class AdaptivePoller<T> {
             return onError();
         }
         if (execution.decision().isChanged()) {
-            return onChanged(execution, nowMillis);
+            long changedDelay = onChanged(execution, nowMillis);
+            if (execution.nextDelayOverrideMs() != null) {
+                return Math.max(0L, execution.nextDelayOverrideMs());
+            }
+            return changedDelay;
+        }
+        if (execution.nextDelayOverrideMs() != null) {
+            return Math.max(0L, execution.nextDelayOverrideMs());
         }
         long baseDelay = onNoChange(nowMillis);
         long cacheDelay = cacheFreshForMillis(execution.httpResult().headers());
