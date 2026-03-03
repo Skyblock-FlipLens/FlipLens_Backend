@@ -312,7 +312,7 @@ public class MarketDataProcessingService {
 
         long persistStart = cycleInstrumentationService.startPhase();
         try {
-            persistAggregateSnapshots(snapshot);
+            persistAggregateSnapshots(snapshot, auctionResponse);
         } catch (RuntimeException e) {
             log.warn("Aggregate snapshot persistence failed but raw snapshot path will continue.", e);
         }
@@ -348,13 +348,18 @@ public class MarketDataProcessingService {
         return marketSnapshotPersistenceService.compactSnapshots();
     }
 
-    private void persistAggregateSnapshots(MarketSnapshot snapshot) {
+    private void persistAggregateSnapshots(MarketSnapshot snapshot, AuctionResponse auctionResponse) {
         if (snapshot == null || snapshot.snapshotTimestamp() == null) {
             return;
         }
         if (snapshotStorageProperties.isPersistAhAggregates() && ahItemSnapshotRepository != null) {
             try {
-                List<AhItemSnapshotEntity> ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
+                List<AhItemSnapshotEntity> ahAggregates;
+                if (auctionResponse != null && auctionResponse.getAuctions() != null) {
+                    ahAggregates = ahSnapshotAggregator.aggregateFromAuctions(snapshot.snapshotTimestamp(), auctionResponse.getAuctions());
+                } else {
+                    ahAggregates = ahSnapshotAggregator.aggregate(snapshot.snapshotTimestamp(), snapshot.auctions());
+                }
                 for (int fromIndex = 0; fromIndex < ahAggregates.size(); fromIndex += aggregateInsertBatchSize) {
                     int toIndex = Math.min(fromIndex + aggregateInsertBatchSize, ahAggregates.size());
                     ahItemSnapshotRepository.insertIgnoreBatch(ahAggregates.subList(fromIndex, toIndex));
@@ -497,8 +502,8 @@ public class MarketDataProcessingService {
                 auction.getStart(),
                 auction.getEnd(),
                 auction.getItemName(),
-                null,
-                null,
+                auction.getItemLore(),
+                auction.getExtra(),
                 auction.getCategory(),
                 auction.getTier(),
                 auction.getStartingBid(),

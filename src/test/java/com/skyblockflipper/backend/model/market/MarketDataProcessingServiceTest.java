@@ -289,7 +289,7 @@ class MarketDataProcessingServiceTest {
         mockAuctionStreaming(client, auctionResponse);
         when(client.fetchBazaar()).thenReturn(bazaarResponse);
         when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(ahAggregator.aggregate(any(Instant.class), anyList()))
+        when(ahAggregator.aggregateFromAuctions(any(Instant.class), anyList()))
                 .thenReturn(List.of(new AhItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND|T:RARE|C:MISC|P:-|S:0|R:0", 100L, 100L, 100L, 100L, 1, null, 0)));
         when(ahRepo.insertIgnoreBatch(anyList())).thenThrow(new RuntimeException("aggregate failure"));
         when(bzAggregator.aggregate(any(Instant.class), anyMap()))

@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,6 +16,11 @@ class MarketItemKeyServiceTest {
     @Test
     void toAuctionItemKeyReturnsNullForNullRecord() {
         assertNull(service.toAuctionItemKey(null));
+    }
+
+    @Test
+    void toAuctionAggregateItemKeyReturnsNullForNullRecord() {
+        assertNull(service.toAuctionAggregateItemKey(null));
     }
 
     @Test
@@ -152,5 +158,60 @@ class MarketItemKeyServiceTest {
 
         assertEquals("MY_ITEM|T:RARE|C:MISC|P:-|S:0|R:0", service.toAuctionItemKey(escaped));
         assertEquals("ALTERNATE_ITEM|T:RARE|C:MISC|P:-|S:0|R:0", service.toAuctionItemKey(alt));
+    }
+
+    @Test
+    void toAuctionAggregateItemKeyIgnoresStarsAndRecomb() {
+        AuctionMarketRecord record = new AuctionMarketRecord(
+                "a7",
+                "Aspect of the End \u272A",
+                "weapon",
+                "epic",
+                100_000L,
+                0L,
+                1L,
+                2L,
+                false,
+                true,
+                "RARITY UPGRADED",
+                "{\"internalname\":\"ASPECT_OF_THE_END\"}"
+        );
+
+        assertEquals("ASPECT_OF_THE_END|T:EPIC|C:WEAPON|P:-", service.toAuctionAggregateItemKey(record));
+    }
+
+    @Test
+    void hasAuctionAdditionalsDetectsEnchantStarsAndRecomb() {
+        AuctionMarketRecord enchanted = new AuctionMarketRecord(
+                "a8",
+                "Axe",
+                "weapon",
+                "epic",
+                1_000L,
+                0L,
+                1L,
+                2L,
+                false,
+                true,
+                "Sharpness V",
+                "{\"internalname\":\"AXE\"}"
+        );
+        AuctionMarketRecord clean = new AuctionMarketRecord(
+                "a9",
+                "Axe",
+                "weapon",
+                "epic",
+                1_000L,
+                0L,
+                1L,
+                2L,
+                false,
+                true,
+                null,
+                "{\"internalname\":\"AXE\"}"
+        );
+
+        assertTrue(service.hasAuctionAdditionals(enchanted));
+        assertFalse(service.hasAuctionAdditionals(clean));
     }
 }
