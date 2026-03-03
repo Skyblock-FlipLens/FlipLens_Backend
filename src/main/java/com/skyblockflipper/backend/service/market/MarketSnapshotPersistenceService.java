@@ -8,7 +8,11 @@ import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotCompactionCandidate;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.service.market.partitioning.PartitionLifecycleService;
+import com.skyblockflipper.backend.service.market.partitioning.PartitionRetentionReport;
+import com.skyblockflipper.backend.service.market.partitioning.PartitioningProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -51,6 +55,8 @@ public class MarketSnapshotPersistenceService {
     private final int flipDeleteBatchSize;
     private final long flipDeleteBatchPauseMillis;
     private final TransactionTemplate requiresNewTransactionTemplate;
+    private volatile PartitionLifecycleService partitionLifecycleService;
+    private volatile PartitioningProperties partitioningProperties = new PartitioningProperties();
 
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
                                             FlipRepository flipRepository,
@@ -91,6 +97,18 @@ public class MarketSnapshotPersistenceService {
             return fallback;
         }
         return configured;
+    }
+
+    @Autowired(required = false)
+    public void setPartitionLifecycleService(PartitionLifecycleService partitionLifecycleService) {
+        this.partitionLifecycleService = partitionLifecycleService;
+    }
+
+    @Autowired(required = false)
+    public void setPartitioningProperties(PartitioningProperties partitioningProperties) {
+        if (partitioningProperties != null) {
+            this.partitioningProperties = partitioningProperties;
+        }
     }
 
     public MarketSnapshot save(MarketSnapshot snapshot) {
@@ -142,6 +160,60 @@ public class MarketSnapshotPersistenceService {
 
     public SnapshotCompactionResult compactSnapshots(Instant now) {
         Instant safeNow = now == null ? Instant.now() : now;
+        SnapshotCompactionResult partitionResult = compactUsingPartitionLifecycleIfEnabled(safeNow);
+        if (partitionResult != null) {
+            return partitionResult;
+        }
+        return compactSnapshotsRowDelete(safeNow);
+    }
+
+    private SnapshotCompactionResult compactUsingPartitionLifecycleIfEnabled(Instant safeNow) {
+        PartitionLifecycleService lifecycleService = this.partitionLifecycleService;
+        PartitioningProperties properties = this.partitioningProperties;
+        if (lifecycleService == null || properties == null || !lifecycleService.isPartitionCompactionEnabled()) {
+            return null;
+        }
+
+        PartitionRetentionReport report = lifecycleService.executeRawSnapshotRetention(safeNow);
+        if (report == null) {
+            return null;
+        }
+
+        if (report.dryRun()) {
+            log.info("Partition retention dry-run: scanned={} wouldDrop={} dropped={}",
+                    report.scannedPartitions(),
+                    report.wouldDropPartitions(),
+                    report.droppedPartitions());
+            return new SnapshotCompactionResult(
+                    report.scannedPartitions(),
+                    0,
+                    Math.max(0, report.scannedPartitions())
+            );
+        }
+
+        if (report.partitionedTargetsDetected()) {
+            int kept = Math.max(0, report.scannedPartitions() - report.droppedPartitions());
+            log.info("Partition retention applied: scanned={} dropped={} kept={}",
+                    report.scannedPartitions(),
+                    report.droppedPartitions(),
+                    kept);
+            return new SnapshotCompactionResult(
+                    report.scannedPartitions(),
+                    report.droppedPartitions(),
+                    kept
+            );
+        }
+
+        if (properties.isFallbackToRowDelete()) {
+            log.info("Partition mode enabled but no partitioned targets detected. Falling back to row-delete compaction.");
+            return null;
+        }
+
+        log.info("Partition mode enabled and fallback disabled. No row-delete compaction executed.");
+        return new SnapshotCompactionResult(0, 0, 0);
+    }
+
+    private SnapshotCompactionResult compactSnapshotsRowDelete(Instant safeNow) {
         long nowMillis = safeNow.toEpochMilli();
         long compactionCandidateUpperBound = nowMillis - (rawWindowSeconds * 1_000L);
 
@@ -210,7 +282,6 @@ public class MarketSnapshotPersistenceService {
         for (int fromIndex = 0; fromIndex < deleteCandidates.size(); fromIndex += flipDeleteBatchSize) {
             int toIndex = Math.min(fromIndex + flipDeleteBatchSize, deleteCandidates.size());
             int batchFromIndex = fromIndex;
-            int batchToIndex = toIndex;
             List<SnapshotDeleteCandidate> deleteBatch = deleteCandidates.subList(fromIndex, toIndex);
             List<UUID> snapshotIdBatch = deleteBatch.stream().map(SnapshotDeleteCandidate::id).toList();
             List<Long> timestampBatch = deleteBatch.stream()
@@ -220,7 +291,7 @@ public class MarketSnapshotPersistenceService {
 
             BatchDeleteStats batchStats = requiresNewTransactionTemplate.execute(status -> {
                 blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(snapshotIdBatch));
-                return deleteOrphanedFlipsForSnapshotTimestampBatch(timestampBatch, batchFromIndex, batchToIndex);
+                return deleteOrphanedFlipsForSnapshotTimestampBatch(timestampBatch, batchFromIndex, toIndex);
             });
             if (batchStats != null) {
                 deletedFlips += batchStats.deletedFlips();

@@ -5,9 +5,12 @@ import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotCompactionCandidate;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.service.market.partitioning.PartitionLifecycleService;
+import com.skyblockflipper.backend.service.market.partitioning.PartitionRetentionReport;
+import com.skyblockflipper.backend.service.market.partitioning.PartitioningMode;
+import com.skyblockflipper.backend.service.market.partitioning.PartitioningProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.SimpleTransactionStatus;
@@ -15,6 +18,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,7 +44,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
     private PlatformTransactionManager transactionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         marketSnapshotRepository = mock(MarketSnapshotRepository.class);
         flipRepository = mock(FlipRepository.class);
         blockingTimeTracker = mock(BlockingTimeTracker.class);
@@ -51,7 +55,6 @@ class MarketSnapshotPersistenceServiceUnitTest {
         doNothing().when(transactionManager).rollback(any(TransactionStatus.class));
 
         doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
             BlockingTimeTracker.CheckedSupplier<Object> supplier = invocation.getArgument(2);
             return supplier.get();
         }).when(blockingTimeTracker).record(anyString(), anyString(), any());
@@ -102,6 +105,73 @@ class MarketSnapshotPersistenceServiceUnitTest {
         assertEquals(0, result.deletedCount());
         assertEquals(0, result.keptCount());
         verify(flipRepository, times(0)).findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(anyCollection(), any());
+    }
+
+    @Test
+    void compactSnapshotsUsesPartitionDryRunWithoutRowDeleteFallback() {
+        MarketSnapshotPersistenceService service = createService(defaultRetention());
+        PartitionLifecycleService lifecycleService = mock(PartitionLifecycleService.class);
+        PartitioningProperties partitioningProperties = new PartitioningProperties();
+        partitioningProperties.setEnabled(true);
+        partitioningProperties.setMode(PartitioningMode.PARTITION_DROP);
+        partitioningProperties.setDryRun(true);
+        partitioningProperties.setFallbackToRowDelete(true);
+
+        when(lifecycleService.isPartitionCompactionEnabled()).thenReturn(true);
+        when(lifecycleService.executeRawSnapshotRetention(any())).thenReturn(new PartitionRetentionReport(
+                11,
+                0,
+                4,
+                true,
+                true,
+                Map.of(),
+                Map.of("market_snapshot", 4),
+                List.of()
+        ));
+
+        service.setPartitionLifecycleService(lifecycleService);
+        service.setPartitioningProperties(partitioningProperties);
+        MarketSnapshotPersistenceService.SnapshotCompactionResult result =
+                service.compactSnapshots(Instant.parse("2026-03-01T12:00:00Z"));
+
+        assertEquals(11, result.scannedCount());
+        assertEquals(0, result.deletedCount());
+        assertEquals(11, result.keptCount());
+        verifyNoInteractions(marketSnapshotRepository);
+    }
+
+    @Test
+    void compactSnapshotsFallsBackToRowDeleteWhenNoPartitionedTargetsDetected() {
+        MarketSnapshotPersistenceService service = createService(defaultRetention());
+        PartitionLifecycleService lifecycleService = mock(PartitionLifecycleService.class);
+        PartitioningProperties partitioningProperties = new PartitioningProperties();
+        partitioningProperties.setEnabled(true);
+        partitioningProperties.setMode(PartitioningMode.PARTITION_DROP);
+        partitioningProperties.setDryRun(false);
+        partitioningProperties.setFallbackToRowDelete(true);
+
+        when(lifecycleService.isPartitionCompactionEnabled()).thenReturn(true);
+        when(lifecycleService.executeRawSnapshotRetention(any())).thenReturn(new PartitionRetentionReport(
+                0,
+                0,
+                0,
+                false,
+                false,
+                Map.of(),
+                Map.of(),
+                List.of("skip market_snapshot: table not partitioned")
+        ));
+        when(marketSnapshotRepository.findCompactionCandidates(anyLong())).thenReturn(List.of());
+
+        service.setPartitionLifecycleService(lifecycleService);
+        service.setPartitioningProperties(partitioningProperties);
+        MarketSnapshotPersistenceService.SnapshotCompactionResult result =
+                service.compactSnapshots(Instant.parse("2026-03-01T12:00:00Z"));
+
+        assertEquals(0, result.scannedCount());
+        assertEquals(0, result.deletedCount());
+        assertEquals(0, result.keptCount());
+        verify(marketSnapshotRepository, times(1)).findCompactionCandidates(anyLong());
     }
 
     @Test
@@ -186,4 +256,3 @@ class MarketSnapshotPersistenceServiceUnitTest {
         };
     }
 }
-

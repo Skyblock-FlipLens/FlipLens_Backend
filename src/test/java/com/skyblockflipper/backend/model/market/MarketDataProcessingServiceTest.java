@@ -8,8 +8,6 @@ import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarQuickStatus;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
-import com.skyblockflipper.backend.model.market.AhItemSnapshotEntity;
-import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.repository.AhItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipInputMapper;
@@ -163,7 +161,6 @@ class MarketDataProcessingServiceTest {
             );
         });
         when(client.fetchAllAuctionPages(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
             java.util.function.Consumer<Auction> consumer = invocation.getArgument(0);
             auctionResponse.getAuctions().forEach(consumer);
             return new AuctionProbeInfo(
@@ -224,7 +221,6 @@ class MarketDataProcessingServiceTest {
                         new AuctionProbeInfo(staleAuction.getLastUpdated(), staleAuction.getTotalPages(), staleAuction.getTotalAuctions())
                 );
         when(client.fetchAllAuctionPages(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
             java.util.function.Consumer<Auction> consumer = invocation.getArgument(0);
             freshAuction.getAuctions().forEach(consumer);
             return new AuctionProbeInfo(
@@ -289,7 +285,7 @@ class MarketDataProcessingServiceTest {
         mockAuctionStreaming(client, auctionResponse);
         when(client.fetchBazaar()).thenReturn(bazaarResponse);
         when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(ahAggregator.aggregate(any(Instant.class), anyList()))
+        when(ahAggregator.aggregateFromAuctions(any(Instant.class), anyList()))
                 .thenReturn(List.of(new AhItemSnapshotEntity(11_000L, "ENCHANTED_DIAMOND|T:RARE|C:MISC|P:-|S:0|R:0", 100L, 100L, 100L, 100L, 1, null, 0)));
         when(ahRepo.insertIgnoreBatch(anyList())).thenThrow(new RuntimeException("aggregate failure"));
         when(bzAggregator.aggregate(any(Instant.class), anyMap()))
@@ -449,7 +445,6 @@ class MarketDataProcessingServiceTest {
                 response.getTotalAuctions()
         ));
         when(client.fetchAllAuctionPages(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
             java.util.function.Consumer<Auction> consumer = invocation.getArgument(0);
             response.getAuctions().forEach(consumer);
             return new AuctionProbeInfo(

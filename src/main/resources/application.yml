@@ -139,6 +139,20 @@ config:
       ah-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_AH_AGGREGATE_DAYS:30}
       bz-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_BZ_AGGREGATE_DAYS:30}
       aggregate-cleanup-interval-ms: ${CONFIG_SNAPSHOT_RETENTION_AGGREGATE_CLEANUP_INTERVAL_MS:3600000}
+    partitioning:
+      enabled: ${CONFIG_SNAPSHOT_PARTITIONING_ENABLED:false}
+      mode: ${CONFIG_SNAPSHOT_PARTITIONING_MODE:PARTITION_DROP}
+      dry-run: ${CONFIG_SNAPSHOT_PARTITIONING_DRY_RUN:true}
+      fallback-to-row-delete: ${CONFIG_SNAPSHOT_PARTITIONING_FALLBACK_TO_ROW_DELETE:true}
+      schema-name: ${CONFIG_SNAPSHOT_PARTITIONING_SCHEMA_NAME:public}
+      maintenance-interval-ms: ${CONFIG_SNAPSHOT_PARTITIONING_MAINTENANCE_INTERVAL_MS:600000}
+      precreate-days: ${CONFIG_SNAPSHOT_PARTITIONING_PRECREATE_DAYS:14}
+      market-snapshot-parent-table: ${CONFIG_SNAPSHOT_PARTITIONING_MARKET_PARENT_TABLE:market_snapshot}
+      market-snapshot-retention-days: ${CONFIG_SNAPSHOT_PARTITIONING_MARKET_RETENTION_DAYS:7}
+      ah-snapshot-parent-table: ${CONFIG_SNAPSHOT_PARTITIONING_AH_PARENT_TABLE:ah_item_snapshot}
+      ah-snapshot-retention-days: ${CONFIG_SNAPSHOT_PARTITIONING_AH_RETENTION_DAYS:30}
+      bz-snapshot-parent-table: ${CONFIG_SNAPSHOT_PARTITIONING_BZ_PARENT_TABLE:bz_item_snapshot}
+      bz-snapshot-retention-days: ${CONFIG_SNAPSHOT_PARTITIONING_BZ_RETENTION_DAYS:30}
   compactor:
     channel: ${CONFIG_COMPACTOR_CHANNEL:compaction}
     safety-tick-interval-ms: ${CONFIG_COMPACTOR_SAFETY_TICK_INTERVAL_MS:60000}
