@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.service.market.partitioning;
 
 import com.skyblockflipper.backend.repository.PartitionAdminRepository;
+import com.skyblockflipper.backend.service.market.rollup.MarketBucketMaterializationService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -92,5 +93,64 @@ class PartitionLifecycleServiceTest {
         assertFalse(report.partitionedTargetsDetected());
         assertEquals(0, report.scannedPartitions());
         assertEquals(0, report.droppedPartitions());
+    }
+
+    @Test
+    void executeAggregateRetentionSkipsDropWhenMaterializationIsIncomplete() {
+        PartitionAdminRepository adminRepository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMode(PartitioningMode.PARTITION_DROP);
+        properties.setDryRun(false);
+        properties.setAhSnapshotRetentionDays(1);
+        properties.setAhSnapshotParentTable("ah_item_snapshot");
+
+        when(adminRepository.isTablePartitioned("public", "ah_item_snapshot")).thenReturn(true);
+        when(adminRepository.listChildPartitions("public", "ah_item_snapshot")).thenReturn(List.of("ah_item_snapshot_2026_03_08"));
+
+        MarketBucketMaterializationService materializationService = mock(MarketBucketMaterializationService.class);
+        when(materializationService.isEnabled()).thenReturn(true);
+        when(materializationService.isAggregatePartitionMaterialized("ah_item_snapshot", java.time.LocalDate.parse("2026-03-08")))
+                .thenReturn(false);
+
+        PartitionLifecycleService service = new PartitionLifecycleService(adminRepository, properties);
+        service.setMarketBucketMaterializationService(materializationService);
+
+        PartitionRetentionReport report = service.executeAggregateRetention(Instant.parse("2026-03-10T12:00:00Z"));
+
+        assertEquals(0, report.droppedPartitions());
+        assertTrue(report.messages().stream().anyMatch(message -> message.contains("not fully materialized")));
+        verify(adminRepository, never()).dropTableIfExists("public", "ah_item_snapshot_2026_03_08");
+    }
+
+    @Test
+    void executeAggregateRetentionDropsPartitionAfterMaterializationAndDailyRollup() {
+        PartitionAdminRepository adminRepository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMode(PartitioningMode.PARTITION_DROP);
+        properties.setDryRun(false);
+        properties.setBzSnapshotRetentionDays(1);
+        properties.setBzSnapshotParentTable("bz_item_snapshot");
+
+        when(adminRepository.isTablePartitioned("public", "bz_item_snapshot")).thenReturn(true);
+        when(adminRepository.listChildPartitions("public", "bz_item_snapshot")).thenReturn(List.of("bz_item_snapshot_2026_03_08"));
+
+        MarketBucketMaterializationService materializationService = mock(MarketBucketMaterializationService.class);
+        when(materializationService.isEnabled()).thenReturn(true);
+        when(materializationService.isAggregatePartitionMaterialized("bz_item_snapshot", java.time.LocalDate.parse("2026-03-08")))
+                .thenReturn(true);
+
+        AggregateRollupService aggregateRollupService = mock(AggregateRollupService.class);
+
+        PartitionLifecycleService service = new PartitionLifecycleService(adminRepository, properties);
+        service.setMarketBucketMaterializationService(materializationService);
+        service.setAggregateRollupService(aggregateRollupService);
+
+        PartitionRetentionReport report = service.executeAggregateRetention(Instant.parse("2026-03-10T12:00:00Z"));
+
+        assertEquals(1, report.droppedPartitions());
+        verify(aggregateRollupService).rollupDailyForTable("bz_item_snapshot", java.time.LocalDate.parse("2026-03-08"));
+        verify(adminRepository).dropTableIfExists("public", "bz_item_snapshot_2026_03_08");
     }
 }

@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.service.market.partitioning;
 
 import com.skyblockflipper.backend.repository.PartitionAdminRepository;
+import com.skyblockflipper.backend.service.market.rollup.MarketBucketMaterializationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
@@ -23,6 +24,7 @@ public class PartitionLifecycleService {
     private final PartitionAdminRepository partitionAdminRepository;
     private final PartitioningProperties partitioningProperties;
     private volatile AggregateRollupService aggregateRollupService;
+    private volatile MarketBucketMaterializationService marketBucketMaterializationService;
 
     public PartitionLifecycleService(PartitionAdminRepository partitionAdminRepository,
                                      PartitioningProperties partitioningProperties) {
@@ -33,6 +35,11 @@ public class PartitionLifecycleService {
     @Autowired(required = false)
     public void setAggregateRollupService(AggregateRollupService aggregateRollupService) {
         this.aggregateRollupService = aggregateRollupService;
+    }
+
+    @Autowired(required = false)
+    public void setMarketBucketMaterializationService(MarketBucketMaterializationService marketBucketMaterializationService) {
+        this.marketBucketMaterializationService = marketBucketMaterializationService;
     }
 
     public boolean isPartitionCompactionEnabled() {
@@ -117,6 +124,9 @@ public class PartitionLifecycleService {
                 if (partitionDay == null || !partitionDay.isBefore(oldestKeptDay)) {
                     continue;
                 }
+                if (!isEligibleForDrop(parentTable, partitionDay, messages)) {
+                    continue;
+                }
                 if (dryRun) {
                     wouldDropPartitions++;
                     wouldDropByParent.merge(parentTable, 1, Integer::sum);
@@ -142,6 +152,31 @@ public class PartitionLifecycleService {
                 Map.copyOf(wouldDropByParent),
                 List.copyOf(messages)
         );
+    }
+
+    private boolean isEligibleForDrop(String parentTable, LocalDate partitionDay, List<String> messages) {
+        if (!isAggregateParent(parentTable)) {
+            return true;
+        }
+
+        MarketBucketMaterializationService materializationService = this.marketBucketMaterializationService;
+        if (materializationService == null || !materializationService.isEnabled()) {
+            messages.add("skip " + partitionName(parentTable, partitionDay) + ": rollup materialization unavailable");
+            return false;
+        }
+        if (!materializationService.isAggregatePartitionMaterialized(parentTable, partitionDay)) {
+            messages.add("skip " + partitionName(parentTable, partitionDay) + ": aggregate buckets not fully materialized");
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isAggregateParent(String parentTable) {
+        if (parentTable == null || parentTable.isBlank()) {
+            return false;
+        }
+        return parentTable.equalsIgnoreCase(partitioningProperties.getAhSnapshotParentTable())
+                || parentTable.equalsIgnoreCase(partitioningProperties.getBzSnapshotParentTable());
     }
 
     private void ensureForTarget(String parentTable, LocalDate today, int precreateDays) {

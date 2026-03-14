@@ -1,9 +1,11 @@
 package com.skyblockflipper.backend.config.Jobs;
 
+import com.skyblockflipper.backend.service.market.rollup.MarketBucketMaterializationService;
 import com.skyblockflipper.backend.service.market.partitioning.PartitionLifecycleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,6 +25,12 @@ import java.time.Instant;
 public class PartitionMaintenanceJob {
 
     private final PartitionLifecycleService partitionLifecycleService;
+    private volatile MarketBucketMaterializationService marketBucketMaterializationService;
+
+    @Autowired(required = false)
+    public void setMarketBucketMaterializationService(MarketBucketMaterializationService marketBucketMaterializationService) {
+        this.marketBucketMaterializationService = marketBucketMaterializationService;
+    }
 
     @Scheduled(fixedDelayString = "${config.snapshot.partitioning.maintenance-interval-ms:600000}")
     public void ensureForwardPartitions() {
@@ -36,7 +44,19 @@ public class PartitionMaintenanceJob {
     @Scheduled(fixedDelayString = "${config.snapshot.retention.aggregate-cleanup-interval-ms:3600000}")
     public void compactAggregatePartitions() {
         try {
-            var report = partitionLifecycleService.executeAggregateRetention(Instant.now());
+            Instant now = Instant.now();
+            MarketBucketMaterializationService materializationService = this.marketBucketMaterializationService;
+            if (materializationService != null && materializationService.isEnabled()) {
+                var materializationReport = materializationService.materializeDueBuckets(now);
+                if (materializationReport.failedBuckets() > 0) {
+                    log.warn("Pre-retention bucket materialization reported failures: processed={} failed={} scopes={}",
+                            materializationReport.processedBuckets(),
+                            materializationReport.failedBuckets(),
+                            materializationReport.processedByScope());
+                }
+            }
+
+            var report = partitionLifecycleService.executeAggregateRetention(now);
             if (report.dryRun() && report.wouldDropPartitions() > 0) {
                 log.info("Aggregate partition retention dry-run: wouldDrop={} scanned={}",
                         report.wouldDropPartitions(),

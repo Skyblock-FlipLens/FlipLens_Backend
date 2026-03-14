@@ -14,6 +14,21 @@ config:
   snapshot:
     retention:
       raw-compaction-enabled: false
+      aggregate-cleanup-interval-ms: ${CONFIG_SNAPSHOT_RETENTION_AGGREGATE_CLEANUP_INTERVAL_MS:300000}
+    rollup:
+      enabled: ${CONFIG_SNAPSHOT_ROLLUP_ENABLED:true}
+      materialization-interval-ms: ${CONFIG_SNAPSHOT_ROLLUP_MATERIALIZATION_INTERVAL_MS:30000}
+      materialization-initial-delay-ms: ${CONFIG_SNAPSHOT_ROLLUP_MATERIALIZATION_INITIAL_DELAY_MS:10000}
+      raw-retention-days: ${CONFIG_SNAPSHOT_ROLLUP_RAW_RETENTION_DAYS:7}
+      test-raw-retention-days: ${CONFIG_SNAPSHOT_ROLLUP_TEST_RAW_RETENTION_DAYS:1}
+      max-buckets-per-run: ${CONFIG_SNAPSHOT_ROLLUP_MAX_BUCKETS_PER_RUN:256}
+      min-daily-rollup-distinct-coverage-ratio: ${CONFIG_SNAPSHOT_ROLLUP_MIN_DAILY_DISTINCT_COVERAGE_RATIO:0.90}
+    partitioning:
+      enabled: ${CONFIG_SNAPSHOT_PARTITIONING_ENABLED:true}
+      dry-run: ${CONFIG_SNAPSHOT_PARTITIONING_DRY_RUN:false}
+      market-snapshot-retention-days: ${CONFIG_SNAPSHOT_PARTITIONING_MARKET_RETENTION_DAYS:${CONFIG_SNAPSHOT_ROLLUP_TEST_RAW_RETENTION_DAYS:1}}
+      ah-snapshot-retention-days: ${CONFIG_SNAPSHOT_PARTITIONING_AH_RETENTION_DAYS:${CONFIG_SNAPSHOT_ROLLUP_TEST_RAW_RETENTION_DAYS:1}}
+      bz-snapshot-retention-days: ${CONFIG_SNAPSHOT_PARTITIONING_BZ_RETENTION_DAYS:${CONFIG_SNAPSHOT_ROLLUP_TEST_RAW_RETENTION_DAYS:1}}
   compaction:
     scheduler:
       api-readiness:
