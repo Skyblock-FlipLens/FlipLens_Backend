@@ -2,6 +2,7 @@ package com.skyblockflipper.backend.repository;
 
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -41,6 +42,7 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
             order by m.snapshotTimestampEpochMillis asc
             """)
     List<MarketSnapshotCompactionCandidate> findCompactionCandidates(
-            @Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis
+            @Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis,
+            Pageable pageable
     );
 }
