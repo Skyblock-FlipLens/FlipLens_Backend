@@ -110,6 +110,11 @@ public class MarketSnapshotArchiveService {
     }
 
     @Transactional
+    public PartitionOrphanCleanupResult cleanupDroppedPartitionOrphans(String parentTable, LocalDate partitionDayUtc) {
+        return cleanupDroppedPartitionOrphans(parentTable, partitionDayUtc, DEFAULT_ORPHAN_DELETE_BATCH_SIZE);
+    }
+
+    @Transactional
     public PartitionOrphanCleanupResult cleanupDroppedPartitionOrphans(String parentTable,
                                                                        LocalDate partitionDayUtc,
                                                                        int batchSize) {

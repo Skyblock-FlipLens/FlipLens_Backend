@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.service.market.rollup.MarketBucketMaterializa
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -37,7 +38,18 @@ class PartitionLifecycleServiceTest {
                 "market_snapshot_default"
         ));
 
+        MarketSnapshotArchiveService archiveService = mock(MarketSnapshotArchiveService.class);
+        when(archiveService.ensurePartitionArchived("market_snapshot", java.time.LocalDate.parse("2026-03-01"), true))
+                .thenReturn(new MarketSnapshotArchiveService.MarketSnapshotArchiveResult(
+                        true,
+                        false,
+                        "market_snapshot_2026_03_01",
+                        10L,
+                        Instant.parse("2026-03-01T00:00:05Z").toEpochMilli()
+                ));
+
         PartitionLifecycleService service = new PartitionLifecycleService(adminRepository, properties);
+        service.setMarketSnapshotArchiveService(archiveService);
         PartitionRetentionReport report = service.executeRawSnapshotRetention(Instant.parse("2026-03-10T12:00:00Z"));
 
         assertTrue(report.dryRun());
@@ -152,5 +164,63 @@ class PartitionLifecycleServiceTest {
         assertEquals(1, report.droppedPartitions());
         verify(aggregateRollupService).rollupDailyForTable("bz_item_snapshot", java.time.LocalDate.parse("2026-03-08"));
         verify(adminRepository).dropTableIfExists("public", "bz_item_snapshot_2026_03_08");
+    }
+
+    @Test
+    void executeRawSnapshotRetentionArchivesBeforeDroppingPartition() {
+        PartitionAdminRepository adminRepository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMode(PartitioningMode.PARTITION_DROP);
+        properties.setDryRun(false);
+        properties.setMarketSnapshotRetentionDays(1);
+        properties.setMarketSnapshotParentTable("market_snapshot");
+
+        when(adminRepository.isTablePartitioned("public", "market_snapshot")).thenReturn(true);
+        when(adminRepository.listChildPartitions("public", "market_snapshot")).thenReturn(List.of("market_snapshot_2026_03_08"));
+
+        MarketSnapshotArchiveService archiveService = mock(MarketSnapshotArchiveService.class);
+        when(archiveService.ensurePartitionArchived("market_snapshot", LocalDate.parse("2026-03-08"), false))
+                .thenReturn(new MarketSnapshotArchiveService.MarketSnapshotArchiveResult(
+                        true,
+                        false,
+                        "market_snapshot_2026_03_08",
+                        12L,
+                        Instant.parse("2026-03-08T00:00:05Z").toEpochMilli()
+                ));
+        when(archiveService.cleanupDroppedPartitionOrphans("market_snapshot", LocalDate.parse("2026-03-08")))
+                .thenReturn(new MarketSnapshotArchiveService.PartitionOrphanCleanupResult(3, 4, 2));
+
+        PartitionLifecycleService service = new PartitionLifecycleService(adminRepository, properties);
+        service.setMarketSnapshotArchiveService(archiveService);
+
+        PartitionRetentionReport report = service.executeRawSnapshotRetention(Instant.parse("2026-03-10T12:00:00Z"));
+
+        assertEquals(1, report.droppedPartitions());
+        verify(archiveService).ensurePartitionArchived("market_snapshot", LocalDate.parse("2026-03-08"), false);
+        verify(adminRepository).dropTableIfExists("public", "market_snapshot_2026_03_08");
+        verify(archiveService).cleanupDroppedPartitionOrphans("market_snapshot", LocalDate.parse("2026-03-08"));
+    }
+
+    @Test
+    void executeRawSnapshotRetentionSkipsDropWhenArchiveServiceUnavailable() {
+        PartitionAdminRepository adminRepository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMode(PartitioningMode.PARTITION_DROP);
+        properties.setDryRun(false);
+        properties.setMarketSnapshotRetentionDays(1);
+        properties.setMarketSnapshotParentTable("market_snapshot");
+
+        when(adminRepository.isTablePartitioned("public", "market_snapshot")).thenReturn(true);
+        when(adminRepository.listChildPartitions("public", "market_snapshot")).thenReturn(List.of("market_snapshot_2026_03_08"));
+
+        PartitionLifecycleService service = new PartitionLifecycleService(adminRepository, properties);
+
+        PartitionRetentionReport report = service.executeRawSnapshotRetention(Instant.parse("2026-03-10T12:00:00Z"));
+
+        assertEquals(0, report.droppedPartitions());
+        assertTrue(report.messages().stream().anyMatch(message -> message.contains("archive service unavailable")));
+        verify(adminRepository, never()).dropTableIfExists("public", "market_snapshot_2026_03_08");
     }
 }

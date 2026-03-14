@@ -25,6 +25,7 @@ public class PartitionLifecycleService {
     private final PartitioningProperties partitioningProperties;
     private volatile AggregateRollupService aggregateRollupService;
     private volatile MarketBucketMaterializationService marketBucketMaterializationService;
+    private volatile MarketSnapshotArchiveService marketSnapshotArchiveService;
 
     public PartitionLifecycleService(PartitionAdminRepository partitionAdminRepository,
                                      PartitioningProperties partitioningProperties) {
@@ -40,6 +41,11 @@ public class PartitionLifecycleService {
     @Autowired(required = false)
     public void setMarketBucketMaterializationService(MarketBucketMaterializationService marketBucketMaterializationService) {
         this.marketBucketMaterializationService = marketBucketMaterializationService;
+    }
+
+    @Autowired(required = false)
+    public void setMarketSnapshotArchiveService(MarketSnapshotArchiveService marketSnapshotArchiveService) {
+        this.marketSnapshotArchiveService = marketSnapshotArchiveService;
     }
 
     public boolean isPartitionCompactionEnabled() {
@@ -124,7 +130,7 @@ public class PartitionLifecycleService {
                 if (partitionDay == null || !partitionDay.isBefore(oldestKeptDay)) {
                     continue;
                 }
-                if (!isEligibleForDrop(parentTable, partitionDay, messages)) {
+                if (!isEligibleForDrop(parentTable, partitionDay, dryRun, messages)) {
                     continue;
                 }
                 if (dryRun) {
@@ -137,6 +143,7 @@ public class PartitionLifecycleService {
                     rollupService.rollupDailyForTable(parentTable, partitionDay);
                 }
                 partitionAdminRepository.dropTableIfExists(schemaName, partitionTable);
+                cleanupPostDrop(parentTable, partitionDay);
                 droppedPartitions++;
                 droppedByParent.merge(parentTable, 1, Integer::sum);
             }
@@ -154,19 +161,33 @@ public class PartitionLifecycleService {
         );
     }
 
-    private boolean isEligibleForDrop(String parentTable, LocalDate partitionDay, List<String> messages) {
-        if (!isAggregateParent(parentTable)) {
+    private boolean isEligibleForDrop(String parentTable, LocalDate partitionDay, boolean dryRun, List<String> messages) {
+        String partitionName = partitionName(parentTable, partitionDay);
+        if (isAggregateParent(parentTable)) {
+            MarketBucketMaterializationService materializationService = this.marketBucketMaterializationService;
+            if (materializationService == null || !materializationService.isEnabled()) {
+                messages.add("skip " + partitionName + ": rollup materialization unavailable");
+                return false;
+            }
+            if (!materializationService.isAggregatePartitionMaterialized(parentTable, partitionDay)) {
+                messages.add("skip " + partitionName + ": aggregate buckets not fully materialized");
+                return false;
+            }
             return true;
         }
 
-        MarketBucketMaterializationService materializationService = this.marketBucketMaterializationService;
-        if (materializationService == null || !materializationService.isEnabled()) {
-            messages.add("skip " + partitionName(parentTable, partitionDay) + ": rollup materialization unavailable");
-            return false;
-        }
-        if (!materializationService.isAggregatePartitionMaterialized(parentTable, partitionDay)) {
-            messages.add("skip " + partitionName(parentTable, partitionDay) + ": aggregate buckets not fully materialized");
-            return false;
+        if (isMarketSnapshotParent(parentTable)) {
+            MarketSnapshotArchiveService archiveService = this.marketSnapshotArchiveService;
+            if (archiveService == null) {
+                messages.add("skip " + partitionName + ": market snapshot archive service unavailable");
+                return false;
+            }
+            MarketSnapshotArchiveService.MarketSnapshotArchiveResult archiveResult =
+                    archiveService.ensurePartitionArchived(parentTable, partitionDay, dryRun);
+            if (!archiveResult.archived() || archiveResult.unsupported()) {
+                messages.add("skip " + partitionName + ": market snapshot archive not finalized");
+                return false;
+            }
         }
         return true;
     }
@@ -177,6 +198,38 @@ public class PartitionLifecycleService {
         }
         return parentTable.equalsIgnoreCase(partitioningProperties.getAhSnapshotParentTable())
                 || parentTable.equalsIgnoreCase(partitioningProperties.getBzSnapshotParentTable());
+    }
+
+    private boolean isMarketSnapshotParent(String parentTable) {
+        return parentTable != null
+                && !parentTable.isBlank()
+                && parentTable.equalsIgnoreCase(partitioningProperties.getMarketSnapshotParentTable());
+    }
+
+    private void cleanupPostDrop(String parentTable, LocalDate partitionDay) {
+        if (!isMarketSnapshotParent(parentTable) || partitionDay == null) {
+            return;
+        }
+        MarketSnapshotArchiveService archiveService = this.marketSnapshotArchiveService;
+        if (archiveService == null) {
+            return;
+        }
+        try {
+            MarketSnapshotArchiveService.PartitionOrphanCleanupResult cleanupResult =
+                    archiveService.cleanupDroppedPartitionOrphans(parentTable, partitionDay);
+            if (cleanupResult.deletedFlips() > 0
+                    || cleanupResult.deletedStepRows() > 0
+                    || cleanupResult.deletedConstraintRows() > 0) {
+                log.info("Dropped {} {} and cleaned orphan legacy flips: deletedFlips={} deletedStepRows={} deletedConstraintRows={}",
+                        parentTable,
+                        partitionDay,
+                        cleanupResult.deletedFlips(),
+                        cleanupResult.deletedStepRows(),
+                        cleanupResult.deletedConstraintRows());
+            }
+        } catch (Exception e) {
+            log.warn("Failed orphan cleanup after dropping {} {}: {}", parentTable, partitionDay, e.toString(), e);
+        }
     }
 
     private void ensureForTarget(String parentTable, LocalDate today, int precreateDays) {
