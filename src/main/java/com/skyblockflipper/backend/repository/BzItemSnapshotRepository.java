@@ -13,9 +13,12 @@ import java.util.List;
 
 public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId>, BzItemSnapshotBatchRepository {
 
+    List<BzItemSnapshotEntity> findBySnapshotTsGreaterThanEqualAndSnapshotTsLessThanOrderBySnapshotTsAsc(long fromInclusive,
+                                                                                                          long toExclusive);
+
     List<BzItemSnapshotEntity> findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(String productId,
-                                                                                          long fromInclusive,
-                                                                                         long toInclusive);
+                                                                                           long fromInclusive,
+                                                                                          long toInclusive);
 
     List<BzItemSnapshotEntity> findBySnapshotTsBetweenAndProductIdInOrderBySnapshotTsAsc(long fromInclusive,
                                                                                            long toInclusive,
@@ -23,6 +26,27 @@ public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEn
 
     List<BzItemSnapshotEntity> findBySnapshotTsInAndProductIdInOrderBySnapshotTsAsc(Collection<Long> snapshotTs,
                                                                                      Collection<String> productIds);
+
+    @Query(value = """
+            select min(snapshot_ts)
+            from bz_item_snapshot
+            """, nativeQuery = true)
+    Long findMinSnapshotTs();
+
+    @Query(value = """
+            select max(snapshot_ts)
+            from bz_item_snapshot
+            """, nativeQuery = true)
+    Long findMaxSnapshotTs();
+
+    @Query(value = """
+            select count(distinct product_id)
+            from bz_item_snapshot
+            where snapshot_ts >= :fromInclusive
+              and snapshot_ts < :toExclusive
+            """, nativeQuery = true)
+    long countDistinctProductIdBySnapshotTsGreaterThanEqualAndSnapshotTsLessThan(@Param("fromInclusive") long fromInclusive,
+                                                                                 @Param("toExclusive") long toExclusive);
 
     @Query(value = """
             select min(snapshot_ts)
