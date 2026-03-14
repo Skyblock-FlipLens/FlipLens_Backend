@@ -4,9 +4,11 @@ import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.item.NeuRepoIngestionService;
 import com.skyblockflipper.backend.repository.AhItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
+import com.skyblockflipper.backend.repository.PartitionAdminRepository;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import com.skyblockflipper.backend.service.market.SnapshotRetentionProperties;
 import com.skyblockflipper.backend.service.market.polling.ElectionPollFreshnessService;
+import com.skyblockflipper.backend.service.market.partitioning.PartitioningProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +33,8 @@ public class SourceJobs {
     private final BzItemSnapshotRepository bzItemSnapshotRepository;
     private final SnapshotRetentionProperties snapshotRetentionProperties;
     private final ElectionPollFreshnessService electionPollFreshnessService;
+    private final PartitionAdminRepository partitionAdminRepository;
+    private final PartitioningProperties partitioningProperties;
 
     @Autowired
     public SourceJobs(NeuRepoIngestionService neuRepoIngestionService,
@@ -39,7 +43,9 @@ public class SourceJobs {
                       AhItemSnapshotRepository ahItemSnapshotRepository,
                       BzItemSnapshotRepository bzItemSnapshotRepository,
                       SnapshotRetentionProperties snapshotRetentionProperties,
-                      ElectionPollFreshnessService electionPollFreshnessService) {
+                      ElectionPollFreshnessService electionPollFreshnessService,
+                      PartitionAdminRepository partitionAdminRepository,
+                      PartitioningProperties partitioningProperties) {
         this.neuRepoIngestionService = neuRepoIngestionService;
         this.marketDataProcessingService = marketDataProcessingService;
         this.flipGenerationService = flipGenerationService;
@@ -47,6 +53,8 @@ public class SourceJobs {
         this.bzItemSnapshotRepository = bzItemSnapshotRepository;
         this.snapshotRetentionProperties = snapshotRetentionProperties;
         this.electionPollFreshnessService = electionPollFreshnessService;
+        this.partitionAdminRepository = partitionAdminRepository;
+        this.partitioningProperties = partitioningProperties;
     }
 
     @Scheduled(cron = "0 0 23 * * *", zone = "UTC")
@@ -57,11 +65,22 @@ public class SourceJobs {
     @Scheduled(fixedDelayString = "${config.snapshot.retention.aggregate-cleanup-interval-ms:3600000}")
     public void compactAggregateSnapshots() {
         try {
+            boolean ahManagedByPartitions = isPartitionedAggregateTable(partitioningProperties.getAhSnapshotParentTable());
+            boolean bzManagedByPartitions = isPartitionedAggregateTable(partitioningProperties.getBzSnapshotParentTable());
+            if (ahManagedByPartitions && bzManagedByPartitions) {
+                log.debug("Skipping aggregate row-delete compaction because AH/BZ snapshot tables are partitioned");
+                return;
+            }
+
             long nowMillis = System.currentTimeMillis();
             long ahDays = sanitizeDays(snapshotRetentionProperties.getAhAggregateDays(), DEFAULT_AGGREGATE_RETENTION_DAYS);
             long bzDays = sanitizeDays(snapshotRetentionProperties.getBzAggregateDays(), DEFAULT_AGGREGATE_RETENTION_DAYS);
-            int ahDeleted = ahItemSnapshotRepository.deleteOlderThan(nowMillis - (ahDays * MILLIS_PER_DAY));
-            int bzDeleted = bzItemSnapshotRepository.deleteOlderThan(nowMillis - (bzDays * MILLIS_PER_DAY));
+            int ahDeleted = ahManagedByPartitions
+                    ? 0
+                    : ahItemSnapshotRepository.deleteOlderThan(nowMillis - (ahDays * MILLIS_PER_DAY));
+            int bzDeleted = bzManagedByPartitions
+                    ? 0
+                    : bzItemSnapshotRepository.deleteOlderThan(nowMillis - (bzDays * MILLIS_PER_DAY));
             if (ahDeleted > 0 || bzDeleted > 0) {
                 log.info("Compacted aggregate snapshots: ahDeleted={}, bzDeleted={}", ahDeleted, bzDeleted);
             }
@@ -110,5 +129,12 @@ public class SourceJobs {
 
     private long sanitizeDays(long configuredDays, long fallbackDays) {
         return configuredDays > 0L ? configuredDays : fallbackDays;
+    }
+
+    private boolean isPartitionedAggregateTable(String tableName) {
+        if (tableName == null || tableName.isBlank()) {
+            return false;
+        }
+        return partitionAdminRepository.isTablePartitioned(partitioningProperties.getSchemaName(), tableName);
     }
 }
