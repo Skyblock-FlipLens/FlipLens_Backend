@@ -41,7 +41,7 @@ import java.util.UUID;
 public class MarketSnapshotPersistenceService {
 
     private static final long SECONDS_PER_DAY = 86_400L;
-    private static final int DEFAULT_COMPACTION_CANDIDATE_BATCH_SIZE = 50_000;
+    private static final int DEFAULT_COMPACTION_CANDIDATE_BATCH_SIZE = 500;
     private static final int DEFAULT_FLIP_DELETE_BATCH_SIZE = 1_000;
 
     private static final TypeReference<List<AuctionMarketRecord>> AUCTIONS_TYPE = new TypeReference<>() {};
