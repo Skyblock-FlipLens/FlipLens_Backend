@@ -5,9 +5,11 @@ import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
+import com.skyblockflipper.backend.model.market.RetainedMarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotCompactionCandidate;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.repository.RetainedMarketSnapshotRepository;
 import com.skyblockflipper.backend.service.market.partitioning.PartitionLifecycleService;
 import com.skyblockflipper.backend.service.market.partitioning.PartitionRetentionReport;
 import com.skyblockflipper.backend.service.market.partitioning.PartitioningProperties;
@@ -44,6 +46,7 @@ public class MarketSnapshotPersistenceService {
     private static final TypeReference<Map<String, BazaarMarketRecord>> BAZAAR_TYPE = new TypeReference<>() {};
 
     private final MarketSnapshotRepository marketSnapshotRepository;
+    private final RetainedMarketSnapshotRepository retainedMarketSnapshotRepository;
     private final FlipRepository flipRepository;
     private final ObjectMapper objectMapper;
     private final BlockingTimeTracker blockingTimeTracker;
@@ -59,12 +62,14 @@ public class MarketSnapshotPersistenceService {
     private volatile PartitioningProperties partitioningProperties = new PartitioningProperties();
 
     public MarketSnapshotPersistenceService(MarketSnapshotRepository marketSnapshotRepository,
+                                            RetainedMarketSnapshotRepository retainedMarketSnapshotRepository,
                                             FlipRepository flipRepository,
                                             ObjectMapper objectMapper,
                                             BlockingTimeTracker blockingTimeTracker,
                                             SnapshotRetentionProperties retentionProperties,
                                             PlatformTransactionManager transactionManager) {
         this.marketSnapshotRepository = marketSnapshotRepository;
+        this.retainedMarketSnapshotRepository = retainedMarketSnapshotRepository;
         this.flipRepository = flipRepository;
         this.objectMapper = objectMapper;
         this.blockingTimeTracker = blockingTimeTracker;
@@ -121,37 +126,69 @@ public class MarketSnapshotPersistenceService {
                     objectMapper.writeValueAsString(snapshot.bazaarProducts())
             );
             MarketSnapshotEntity saved = blockingTimeTracker.record("db.marketSnapshot.save", "db", () -> marketSnapshotRepository.save(entity));
-            return toDomain(saved);
+            return toDomain(toPayload(saved));
         } catch (JacksonException e) {
             throw new IllegalStateException("Failed to serialize market snapshot for persistence.", e);
         }
     }
 
     public Optional<MarketSnapshot> latest() {
-        return blockingTimeTracker.record("db.marketSnapshot.latest", "db", () -> marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc().map(this::toDomain));
+        return blockingTimeTracker.record("db.marketSnapshot.latest", "db", () ->
+                newerSnapshot(
+                        nullableOptional(marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload),
+                        nullableOptional(retainedMarketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload)
+                ).map(this::toDomain)
+        );
     }
 
     public Optional<MarketSnapshot> asOf(Instant asOfTimestamp) {
         if (asOfTimestamp == null) {
             return latest();
         }
-        return blockingTimeTracker.record("db.marketSnapshot.asOf", "db", () -> marketSnapshotRepository
-                .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfTimestamp.toEpochMilli())
-                .map(this::toDomain));
+        return blockingTimeTracker.record("db.marketSnapshot.asOf", "db", () ->
+                newerSnapshot(
+                        nullableOptional(marketSnapshotRepository
+                                .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfTimestamp.toEpochMilli()))
+                                .map(this::toPayload),
+                        nullableOptional(retainedMarketSnapshotRepository
+                                .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfTimestamp.toEpochMilli()))
+                                .map(this::toPayload)
+                ).map(this::toDomain)
+        );
     }
 
     public List<MarketSnapshot> between(Instant fromInclusive, Instant toInclusive) {
         if (fromInclusive == null || toInclusive == null || fromInclusive.isAfter(toInclusive)) {
             return List.of();
         }
-        return blockingTimeTracker.record("db.marketSnapshot.between", "db", () -> marketSnapshotRepository
-                .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
-                        fromInclusive.toEpochMilli(),
-                        toInclusive.toEpochMilli()
-                )
-                .stream()
-                .map(this::toDomain)
-                .toList());
+        return blockingTimeTracker.record("db.marketSnapshot.between", "db", () -> {
+            Map<Long, SnapshotPayload> snapshotsByTimestamp = new LinkedHashMap<>();
+            List<RetainedMarketSnapshotEntity> retainedSnapshots = retainedMarketSnapshotRepository
+                    .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
+                            fromInclusive.toEpochMilli(),
+                            toInclusive.toEpochMilli()
+                    );
+            if (retainedSnapshots == null) {
+                retainedSnapshots = List.of();
+            }
+            retainedSnapshots
+                    .forEach(entity -> snapshotsByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), toPayload(entity)));
+            List<MarketSnapshotEntity> rawSnapshots = marketSnapshotRepository
+                    .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
+                            fromInclusive.toEpochMilli(),
+                            toInclusive.toEpochMilli()
+                    );
+            if (rawSnapshots == null) {
+                rawSnapshots = List.of();
+            }
+            rawSnapshots
+                    .forEach(entity -> snapshotsByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), toPayload(entity)));
+            return snapshotsByTimestamp.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(Map.Entry::getValue)
+                    .map(this::toDomain)
+                    .toList();
+        });
     }
 
     public SnapshotCompactionResult compactSnapshots() {
@@ -226,7 +263,6 @@ public class MarketSnapshotPersistenceService {
         Map<Long, UUID> minuteKeepers = new LinkedHashMap<>();
         Map<Long, UUID> twoHourKeepers = new LinkedHashMap<>();
         Map<Long, UUID> dailyKeepers = new LinkedHashMap<>();
-        List<UUID> toDelete = new ArrayList<>();
 
         for (MarketSnapshotCompactionCandidate entity : candidates) {
             long snapshotMillis = entity.getSnapshotTimestampEpochMillis();
@@ -234,45 +270,45 @@ public class MarketSnapshotPersistenceService {
 
             if (ageSeconds <= minuteTierUpperSeconds) {
                 long slot = Math.floorDiv(snapshotMillis, minuteIntervalMillis);
-                if (minuteKeepers.putIfAbsent(slot, entity.getId()) != null) {
-                    toDelete.add(entity.getId());
-                }
+                minuteKeepers.putIfAbsent(slot, entity.getId());
                 continue;
             }
 
             if (ageSeconds <= twoHourTierUpperSeconds) {
                 long slot = Math.floorDiv(snapshotMillis, twoHourIntervalMillis);
-                if (twoHourKeepers.putIfAbsent(slot, entity.getId()) != null) {
-                    toDelete.add(entity.getId());
-                }
+                twoHourKeepers.putIfAbsent(slot, entity.getId());
                 continue;
             }
 
             long epochDay = Math.floorDiv(snapshotMillis / 1_000L, SECONDS_PER_DAY);
-            if (dailyKeepers.putIfAbsent(epochDay, entity.getId()) != null) {
-                toDelete.add(entity.getId());
-            }
+            dailyKeepers.putIfAbsent(epochDay, entity.getId());
         }
 
-        if (!toDelete.isEmpty()) {
-            int deletedFlips = deleteSnapshotsAndOrphansInBatches(candidates, toDelete);
+        Set<UUID> retainedSnapshotIds = new HashSet<>();
+        retainedSnapshotIds.addAll(minuteKeepers.values());
+        retainedSnapshotIds.addAll(twoHourKeepers.values());
+        retainedSnapshotIds.addAll(dailyKeepers.values());
+
+        if (!candidates.isEmpty()) {
+            int deletedFlips = deleteSnapshotsAndOrphansInBatches(candidates, retainedSnapshotIds, nowMillis);
             if (deletedFlips > 0) {
                 log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
             }
         }
 
-        int keptCount = candidates.size() - toDelete.size();
-        return new SnapshotCompactionResult(candidates.size(), toDelete.size(), keptCount);
+        int keptCount = retainedSnapshotIds.size();
+        return new SnapshotCompactionResult(candidates.size(), Math.max(0, candidates.size() - keptCount), keptCount);
     }
 
-    private int deleteSnapshotsAndOrphansInBatches(List<MarketSnapshotCompactionCandidate> candidates, List<UUID> deletedSnapshotIds) {
-        if (deletedSnapshotIds.isEmpty()) {
+    private int deleteSnapshotsAndOrphansInBatches(List<MarketSnapshotCompactionCandidate> candidates,
+                                                   Set<UUID> retainedSnapshotIds,
+                                                   long retainedAtEpochMillis) {
+        if (candidates.isEmpty()) {
             return 0;
         }
 
-        Set<UUID> deletedSnapshotIdSet = new HashSet<>(deletedSnapshotIds);
+        Set<UUID> retainedSnapshotIdSet = retainedSnapshotIds == null ? Set.of() : Set.copyOf(retainedSnapshotIds);
         List<SnapshotDeleteCandidate> deleteCandidates = candidates.stream()
-                .filter(candidate -> deletedSnapshotIdSet.contains(candidate.getId()))
                 .map(candidate -> new SnapshotDeleteCandidate(candidate.getId(), candidate.getSnapshotTimestampEpochMillis()))
                 .toList();
 
@@ -284,12 +320,16 @@ public class MarketSnapshotPersistenceService {
             int batchFromIndex = fromIndex;
             List<SnapshotDeleteCandidate> deleteBatch = deleteCandidates.subList(fromIndex, toIndex);
             List<UUID> snapshotIdBatch = deleteBatch.stream().map(SnapshotDeleteCandidate::id).toList();
+            List<UUID> retainedSnapshotIdBatch = snapshotIdBatch.stream()
+                    .filter(retainedSnapshotIdSet::contains)
+                    .toList();
             List<Long> timestampBatch = deleteBatch.stream()
                     .map(SnapshotDeleteCandidate::timestampEpochMillis)
                     .distinct()
                     .toList();
 
             BatchDeleteStats batchStats = requiresNewTransactionTemplate.execute(status -> {
+                retainSnapshotHistory(retainedSnapshotIdBatch, retainedAtEpochMillis);
                 blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(snapshotIdBatch));
                 return deleteOrphanedFlipsForSnapshotTimestampBatch(timestampBatch, batchFromIndex, toIndex);
             });
@@ -366,14 +406,107 @@ public class MarketSnapshotPersistenceService {
         }
     }
 
-    private MarketSnapshot toDomain(MarketSnapshotEntity entity) {
+    private void retainSnapshotHistory(List<UUID> retainedSnapshotIds, long retainedAtEpochMillis) {
+        if (retainedSnapshotIds == null || retainedSnapshotIds.isEmpty()) {
+            return;
+        }
+
+        List<MarketSnapshotEntity> sourceEntities = blockingTimeTracker.record(
+                "db.marketSnapshot.retained.load",
+                "db",
+                () -> marketSnapshotRepository.findAllById(retainedSnapshotIds)
+        );
+        if (sourceEntities == null) {
+            sourceEntities = List.of();
+        }
+        if (sourceEntities.isEmpty()) {
+            return;
+        }
+
+        Map<Long, MarketSnapshotEntity> sourceByTimestamp = new LinkedHashMap<>();
+        for (MarketSnapshotEntity sourceEntity : sourceEntities) {
+            sourceByTimestamp.putIfAbsent(sourceEntity.getSnapshotTimestampEpochMillis(), sourceEntity);
+        }
+
+        List<Long> timestamps = new ArrayList<>(sourceByTimestamp.keySet());
+        Map<Long, RetainedMarketSnapshotEntity> existingByTimestamp = new LinkedHashMap<>();
+        List<RetainedMarketSnapshotEntity> existingRetainedSnapshots =
+                retainedMarketSnapshotRepository.findBySnapshotTimestampEpochMillisIn(timestamps);
+        if (existingRetainedSnapshots == null) {
+            existingRetainedSnapshots = List.of();
+        }
+        existingRetainedSnapshots
+                .forEach(entity -> existingByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), entity));
+
+        List<RetainedMarketSnapshotEntity> retainedEntities = new ArrayList<>(sourceByTimestamp.size());
+        for (MarketSnapshotEntity sourceEntity : sourceByTimestamp.values()) {
+            RetainedMarketSnapshotEntity retainedEntity = existingByTimestamp.get(sourceEntity.getSnapshotTimestampEpochMillis());
+            if (retainedEntity == null) {
+                retainedEntity = new RetainedMarketSnapshotEntity(
+                        sourceEntity.getId(),
+                        sourceEntity.getSnapshotTimestampEpochMillis(),
+                        sourceEntity.getAuctionCount(),
+                        sourceEntity.getBazaarProductCount(),
+                        sourceEntity.getAuctionsJson(),
+                        sourceEntity.getBazaarProductsJson(),
+                        sourceEntity.getCreatedAtEpochMillis(),
+                        retainedAtEpochMillis
+                );
+            } else {
+                retainedEntity.setAuctionCount(sourceEntity.getAuctionCount());
+                retainedEntity.setBazaarProductCount(sourceEntity.getBazaarProductCount());
+                retainedEntity.setAuctionsJson(sourceEntity.getAuctionsJson());
+                retainedEntity.setBazaarProductsJson(sourceEntity.getBazaarProductsJson());
+                retainedEntity.setCreatedAtEpochMillis(sourceEntity.getCreatedAtEpochMillis());
+                retainedEntity.setRetainedAtEpochMillis(retainedAtEpochMillis);
+            }
+            retainedEntities.add(retainedEntity);
+        }
+
+        blockingTimeTracker.recordRunnable(
+                "db.marketSnapshot.retained.saveAll",
+                "db",
+                () -> retainedMarketSnapshotRepository.saveAll(retainedEntities)
+        );
+    }
+
+    private MarketSnapshot toDomain(SnapshotPayload payload) {
         try {
-            List<AuctionMarketRecord> auctions = objectMapper.readValue(entity.getAuctionsJson(), AUCTIONS_TYPE);
-            Map<String, BazaarMarketRecord> bazaar = objectMapper.readValue(entity.getBazaarProductsJson(), BAZAAR_TYPE);
-            return new MarketSnapshot(Instant.ofEpochMilli(entity.getSnapshotTimestampEpochMillis()), auctions, bazaar);
+            List<AuctionMarketRecord> auctions = objectMapper.readValue(payload.auctionsJson(), AUCTIONS_TYPE);
+            Map<String, BazaarMarketRecord> bazaar = objectMapper.readValue(payload.bazaarProductsJson(), BAZAAR_TYPE);
+            return new MarketSnapshot(Instant.ofEpochMilli(payload.snapshotTimestampEpochMillis()), auctions, bazaar);
         } catch (JacksonException e) {
             throw new IllegalStateException("Failed to deserialize market snapshot from persistence.", e);
         }
+    }
+
+    private SnapshotPayload toPayload(MarketSnapshotEntity entity) {
+        return new SnapshotPayload(
+                entity.getSnapshotTimestampEpochMillis(),
+                entity.getAuctionsJson(),
+                entity.getBazaarProductsJson()
+        );
+    }
+
+    private SnapshotPayload toPayload(RetainedMarketSnapshotEntity entity) {
+        return new SnapshotPayload(
+                entity.getSnapshotTimestampEpochMillis(),
+                entity.getAuctionsJson(),
+                entity.getBazaarProductsJson()
+        );
+    }
+
+    private Optional<SnapshotPayload> newerSnapshot(Optional<SnapshotPayload> rawSnapshot,
+                                                    Optional<SnapshotPayload> retainedSnapshot) {
+        if (rawSnapshot.isEmpty()) {
+            return retainedSnapshot;
+        }
+        if (retainedSnapshot.isEmpty()) {
+            return rawSnapshot;
+        }
+        return rawSnapshot.get().snapshotTimestampEpochMillis() >= retainedSnapshot.get().snapshotTimestampEpochMillis()
+                ? rawSnapshot
+                : retainedSnapshot;
     }
 
     public record SnapshotCompactionResult(
@@ -387,5 +520,14 @@ public class MarketSnapshotPersistenceService {
     }
 
     private record BatchDeleteStats(int deletedFlips, int deletedStepRows, int deletedConstraintRows) {
+    }
+
+    private record SnapshotPayload(long snapshotTimestampEpochMillis,
+                                   String auctionsJson,
+                                   String bazaarProductsJson) {
+    }
+
+    private <T> Optional<T> nullableOptional(Optional<T> optional) {
+        return optional == null ? Optional.empty() : optional;
     }
 }

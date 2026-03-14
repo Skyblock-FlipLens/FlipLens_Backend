@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotCompactionCandidate;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.repository.RetainedMarketSnapshotRepository;
 import com.skyblockflipper.backend.service.market.partitioning.PartitionLifecycleService;
 import com.skyblockflipper.backend.service.market.partitioning.PartitionRetentionReport;
 import com.skyblockflipper.backend.service.market.partitioning.PartitioningMode;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.when;
 class MarketSnapshotPersistenceServiceUnitTest {
 
     private MarketSnapshotRepository marketSnapshotRepository;
+    private RetainedMarketSnapshotRepository retainedMarketSnapshotRepository;
     private FlipRepository flipRepository;
     private BlockingTimeTracker blockingTimeTracker;
     private PlatformTransactionManager transactionManager;
@@ -46,6 +48,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
     @BeforeEach
     void setUp() {
         marketSnapshotRepository = mock(MarketSnapshotRepository.class);
+        retainedMarketSnapshotRepository = mock(RetainedMarketSnapshotRepository.class);
         flipRepository = mock(FlipRepository.class);
         blockingTimeTracker = mock(BlockingTimeTracker.class);
         transactionManager = mock(PlatformTransactionManager.class);
@@ -230,6 +233,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
     private MarketSnapshotPersistenceService createService(SnapshotRetentionProperties retentionProperties) {
         return new MarketSnapshotPersistenceService(
                 marketSnapshotRepository,
+                retainedMarketSnapshotRepository,
                 flipRepository,
                 new ObjectMapper(),
                 blockingTimeTracker,

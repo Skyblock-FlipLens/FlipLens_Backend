@@ -3,6 +3,7 @@ package com.skyblockflipper.backend.service.market;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.repository.RetainedMarketSnapshotRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,11 +32,15 @@ class MarketSnapshotRetentionConfigurationTest {
     private MarketSnapshotRepository marketSnapshotRepository;
 
     @Autowired
+    private RetainedMarketSnapshotRepository retainedMarketSnapshotRepository;
+
+    @Autowired
     private FlipRepository flipRepository;
 
     @BeforeEach
     void clean() {
         flipRepository.deleteAll();
+        retainedMarketSnapshotRepository.deleteAll();
         marketSnapshotRepository.deleteAll();
     }
 
@@ -54,7 +59,7 @@ class MarketSnapshotRetentionConfigurationTest {
         assertEquals(2, result.deletedCount());
         assertEquals(2, result.keptCount());
 
-        List<Instant> survivors = marketSnapshotRepository.findAll().stream()
+        List<Instant> survivors = retainedMarketSnapshotRepository.findAll().stream()
                 .map(entity -> Instant.ofEpochMilli(entity.getSnapshotTimestampEpochMillis()))
                 .sorted()
                 .toList();
@@ -62,6 +67,7 @@ class MarketSnapshotRetentionConfigurationTest {
         assertEquals(2, survivors.size());
         assertTrue(survivors.contains(Instant.parse("2026-02-17T11:58:50Z")));
         assertTrue(survivors.contains(Instant.parse("2026-02-17T11:59:10Z")));
+        assertEquals(0, marketSnapshotRepository.count());
     }
 
     private void saveAt(String timestamp) {

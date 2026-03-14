@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.repository.RetainedMarketSnapshotRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,11 +32,15 @@ class MarketSnapshotOrphanChunkDeletionTest {
     private MarketSnapshotRepository marketSnapshotRepository;
 
     @Autowired
+    private RetainedMarketSnapshotRepository retainedMarketSnapshotRepository;
+
+    @Autowired
     private FlipRepository flipRepository;
 
     @BeforeEach
     void clean() {
         flipRepository.deleteAll();
+        retainedMarketSnapshotRepository.deleteAll();
         marketSnapshotRepository.deleteAll();
     }
 
@@ -69,6 +74,7 @@ class MarketSnapshotOrphanChunkDeletionTest {
         List<Flip> remainingFlips = flipRepository.findAll();
         assertEquals(1, remainingFlips.size());
         assertTrue(remainingFlips.stream().anyMatch(f -> "KEPT_TS".equals(f.getResultItemId())));
+        assertEquals(2, retainedMarketSnapshotRepository.count());
     }
 
     private void saveAt(String timestamp) {

@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.repository;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -18,17 +19,21 @@ public class PartitionAdminRepository {
     public boolean isTablePartitioned(String schemaName, String parentTableName) {
         String schema = sanitizeIdentifier(schemaName);
         String parent = sanitizeIdentifier(parentTableName);
-        Boolean partitioned = jdbcTemplate.queryForObject("""
-                select exists (
-                    select 1
-                    from pg_partitioned_table p
-                    join pg_class c on c.oid = p.partrelid
-                    join pg_namespace n on n.oid = c.relnamespace
-                    where n.nspname = ?
-                      and c.relname = ?
-                )
-                """, Boolean.class, schema, parent);
-        return Boolean.TRUE.equals(partitioned);
+        try {
+            Boolean partitioned = jdbcTemplate.queryForObject("""
+                    select exists (
+                        select 1
+                        from pg_partitioned_table p
+                        join pg_class c on c.oid = p.partrelid
+                        join pg_namespace n on n.oid = c.relnamespace
+                        where n.nspname = ?
+                          and c.relname = ?
+                    )
+                    """, Boolean.class, schema, parent);
+            return Boolean.TRUE.equals(partitioned);
+        } catch (DataAccessException ignored) {
+            return false;
+        }
     }
 
     public List<String> listChildPartitions(String schemaName, String parentTableName) {

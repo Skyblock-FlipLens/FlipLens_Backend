@@ -99,6 +99,11 @@ public interface FlipRepository extends JpaRepository<Flip, UUID> {
                     from MarketSnapshotEntity ms
                     where ms.snapshotTimestampEpochMillis = f.snapshotTimestampEpochMillis
               )
+              and not exists (
+                    select 1
+                    from RetainedMarketSnapshotEntity rms
+                    where rms.snapshotTimestampEpochMillis = f.snapshotTimestampEpochMillis
+              )
             order by f.id
             """)
     List<UUID> findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(@Param("timestamps") Collection<Long> timestamps,
