@@ -151,3 +151,6 @@ Track before/after for the same workload window:
 
 ## Decision
 Proceed with a partitioning spike, but prefer **time-based immutable partitioning** over mutable boolean hot/cold movement.
+
+## Related Proposal
+- See `ROLLUP_AND_ITEM_ANOMALY_SEGMENTS.md` for the proposed bucket rollup, item-local anomaly segmentation, and partition-drop gating model.
