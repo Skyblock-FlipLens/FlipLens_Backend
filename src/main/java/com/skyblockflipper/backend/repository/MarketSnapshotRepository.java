@@ -15,6 +15,11 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
 
     Optional<MarketSnapshotEntity> findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(long snapshotTimestampEpochMillis);
 
+    Optional<MarketSnapshotEntity> findTopBySnapshotTimestampEpochMillisGreaterThanEqualAndSnapshotTimestampEpochMillisLessThanOrderBySnapshotTimestampEpochMillisAsc(
+            long fromInclusive,
+            long toExclusive
+    );
+
     List<MarketSnapshotEntity> findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
             long startInclusiveEpochMillis,
             long endInclusiveEpochMillis
@@ -22,6 +27,11 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
 
     List<MarketSnapshotEntity> findBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisAsc(
             long snapshotTimestampEpochMillis
+    );
+
+    long countBySnapshotTimestampEpochMillisGreaterThanEqualAndSnapshotTimestampEpochMillisLessThan(
+            long fromInclusive,
+            long toExclusive
     );
 
     @Query("""

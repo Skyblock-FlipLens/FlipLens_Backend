@@ -16,6 +16,10 @@ public interface RetainedMarketSnapshotRepository extends JpaRepository<Retained
             long snapshotTimestampEpochMillis
     );
 
+    Optional<RetainedMarketSnapshotEntity> findBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
+
+    boolean existsBySnapshotTimestampEpochMillis(long snapshotTimestampEpochMillis);
+
     List<RetainedMarketSnapshotEntity> findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
             long startInclusiveEpochMillis,
             long endInclusiveEpochMillis
