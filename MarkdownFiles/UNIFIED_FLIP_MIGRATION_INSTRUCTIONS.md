@@ -27,6 +27,14 @@ No controller contract changes. Compatibility is solved in service/repository an
 
 `UnifiedFlipDto` stays unchanged.
 
+## Current Runtime Status (`1.0.3`)
+
+- Default flags in `application.yml`: `dual-write-enabled=true`, `read-from-new=true`, `legacy-write-enabled=false`
+- Unified current storage is the default read path
+- Legacy snapshot tables remain for parity checks, backfill, and rollback safety
+
+The phased rollout below is kept as the canonical migration and rollback reference, even though the default runtime has already reached the read-cutover stage.
+
 ## Phase 1: Introduce New Schema (Additive Only)
 
 Create new Flyway migrations (do not modify `V1__init.sql`).
@@ -115,7 +123,7 @@ Update generation flow in `FlipGenerationService`:
 6. optionally write top-K rows to `flip_top_snapshot`
 7. keep existing writes to legacy `flip` table during transition window
 
-Use feature flags:
+Initial rollout baseline used feature flags:
 
 - `config.flip.storage.dual-write-enabled=true`
 - `config.flip.storage.read-from-new=false` initially
@@ -190,7 +198,7 @@ Recommended runtime sequence:
 - `CONFIG_FLIP_STORAGE_READ_FROM_NEW=true`
 - `CONFIG_FLIP_STORAGE_LEGACY_WRITE_ENABLED=true`
 
-3. Legacy write disable (after sustained parity):
+3. Legacy write disable (after sustained parity, current default in `1.0.3`):
 - `CONFIG_FLIP_STORAGE_DUAL_WRITE_ENABLED=true`
 - `CONFIG_FLIP_STORAGE_READ_FROM_NEW=true`
 - `CONFIG_FLIP_STORAGE_LEGACY_WRITE_ENABLED=false`

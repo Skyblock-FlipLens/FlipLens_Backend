@@ -599,6 +599,6 @@ public class MarketSnapshotPersistenceService {
     }
 
     private <T> Optional<T> nullableOptional(Optional<T> optional) {
-        return optional == null ? Optional.empty() : optional;
+        return optional;
     }
 }
