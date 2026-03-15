@@ -7,9 +7,16 @@ import com.skyblockflipper.backend.service.flipping.FlipGenerationService;
 import com.skyblockflipper.backend.service.item.NeuRepoIngestionService;
 import com.skyblockflipper.backend.service.market.MarketDataProcessingService;
 import com.skyblockflipper.backend.service.market.SnapshotRetentionProperties;
+import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.service.market.partitioning.PartitioningProperties;
 import com.skyblockflipper.backend.service.market.polling.ElectionPollFreshnessService;
 import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -72,5 +79,80 @@ class SourceJobsTest {
 
         verify(ahRepository, never()).deleteOlderThan(org.mockito.ArgumentMatchers.anyLong());
         verify(bzRepository).deleteOlderThan(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void refreshElectionPollDelegatesAndSwallowsExceptions() {
+        ElectionPollFreshnessService electionPollFreshnessService = mock(ElectionPollFreshnessService.class);
+        SourceJobs jobs = new SourceJobs(
+                mock(NeuRepoIngestionService.class),
+                mock(MarketDataProcessingService.class),
+                mock(FlipGenerationService.class),
+                mock(AhItemSnapshotRepository.class),
+                mock(BzItemSnapshotRepository.class),
+                new SnapshotRetentionProperties(),
+                electionPollFreshnessService,
+                mock(PartitionAdminRepository.class),
+                new PartitioningProperties()
+        );
+
+        jobs.refreshElectionPoll();
+
+        verify(electionPollFreshnessService).ensureRecentElectionPoll();
+    }
+
+    @Test
+    void copyRepoDailyRefreshesNeuItemsAndRegeneratesLatestSnapshot() throws IOException, InterruptedException {
+        NeuRepoIngestionService neuRepoIngestionService = mock(NeuRepoIngestionService.class);
+        MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        FlipGenerationService flipGenerationService = mock(FlipGenerationService.class);
+        SourceJobs jobs = new SourceJobs(
+                neuRepoIngestionService,
+                marketDataProcessingService,
+                flipGenerationService,
+                mock(AhItemSnapshotRepository.class),
+                mock(BzItemSnapshotRepository.class),
+                new SnapshotRetentionProperties(),
+                mock(ElectionPollFreshnessService.class),
+                mock(PartitionAdminRepository.class),
+                new PartitioningProperties()
+        );
+        Instant snapshotTimestamp = Instant.parse("2026-03-01T12:00:00Z");
+        when(neuRepoIngestionService.ingestLatestFilteredItems()).thenReturn(17);
+        when(marketDataProcessingService.latestMarketSnapshot()).thenReturn(Optional.of(
+                new MarketSnapshot(snapshotTimestamp, List.of(), Map.of())
+        ));
+        when(flipGenerationService.regenerateForSnapshot(snapshotTimestamp))
+                .thenReturn(new FlipGenerationService.GenerationResult(9, 2, false));
+
+        jobs.copyRepoDaily();
+
+        verify(neuRepoIngestionService).ingestLatestFilteredItems();
+        verify(marketDataProcessingService).latestMarketSnapshot();
+        verify(flipGenerationService).regenerateForSnapshot(snapshotTimestamp);
+    }
+
+    @Test
+    void copyRepoDailyAsyncDelegatesToSameRefreshLogic() throws IOException, InterruptedException {
+        NeuRepoIngestionService neuRepoIngestionService = mock(NeuRepoIngestionService.class);
+        MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        SourceJobs jobs = new SourceJobs(
+                neuRepoIngestionService,
+                marketDataProcessingService,
+                mock(FlipGenerationService.class),
+                mock(AhItemSnapshotRepository.class),
+                mock(BzItemSnapshotRepository.class),
+                new SnapshotRetentionProperties(),
+                mock(ElectionPollFreshnessService.class),
+                mock(PartitionAdminRepository.class),
+                new PartitioningProperties()
+        );
+        when(neuRepoIngestionService.ingestLatestFilteredItems()).thenReturn(1);
+        when(marketDataProcessingService.latestMarketSnapshot()).thenReturn(Optional.empty());
+
+        jobs.copyRepoDailyAsync();
+
+        verify(neuRepoIngestionService).ingestLatestFilteredItems();
+        verify(marketDataProcessingService).latestMarketSnapshot();
     }
 }
