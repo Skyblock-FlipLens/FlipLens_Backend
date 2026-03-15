@@ -715,7 +715,6 @@ class CompactorDaemonTest {
                                          long waiting,
                                          long lockWaits) {
         when(jdbcTemplate.query(anyString(), any(PreparedStatementSetter.class), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
             ResultSetExtractor<Object> extractor = invocation.getArgument(2);
             ResultSet rs = mock(ResultSet.class);
 
@@ -726,7 +725,6 @@ class CompactorDaemonTest {
         });
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
             String sql = ((String) invocation.getArgument(0)).toLowerCase(Locale.ROOT);
-            @SuppressWarnings("unchecked")
             ResultSetExtractor<Object> extractor = invocation.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
 

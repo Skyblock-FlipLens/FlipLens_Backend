@@ -4,6 +4,8 @@
 
 > **API-first engine for Hypixel SkyBlock flips** with a unified data model, reproducible snapshots, and extensible flip analytics.
 
+Current release stream: `1.0.x` stabilization and homelab rollout. `1.1.0` remains reserved for the first public release line. See [CHANGELOG.md](CHANGELOG.md) for patch-level notes.
+
 ## Vision
 
 **SkyblockFlipperBackend** aims to provide a stable, versioned, API-first foundation for flip data in the Hypixel SkyBlock ecosystem.
@@ -18,24 +20,24 @@ Target state:
 
 Currently implemented in this repository:
 - Spring Boot 4 backend with Java 21.
-- Persistence via Spring Data JPA.
-- Public read API for flips:
-  - `GET /api/v1/flips` (paging + optional `flipType` filter)
-  - `GET /api/v1/flips/{id}`
-- Public read API for NPC-shop offers:
-  - `GET /api/v1/items/npc-buyable` (paging + optional `itemId` filter)
+- Persistence via Spring Data JPA on PostgreSQL/H2.
+- Public read APIs for flips, snapshots, items, item analytics, recipes, bazaar, auction-house data, dashboard summaries, and market overview.
 - Source clients for:
   - Hypixel Auction API (single page and multi-page fetch).
   - Hypixel Bazaar API (`/skyblock/bazaar`) including `quick_status` and summary structures.
   - NEU item data ingestion (download/refresh from the NotEnoughUpdates repo).
-- Market snapshot pipeline:
-  - polling, normalization, persistence, retention compaction.
-  - timescale feature extraction for risk/liquidity inputs.
+- Adaptive market snapshot pipeline:
+  - independent auctions/bazaar pollers with coalescing pipeline semantics.
+  - normalization, persistence, retention compaction, rollups, and diagnostics hooks.
 - Flip domain structure with:
   - `Flip`, `Step`, `Constraint`, `Recipe`.
   - total/active/passive duration calculation per flip.
+- Unified flip generation and persistence:
+  - `FlipGenerationService` generates market and recipe-backed flips per snapshot.
+  - writes can dual-write into legacy snapshot rows and unified storage (`flip_definition`, `flip_current`, `flip_trend_segment`).
+  - current read paths default to unified storage.
 - Unified flip DTO mapping with ROI, ROI/h, fees, required capital, liquidity score, risk score, and partial-data flags.
-- Flip read endpoints are implemented, but production flip generation/persistence (`flipRepository.save(...)`) is still missing.
+- Lightweight local `/api/status` health probe with no upstream Hypixel dependency.
 - Scheduling infrastructure (thread pool + scheduled jobs).
 - Resilient Hypixel client behavior (HTTP/network failures are logged).
 - `fetchAllAuctions()` is fail-fast on incomplete page fetches to avoid persisting false empty market states.
@@ -77,10 +79,10 @@ Currently implemented in this repository:
 
 ### Components (Simplified)
 
-- **API layer:** `StatusController`, `FlipController`, `ItemController`
+- **API layer:** `StatusController`, `FlipController`, `DashboardController`, `MarketController`, `ItemController`, `RecipeController`, `SnapshotController`, `BazaarController`, `AuctionHouseController`
 - **Source jobs:** scheduled refresh/ingestion jobs (`SourceJobs`)
 - **Domain/model:** flips, steps, constraints, recipes, market snapshots
-- **Repositories:** `FlipRepository`, `RecipeRepository`, `ItemRepository`, etc.
+- **Repositories/storage:** legacy snapshot repositories plus unified flip storage tables (`flip_definition`, `flip_current`, `flip_trend_segment`)
 
 ## Supported Flip Types
 
@@ -109,10 +111,10 @@ Status legend: `Done` = implemented in production code path, `Partial` = availab
 
 | Flip Type | Ingestion | Computation | Persistence | API | Status |
 |-----------|-----------|-------------|-------------|-----|--------|
-| Auction   | Done (Hypixel auctions -> snapshots) | Partial (works if flips exist) | Missing (no flip writer job/service) | Partial (`/api/v1/flips` read-only) | In progress |
-| Bazaar    | Done (Hypixel bazaar -> snapshots) | Partial (works if flips exist) | Missing (no flip writer job/service) | Partial (`/api/v1/flips` read-only) | In progress |
-| Craft     | Partial (NEU recipes parsed/stored with items) | Partial (step-based mapping exists) | Missing (no recipe->flip persistence flow) | Missing (`/api/v1/recipes` not exposed) | In progress |
-| Forge     | Partial (NEU forge recipes parsed/stored with items) | Partial (duration/resource model exists) | Missing (no recipe->flip persistence flow) | Missing (`/api/v1/recipes` not exposed) | In progress |
+| Auction   | Done (adaptive Hypixel auctions -> snapshots) | Done (`MarketFlipMapper` + `UnifiedFlipDtoMapper` + `FlipEconomicsService`) | Done (`FlipGenerationService` -> `UnifiedFlipStorageService`, optional legacy snapshot rows) | Done (`/api/v1/flips`, `/api/v1/ah`, `/api/v1/dashboard`) | Active |
+| Bazaar    | Done (adaptive Hypixel bazaar -> snapshots) | Done (`MarketFlipMapper` + `UnifiedFlipDtoMapper` + `FlipEconomicsService`) | Done (`FlipGenerationService` -> `UnifiedFlipStorageService`, optional legacy snapshot rows) | Done (`/api/v1/flips`, `/api/v1/bazaar`, `/api/v1/market/overview`) | Active |
+| Craft     | Done (NEU recipes parsed/stored with items) | Done (`RecipeToFlipMapper` + `UnifiedFlipDtoMapper` + `FlipEconomicsService`) | Done (`FlipGenerationService` -> `UnifiedFlipStorageService`, optional legacy snapshot rows) | Done (`/api/v1/flips?flipType=CRAFTING`, `/api/v1/recipes`) | Active |
+| Forge     | Done (NEU forge recipes parsed/stored with items) | Done (`RecipeToFlipMapper` + `UnifiedFlipDtoMapper` + `FlipEconomicsService`) | Done (`FlipGenerationService` -> `UnifiedFlipStorageService`, optional legacy snapshot rows) | Done (`/api/v1/flips?flipType=FORGE`, `/api/v1/recipes`) | Active |
 | Shard     | TBD (blocked: shard-fusion recipe source pending) | TBD | TBD | TBD | TBD |
 | Fusion    | TBD (blocked: shard-fusion recipe source pending; enum exists) | Partial (generic DTO supports it) | TBD | Partial (`/api/v1/flips` can read if rows exist) | TBD |
 
@@ -144,24 +146,22 @@ Short example:
 ## API Endpoints (Current + Planned)
 
 ### Available now
-- `GET /api/status` - basic health/connectivity check (currently triggers an auction fetch).
-- `GET /api/v1/flips` - paged unified flip list with optional `flipType` filter.
-- `GET /api/v1/flips/{id}` - detail view for a flip by UUID.
-- `GET /api/v1/items/npc-buyable` - paged NPC-shop offer data with optional `itemId`.
-- `GET /api/v1/market/overview` - compact market overview (optional `productId`) with buy/sell/spread, 7-day range, volume averages, active flips, and best profit.
+- `GET /api/status`
+- `GET /api/v1/flips`, `/filter`, `/top`, `/top/*`, `/stats`, `/stats/snapshot`, `/coverage`, `/types`, `/{id}`
+- `GET /api/v1/dashboard/overview`, `GET /api/v1/dashboard/trending`
+- `GET /api/v1/market/overview`
+- `GET /api/v1/items`, `GET /api/v1/items/{itemId}`, `GET /api/v1/items/{itemId}/price-history`, `GET /api/v1/items/{itemId}/score-history`, `GET /api/v1/items/{itemId}/quick-stats`, `GET /api/v1/items/{itemId}/flips`, `GET /api/v1/items/npc-buyable`
+- `GET /api/v1/recipes`, `GET /api/v1/recipes/{recipeId}/cost`
+- `GET /api/v1/snapshots`, `GET /api/v1/snapshots/{timestamp}/flips`
+- `GET /api/v1/bazaar/{itemId}`, `GET /api/v1/bazaar/{itemId}/orders`, `GET /api/v1/bazaar/quick-flips`
+- `GET /api/v1/ah/listings/{itemId}`, `GET /api/v1/ah/listings/{itemId}/breakdown`, `GET /api/v1/ah/recent-sales/{itemId}`
 
-Not exposed publicly yet:
-- Bazaar data (currently available internally via `HypixelClient#fetchBazaar()`).
-- Full item/recipe read API (`/api/v1/items`, `/api/v1/recipes`, ...).
+For the full request/response reference, see [MarkdownFiles/API_ENDPOINTS.md](MarkdownFiles/API_ENDPOINTS.md).
 
-### Planned v1 endpoints
-- `GET /api/v1/flips` (filtering/sorting/pagination)
-- `GET /api/v1/flips/{id}` (detail view)
-- `GET /api/v1/items` (NEU-backed item metadata)
-- `GET /api/v1/items/npc-buyable` (NPC-buyable offers, optional `itemId` filter)
-- `GET /api/v1/recipes` (craft/forge recipes)
-- `GET /api/v1/snapshots`
-- `GET /api/v1/snapshots/{timestamp}/flips`
+### Planned toward `1.1.0`
+- complete shard/fusion source decision and end-to-end pipeline
+- cache and further harden the slowest aggregate read paths
+- finish release-grade observability, SLOs, and operational runbooks
 
 ### API Design Principles
 - Versioned routes via `/api/v1/...`
@@ -169,40 +169,12 @@ Not exposed publicly yet:
 - Deterministic responses per snapshot
 - Extensible evolution without breaking changes (`deprecate-first`)
 
-## Implementation Checklist (P0/P1)
+## Next Milestones (Toward `1.1.0`)
 
-### P0 - Critical
-1. Implement production flip generation and persistence.
-- Create `src/main/java/com/skyblockflipper/backend/service/flipping/FlipGenerationService.java` to map persisted recipes to concrete `Flip` rows.
-- Use `RecipeRepository`, `FlipRepository`, and `RecipeToFlipMapper` in one deterministic write flow.
-- Call the service from `src/main/java/com/skyblockflipper/backend/config/Jobs/SourceJobs.java` after market snapshot refresh and/or NEU refresh.
-
-2. Add snapshot binding for generated flips.
-- Extend `src/main/java/com/skyblockflipper/backend/model/Flipping/Flip.java` with explicit snapshot binding (timestamp or snapshot reference).
-- Keep `/api/v1/flips` deterministic per snapshot instead of "latest market + live election only".
-- Update mapping/query logic in `src/main/java/com/skyblockflipper/backend/service/flipping/FlipReadService.java`.
-
-3. Expose missing read endpoints for core entities.
-- Add `src/main/java/com/skyblockflipper/backend/api/RecipeController.java` (`GET /api/v1/recipes`).
-- Add `src/main/java/com/skyblockflipper/backend/api/SnapshotController.java` (`GET /api/v1/snapshots`, `GET /api/v1/snapshots/{timestamp}/flips`).
-- Extend `src/main/java/com/skyblockflipper/backend/api/ItemController.java` with `GET /api/v1/items`.
-
-4. Shard-fusion coverage is currently `TBD`.
-- Blocked until a reliable, permissively licensed shard-fusion recipe source is selected.
-- No shard-fusion ingestion/computation implementation is planned until that source decision is resolved.
-
-### P1 - Important
-1. Support explicit as-of context in flip calculation.
-- Extend `src/main/java/com/skyblockflipper/backend/service/flipping/FlipCalculationContextService.java` with snapshot/as-of lookup methods.
-- Add optional snapshot query params in `src/main/java/com/skyblockflipper/backend/api/FlipController.java`.
-
-2. Move fee/tax logic into a dedicated policy component.
-- Extract auction/bazaar tax logic from `src/main/java/com/skyblockflipper/backend/service/flipping/UnifiedFlipDtoMapper.java`.
-- Add `src/main/java/com/skyblockflipper/backend/service/flipping/FeePolicyService.java` (or similar) for consistent, testable rules.
-
-3. Strengthen contract tests for deterministic API output.
-- Add endpoint tests for snapshot-specific reads in `src/test/java/com/skyblockflipper/backend/api`.
-- Add integration tests for end-to-end generation flow in `src/test/java/com/skyblockflipper/backend/service/flipping`.
+1. Close the remaining shard/fusion source decision and pipeline gaps.
+2. Add cache layers for the heaviest aggregate reads after the SQL path is stable.
+3. Finish hot/cold storage rollout validation, parity automation, and rollback documentation.
+4. Lock release SLOs, release notes discipline, and public-release operational runbooks.
 
 ## Final Validation Gate
 

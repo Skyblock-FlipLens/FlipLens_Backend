@@ -1,16 +1,12 @@
 package com.skyblockflipper.backend.service.market;
 
 import com.skyblockflipper.backend.api.dto.MarketOverviewDto;
-import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
-import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.FlipRepository;
-import com.skyblockflipper.backend.service.flipping.FlipCalculationContext;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContextService;
-import com.skyblockflipper.backend.service.flipping.FlipScoreFeatureSet;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipDtoMapper;
 import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipCurrentReadService;
 import org.junit.jupiter.api.Test;
@@ -19,7 +15,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -27,8 +22,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class MarketOverviewServiceTest {
-
-    private static final Instant FIXED_INSTANT = Instant.parse("2026-02-21T12:00:00Z");
 
     @Test
     void overviewReturnsFallbackWhenNoSnapshotExists() {
