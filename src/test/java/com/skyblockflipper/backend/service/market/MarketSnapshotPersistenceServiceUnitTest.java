@@ -98,7 +98,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
 
     @Test
     void compactSnapshotsReturnsZerosWhenNoCandidatesFound() {
-        when(marketSnapshotRepository.findCompactionCandidates(anyLong())).thenReturn(List.of());
+        when(marketSnapshotRepository.findCompactionCandidates(anyLong(), any())).thenReturn(List.of());
         MarketSnapshotPersistenceService service = createService(defaultRetention());
 
         MarketSnapshotPersistenceService.SnapshotCompactionResult result =
@@ -164,7 +164,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
                 Map.of(),
                 List.of("skip market_snapshot: table not partitioned")
         ));
-        when(marketSnapshotRepository.findCompactionCandidates(anyLong())).thenReturn(List.of());
+        when(marketSnapshotRepository.findCompactionCandidates(anyLong(), any())).thenReturn(List.of());
 
         service.setPartitionLifecycleService(lifecycleService);
         service.setPartitioningProperties(partitioningProperties);
@@ -174,7 +174,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
         assertEquals(0, result.scannedCount());
         assertEquals(0, result.deletedCount());
         assertEquals(0, result.keptCount());
-        verify(marketSnapshotRepository, times(1)).findCompactionCandidates(anyLong());
+        verify(marketSnapshotRepository, times(1)).findCompactionCandidates(anyLong(), any());
     }
 
     @Test
@@ -183,7 +183,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
         UUID deleteId = UUID.randomUUID();
         long ts = Instant.parse("2026-03-01T11:57:10Z").toEpochMilli();
 
-        when(marketSnapshotRepository.findCompactionCandidates(anyLong())).thenReturn(List.of(
+        when(marketSnapshotRepository.findCompactionCandidates(anyLong(), any())).thenReturn(List.of(
                 candidate(keepId, ts),
                 candidate(deleteId, ts)
         ));
@@ -211,7 +211,7 @@ class MarketSnapshotPersistenceServiceUnitTest {
         retention.setFlipDeleteBatchPauseMillis(5L);
 
         long ts = Instant.parse("2026-03-01T11:57:10Z").toEpochMilli();
-        when(marketSnapshotRepository.findCompactionCandidates(anyLong())).thenReturn(List.of(
+        when(marketSnapshotRepository.findCompactionCandidates(anyLong(), any())).thenReturn(List.of(
                 candidate(UUID.randomUUID(), ts),
                 candidate(UUID.randomUUID(), ts),
                 candidate(UUID.randomUUID(), ts)
@@ -228,6 +228,31 @@ class MarketSnapshotPersistenceServiceUnitTest {
         } finally {
             Thread.interrupted();
         }
+    }
+
+
+    @Test
+    void compactSnapshotsReadsCandidatesInBatches() {
+        SnapshotRetentionProperties retention = defaultRetention();
+        retention.setCompactionCandidateBatchSize(2);
+
+        long ts = Instant.parse("2026-03-01T11:57:10Z").toEpochMilli();
+        when(marketSnapshotRepository.findCompactionCandidates(anyLong(), any()))
+                .thenReturn(List.of(
+                        candidate(UUID.randomUUID(), ts),
+                        candidate(UUID.randomUUID(), ts)
+                ))
+                .thenReturn(List.of(candidate(UUID.randomUUID(), ts)))
+                .thenReturn(List.of());
+        when(flipRepository.findOrphanFlipIdsBySnapshotTimestampEpochMillisIn(anyCollection(), any()))
+                .thenReturn(List.of());
+
+        MarketSnapshotPersistenceService service = createService(retention);
+        MarketSnapshotPersistenceService.SnapshotCompactionResult result =
+                service.compactSnapshots(Instant.parse("2026-03-01T12:00:00Z"));
+
+        assertEquals(3, result.scannedCount());
+        verify(marketSnapshotRepository, times(2)).findCompactionCandidates(anyLong(), any());
     }
 
     private MarketSnapshotPersistenceService createService(SnapshotRetentionProperties retentionProperties) {

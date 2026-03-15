@@ -16,6 +16,7 @@ import com.skyblockflipper.backend.service.market.partitioning.PartitioningPrope
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -40,6 +41,7 @@ import java.util.UUID;
 public class MarketSnapshotPersistenceService {
 
     private static final long SECONDS_PER_DAY = 86_400L;
+    private static final int DEFAULT_COMPACTION_CANDIDATE_BATCH_SIZE = 500;
     private static final int DEFAULT_FLIP_DELETE_BATCH_SIZE = 1_000;
 
     private static final TypeReference<List<AuctionMarketRecord>> AUCTIONS_TYPE = new TypeReference<>() {};
@@ -55,6 +57,7 @@ public class MarketSnapshotPersistenceService {
     private final long twoHourTierUpperSeconds;
     private final long minuteIntervalMillis;
     private final long twoHourIntervalMillis;
+    private final int compactionCandidateBatchSize;
     private final int flipDeleteBatchSize;
     private final long flipDeleteBatchPauseMillis;
     private final TransactionTemplate requiresNewTransactionTemplate;
@@ -84,6 +87,10 @@ public class MarketSnapshotPersistenceService {
         long twoHourIntervalSeconds = sanitizeSeconds(configuredRetention.getTwoHourIntervalSeconds(), 2L * 60L * 60L);
         this.minuteIntervalMillis = minuteIntervalSeconds * 1_000L;
         this.twoHourIntervalMillis = twoHourIntervalSeconds * 1_000L;
+        this.compactionCandidateBatchSize = sanitizePositiveInt(
+                configuredRetention.getCompactionCandidateBatchSize(),
+                DEFAULT_COMPACTION_CANDIDATE_BATCH_SIZE
+        );
         this.flipDeleteBatchSize = sanitizePositiveInt(configuredRetention.getFlipDeleteBatchSize(), DEFAULT_FLIP_DELETE_BATCH_SIZE);
         this.flipDeleteBatchPauseMillis = Math.max(0L, configuredRetention.getFlipDeleteBatchPauseMillis());
         this.requiresNewTransactionTemplate = new TransactionTemplate(transactionManager);
@@ -254,50 +261,84 @@ public class MarketSnapshotPersistenceService {
         long nowMillis = safeNow.toEpochMilli();
         long compactionCandidateUpperBound = nowMillis - (rawWindowSeconds * 1_000L);
 
-        List<MarketSnapshotCompactionCandidate> candidates = blockingTimeTracker.record("db.marketSnapshot.compactionCandidates", "db", () -> marketSnapshotRepository
-                .findCompactionCandidates(compactionCandidateUpperBound));
-        if (candidates.isEmpty()) {
+        CompactionScanResult scanResult = scanCompactionCandidates(compactionCandidateUpperBound, nowMillis);
+        if (scanResult.candidates().isEmpty()) {
             return new SnapshotCompactionResult(0, 0, 0);
         }
 
+        if (!scanResult.candidates().isEmpty()) {
+            int deletedFlips = deleteSnapshotsAndOrphansInBatches(scanResult.candidates(), scanResult.retainedSnapshotIds(), nowMillis);
+            if (deletedFlips > 0) {
+                log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
+            }
+        }
+
+        int keptCount = scanResult.retainedSnapshotIds().size();
+        return new SnapshotCompactionResult(
+                scanResult.scannedCount(),
+                Math.max(0, scanResult.scannedCount() - keptCount),
+                keptCount
+        );
+    }
+
+
+    private CompactionScanResult scanCompactionCandidates(long compactionCandidateUpperBound, long nowMillis) {
         Map<Long, UUID> minuteKeepers = new LinkedHashMap<>();
         Map<Long, UUID> twoHourKeepers = new LinkedHashMap<>();
         Map<Long, UUID> dailyKeepers = new LinkedHashMap<>();
+        List<MarketSnapshotCompactionCandidate> allCandidates = new ArrayList<>();
 
-        for (MarketSnapshotCompactionCandidate entity : candidates) {
-            long snapshotMillis = entity.getSnapshotTimestampEpochMillis();
-            long ageSeconds = Math.max(0L, (nowMillis - snapshotMillis) / 1_000L);
-
-            if (ageSeconds <= minuteTierUpperSeconds) {
-                long slot = Math.floorDiv(snapshotMillis, minuteIntervalMillis);
-                minuteKeepers.putIfAbsent(slot, entity.getId());
-                continue;
+        int offset = 0;
+        while (true) {
+            int batchOffset = offset;
+            List<MarketSnapshotCompactionCandidate> batch = blockingTimeTracker.record(
+                    "db.marketSnapshot.compactionCandidates",
+                    "db",
+                    () -> marketSnapshotRepository.findCompactionCandidates(
+                            compactionCandidateUpperBound,
+                            PageRequest.of(
+                                    batchOffset / compactionCandidateBatchSize,
+                                    compactionCandidateBatchSize,
+                                    Sort.unsorted()
+                            )
+                    )
+            );
+            if (batch.isEmpty()) {
+                break;
             }
 
-            if (ageSeconds <= twoHourTierUpperSeconds) {
-                long slot = Math.floorDiv(snapshotMillis, twoHourIntervalMillis);
-                twoHourKeepers.putIfAbsent(slot, entity.getId());
-                continue;
+            allCandidates.addAll(batch);
+            for (MarketSnapshotCompactionCandidate entity : batch) {
+                long snapshotMillis = entity.getSnapshotTimestampEpochMillis();
+                long ageSeconds = Math.max(0L, (nowMillis - snapshotMillis) / 1_000L);
+
+                if (ageSeconds <= minuteTierUpperSeconds) {
+                    long slot = Math.floorDiv(snapshotMillis, minuteIntervalMillis);
+                    minuteKeepers.putIfAbsent(slot, entity.getId());
+                    continue;
+                }
+
+                if (ageSeconds <= twoHourTierUpperSeconds) {
+                    long slot = Math.floorDiv(snapshotMillis, twoHourIntervalMillis);
+                    twoHourKeepers.putIfAbsent(slot, entity.getId());
+                    continue;
+                }
+
+                long epochDay = Math.floorDiv(snapshotMillis / 1_000L, SECONDS_PER_DAY);
+                dailyKeepers.putIfAbsent(epochDay, entity.getId());
             }
 
-            long epochDay = Math.floorDiv(snapshotMillis / 1_000L, SECONDS_PER_DAY);
-            dailyKeepers.putIfAbsent(epochDay, entity.getId());
+            if (batch.size() < compactionCandidateBatchSize) {
+                break;
+            }
+            offset += batch.size();
         }
 
         Set<UUID> retainedSnapshotIds = new HashSet<>();
         retainedSnapshotIds.addAll(minuteKeepers.values());
         retainedSnapshotIds.addAll(twoHourKeepers.values());
         retainedSnapshotIds.addAll(dailyKeepers.values());
-
-        if (!candidates.isEmpty()) {
-            int deletedFlips = deleteSnapshotsAndOrphansInBatches(candidates, retainedSnapshotIds, nowMillis);
-            if (deletedFlips > 0) {
-                log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
-            }
-        }
-
-        int keptCount = retainedSnapshotIds.size();
-        return new SnapshotCompactionResult(candidates.size(), Math.max(0, candidates.size() - keptCount), keptCount);
+        return new CompactionScanResult(allCandidates, retainedSnapshotIds, allCandidates.size());
     }
 
     private int deleteSnapshotsAndOrphansInBatches(List<MarketSnapshotCompactionCandidate> candidates,
@@ -517,6 +558,13 @@ public class MarketSnapshotPersistenceService {
     }
 
     private record SnapshotDeleteCandidate(UUID id, long timestampEpochMillis) {
+    }
+
+    private record CompactionScanResult(
+            List<MarketSnapshotCompactionCandidate> candidates,
+            Set<UUID> retainedSnapshotIds,
+            int scannedCount
+    ) {
     }
 
     private record BatchDeleteStats(int deletedFlips, int deletedStepRows, int deletedConstraintRows) {
