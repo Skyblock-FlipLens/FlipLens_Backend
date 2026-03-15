@@ -688,8 +688,12 @@ class AdaptivePollingCoordinatorTest {
         assertEquals("Aspect of the Dragons", minimal.getItemName());
         assertEquals("weapon", minimal.getCategory());
         assertEquals("LEGENDARY", minimal.getTier());
+        assertEquals(1_000L, minimal.getStart());
+        assertEquals(2_000L, minimal.getEnd());
         assertEquals(5_000_000L, minimal.getStartingBid());
         assertEquals(5_500_000L, minimal.getHighestBidAmount());
+        assertFalse(minimal.isClaimed());
+        assertTrue(minimal.isBin());
         assertNull(minimal.getAuctioneer());
         assertNull(minimal.getProfileId());
         assertNull(minimal.getItemLore());

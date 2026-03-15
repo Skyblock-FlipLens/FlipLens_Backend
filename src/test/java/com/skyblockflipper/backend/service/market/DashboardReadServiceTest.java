@@ -102,32 +102,9 @@ class DashboardReadServiceTest {
     void overviewReturnsTopFlipAndBullishTrendFromLatestSnapshot() {
         Instant ts = FIXED_INSTANT;
         when(itemRepository.count()).thenReturn(10L);
-        when(marketSnapshotHistoryRepository.findLatestCombinedSnapshotSummary()).thenReturn(new MarketSnapshotHistoryRepository.MarketSnapshotSummaryProjection() {
-            @Override
-            public String getIdText() {
-                return UUID.randomUUID().toString();
-            }
-
-            @Override
-            public long getSnapshotTimestampEpochMillis() {
-                return ts.toEpochMilli();
-            }
-
-            @Override
-            public int getAuctionCount() {
-                return 2;
-            }
-
-            @Override
-            public int getBazaarProductCount() {
-                return 2;
-            }
-
-            @Override
-            public long getCreatedAtEpochMillis() {
-                return ts.toEpochMilli();
-            }
-        });
+        when(marketSnapshotHistoryRepository.findLatestCombinedSnapshotSummary()).thenReturn(
+                summaryProjection("00000000-0000-0000-0000-000000000010", ts, 2, 2)
+        );
         when(bzItemSnapshotRepository.findBySnapshotTsOrderByProductIdAsc(ts.toEpochMilli())).thenReturn(List.of(
                 new BzItemSnapshotEntity(ts.toEpochMilli(), "A", 100D, 90D, 10L, 10L),
                 new BzItemSnapshotEntity(ts.toEpochMilli(), "B", 200D, 180D, 10L, 10L)
@@ -296,10 +273,17 @@ class DashboardReadServiceTest {
     }
 
     private static MarketSnapshotHistoryRepository.MarketSnapshotSummaryProjection summaryProjection(Instant ts, int auctionCount, int bazaarCount) {
+        return summaryProjection("00000000-0000-0000-0000-000000000001", ts, auctionCount, bazaarCount);
+    }
+
+    private static MarketSnapshotHistoryRepository.MarketSnapshotSummaryProjection summaryProjection(String idText,
+                                                                                                     Instant ts,
+                                                                                                     int auctionCount,
+                                                                                                     int bazaarCount) {
         return new MarketSnapshotHistoryRepository.MarketSnapshotSummaryProjection() {
             @Override
             public String getIdText() {
-                return UUID.randomUUID().toString();
+                return idText;
             }
 
             @Override

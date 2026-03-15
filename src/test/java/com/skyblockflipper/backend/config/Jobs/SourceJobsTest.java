@@ -23,6 +23,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SourceJobsTest {
@@ -84,6 +85,35 @@ class SourceJobsTest {
     }
 
     @Test
+    void compactAggregateSnapshotsHandlesPartitionLookupFailure() {
+        AhItemSnapshotRepository ahRepository = mock(AhItemSnapshotRepository.class);
+        BzItemSnapshotRepository bzRepository = mock(BzItemSnapshotRepository.class);
+        PartitionAdminRepository partitionAdminRepository = mock(PartitionAdminRepository.class);
+        PartitioningProperties partitioningProperties = new PartitioningProperties();
+
+        when(partitionAdminRepository.isTablePartitioned("public", "ah_item_snapshot"))
+                .thenThrow(new RuntimeException("boom"));
+        when(partitionAdminRepository.isTablePartitioned("public", "bz_item_snapshot")).thenReturn(true);
+
+        SourceJobs jobs = new SourceJobs(
+                mock(NeuRepoIngestionService.class),
+                mock(MarketDataProcessingService.class),
+                mock(FlipGenerationService.class),
+                ahRepository,
+                bzRepository,
+                new SnapshotRetentionProperties(),
+                mock(ElectionPollFreshnessService.class),
+                partitionAdminRepository,
+                partitioningProperties
+        );
+
+        assertDoesNotThrow(jobs::compactAggregateSnapshots);
+
+        verify(ahRepository).deleteOlderThan(org.mockito.ArgumentMatchers.anyLong());
+        verify(bzRepository, never()).deleteOlderThan(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void refreshElectionPollSwallowsExceptionsFromFreshnessService() {
         ElectionPollFreshnessService electionPollFreshnessService = mock(ElectionPollFreshnessService.class);
         doThrow(new RuntimeException("boom")).when(electionPollFreshnessService).ensureRecentElectionPoll();
@@ -139,10 +169,11 @@ class SourceJobsTest {
     void copyRepoDailyAsyncDelegatesToSameRefreshLogic() throws IOException, InterruptedException {
         NeuRepoIngestionService neuRepoIngestionService = mock(NeuRepoIngestionService.class);
         MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        FlipGenerationService flipGenerationService = mock(FlipGenerationService.class);
         SourceJobs jobs = new SourceJobs(
                 neuRepoIngestionService,
                 marketDataProcessingService,
-                mock(FlipGenerationService.class),
+                flipGenerationService,
                 mock(AhItemSnapshotRepository.class),
                 mock(BzItemSnapshotRepository.class),
                 new SnapshotRetentionProperties(),
@@ -157,5 +188,6 @@ class SourceJobsTest {
 
         verify(neuRepoIngestionService).ingestLatestFilteredItems();
         verify(marketDataProcessingService).latestMarketSnapshot();
+        verifyNoInteractions(flipGenerationService);
     }
 }

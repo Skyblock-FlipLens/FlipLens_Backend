@@ -135,6 +135,13 @@ public class SourceJobs {
         if (tableName == null || tableName.isBlank()) {
             return false;
         }
-        return partitionAdminRepository.isTablePartitioned(partitioningProperties.getSchemaName(), tableName);
+        try {
+            return partitionAdminRepository.isTablePartitioned(partitioningProperties.getSchemaName(), tableName);
+        } catch (Exception e) {
+            log.warn("Failed to determine whether aggregate table {} is partitioned. Falling back to row-delete cleanup: {}",
+                    tableName,
+                    ExceptionUtils.getStackTrace(e));
+            return false;
+        }
     }
 }

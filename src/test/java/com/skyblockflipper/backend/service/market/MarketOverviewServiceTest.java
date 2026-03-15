@@ -13,6 +13,7 @@ import com.skyblockflipper.backend.service.flipping.FlipCalculationContext;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContextService;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipDtoMapper;
 import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipCurrentReadService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -29,15 +30,23 @@ import static org.mockito.Mockito.when;
 
 class MarketOverviewServiceTest {
 
-    @Test
-    void overviewReturnsFallbackWhenNoSnapshotExists() {
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        BzItemSnapshotRepository bzItemSnapshotRepository = mock(BzItemSnapshotRepository.class);
-        FlipRepository flipRepository = mock(FlipRepository.class);
-        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
-        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
-        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
-        MarketOverviewService service = new MarketOverviewService(
+    private MarketSnapshotPersistenceService snapshotService;
+    private BzItemSnapshotRepository bzItemSnapshotRepository;
+    private FlipRepository flipRepository;
+    private UnifiedFlipDtoMapper mapper;
+    private FlipCalculationContextService contextService;
+    private UnifiedFlipCurrentReadService unifiedFlipCurrentReadService;
+    private MarketOverviewService service;
+
+    @BeforeEach
+    void setUp() {
+        snapshotService = mock(MarketSnapshotPersistenceService.class);
+        bzItemSnapshotRepository = mock(BzItemSnapshotRepository.class);
+        flipRepository = mock(FlipRepository.class);
+        mapper = mock(UnifiedFlipDtoMapper.class);
+        contextService = mock(FlipCalculationContextService.class);
+        unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
+        service = new MarketOverviewService(
                 snapshotService,
                 bzItemSnapshotRepository,
                 flipRepository,
@@ -45,7 +54,10 @@ class MarketOverviewServiceTest {
                 contextService,
                 unifiedFlipCurrentReadService
         );
+    }
 
+    @Test
+    void overviewReturnsFallbackWhenNoSnapshotExists() {
         when(snapshotService.latest()).thenReturn(Optional.empty());
 
         MarketOverviewDto dto = service.overview("HYPERION");
@@ -58,21 +70,6 @@ class MarketOverviewServiceTest {
 
     @Test
     void overviewComputesSnapshotMetricsAndBestProfit() {
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        BzItemSnapshotRepository bzItemSnapshotRepository = mock(BzItemSnapshotRepository.class);
-        FlipRepository flipRepository = mock(FlipRepository.class);
-        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
-        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
-        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
-        MarketOverviewService service = new MarketOverviewService(
-                snapshotService,
-                bzItemSnapshotRepository,
-                flipRepository,
-                mapper,
-                contextService,
-                unifiedFlipCurrentReadService
-        );
-
         Instant ts = Instant.parse("2026-02-21T12:00:00Z");
         BazaarMarketRecord now = new BazaarMarketRecord("ENCHANTED_DIAMOND_BLOCK", 110D, 100D, 1_000L, 900L, 0, 0, 1, 1);
         MarketSnapshot latest = new MarketSnapshot(ts, List.of(), Map.of("ENCHANTED_DIAMOND_BLOCK", now));
@@ -108,21 +105,6 @@ class MarketOverviewServiceTest {
 
     @Test
     void overviewFallsBackToAlphabeticalProductAndLegacyFlipProfit() {
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        BzItemSnapshotRepository bzItemSnapshotRepository = mock(BzItemSnapshotRepository.class);
-        FlipRepository flipRepository = mock(FlipRepository.class);
-        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
-        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
-        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
-        MarketOverviewService service = new MarketOverviewService(
-                snapshotService,
-                bzItemSnapshotRepository,
-                flipRepository,
-                mapper,
-                contextService,
-                unifiedFlipCurrentReadService
-        );
-
         Instant ts = Instant.parse("2026-02-21T12:00:00Z");
         MarketSnapshot latest = new MarketSnapshot(
                 ts,
@@ -159,21 +141,6 @@ class MarketOverviewServiceTest {
 
     @Test
     void overviewReturnsNullMarketMetricsWhenCurrentRecordCannotBeResolved() {
-        MarketSnapshotPersistenceService snapshotService = mock(MarketSnapshotPersistenceService.class);
-        BzItemSnapshotRepository bzItemSnapshotRepository = mock(BzItemSnapshotRepository.class);
-        FlipRepository flipRepository = mock(FlipRepository.class);
-        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
-        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
-        UnifiedFlipCurrentReadService unifiedFlipCurrentReadService = mock(UnifiedFlipCurrentReadService.class);
-        MarketOverviewService service = new MarketOverviewService(
-                snapshotService,
-                bzItemSnapshotRepository,
-                flipRepository,
-                mapper,
-                contextService,
-                unifiedFlipCurrentReadService
-        );
-
         Instant ts = Instant.parse("2026-02-21T12:00:00Z");
         when(snapshotService.latest()).thenReturn(Optional.of(new MarketSnapshot(ts, List.of(), Map.of())));
         when(unifiedFlipCurrentReadService.currentSummary()).thenReturn(Optional.of(
