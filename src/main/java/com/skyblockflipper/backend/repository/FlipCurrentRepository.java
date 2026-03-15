@@ -123,6 +123,14 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
     @Query("select fc.flipType as flipType, count(fc) as count from FlipCurrentEntity fc group by fc.flipType")
     List<FlipTypeCountProjection> countByFlipType();
 
+    @Query("""
+            select count(fc) as totalCount,
+                   max(fc.expectedProfit) as maxExpectedProfit,
+                   max(fc.snapshotTimestampEpochMillis) as latestSnapshotEpochMillis
+            from FlipCurrentEntity fc
+            """)
+    CurrentSummaryProjection summarizeCurrent();
+
     interface FlipTypeCountProjection {
         FlipType getFlipType();
         long getCount();
@@ -131,5 +139,11 @@ public interface FlipCurrentRepository extends JpaRepository<FlipCurrentEntity, 
     interface CurrentDefinitionProjection {
         FlipCurrentEntity getCurrent();
         FlipDefinitionEntity getDefinition();
+    }
+
+    interface CurrentSummaryProjection {
+        long getTotalCount();
+        Long getMaxExpectedProfit();
+        Long getLatestSnapshotEpochMillis();
     }
 }

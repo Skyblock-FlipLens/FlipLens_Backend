@@ -113,6 +113,38 @@ class UnifiedFlipCurrentReadServiceTest {
     }
 
     @Test
+    void currentSummaryReturnsProjectedCountAndBestProfit() {
+        FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
+        StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
+        UnifiedFlipCurrentReadService service = new UnifiedFlipCurrentReadService(
+                currentRepository,
+                dtoMapper
+        );
+        when(currentRepository.summarizeCurrent()).thenReturn(new FlipCurrentRepository.CurrentSummaryProjection() {
+            @Override
+            public long getTotalCount() {
+                return 7L;
+            }
+
+            @Override
+            public Long getMaxExpectedProfit() {
+                return 1_500_000L;
+            }
+
+            @Override
+            public Long getLatestSnapshotEpochMillis() {
+                return Instant.parse("2026-02-20T12:00:00Z").toEpochMilli();
+            }
+        });
+
+        Optional<UnifiedFlipCurrentReadService.CurrentSummary> result = service.currentSummary();
+
+        assertTrue(result.isPresent());
+        assertEquals(7L, result.get().totalCount());
+        assertEquals(1_500_000L, result.get().maxExpectedProfit());
+    }
+
+    @Test
     void listCurrentScoringDtosUsesCurrentRowsOnly() {
         FlipCurrentRepository currentRepository = mock(FlipCurrentRepository.class);
         StoredFlipDtoMapper dtoMapper = mock(StoredFlipDtoMapper.class);
