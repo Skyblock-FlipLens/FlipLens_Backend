@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class MarketOverviewServiceTest {
@@ -101,6 +102,8 @@ class MarketOverviewServiceTest {
         assertEquals(900D, dto.averageVolume(), 0.0001D);
         assertEquals(2L, dto.activeFlips());
         assertEquals(2_000L, dto.bestProfit());
+        verify(unifiedFlipCurrentReadService).currentSummary();
+        verifyNoInteractions(flipRepository, contextService, mapper);
     }
 
     @Test

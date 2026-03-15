@@ -520,7 +520,7 @@ class AdaptivePollingCoordinatorTest {
     }
 
     @Test
-    void updatePredictionStateResetsBackoffAndAdvancesExpectedTimes() throws Exception {
+    void updateAuctionPredictionStateResetsBackoffAndAdvancesExpectedTimes() throws Exception {
         Fixture fixture = fixture(true);
         AdaptivePollingProperties.Endpoint endpoint = AdaptivePollingProperties.Endpoint.defaults("auctions", "/auctions", java.time.Duration.ofSeconds(20));
         endpoint.setMinProbeIntervalMs(1_000L);
@@ -552,6 +552,14 @@ class AdaptivePollingCoordinatorTest {
                 3_000.0d,
                 fixture.meterRegistry.get("skyblock.adaptive.auctions.observed_period_ms").summary().totalAmount()
         );
+    }
+
+    @Test
+    void updateBazaarPredictionStateResetsBackoffAndAdvancesExpectedTimes() throws Exception {
+        Fixture fixture = fixture(true);
+        AdaptivePollingProperties.Endpoint endpoint = AdaptivePollingProperties.Endpoint.defaults("bazaar", "/bazaar", java.time.Duration.ofSeconds(20));
+        endpoint.setMinProbeIntervalMs(1_000L);
+        endpoint.setJitterMs(0L);
 
         BazaarPollState bazaarPollState = (BazaarPollState) getField(fixture.coordinator, "bazaarPollState");
         bazaarPollState.setLastSeenLastUpdated(5_000L);
@@ -594,13 +602,13 @@ class AdaptivePollingCoordinatorTest {
                 fixture.coordinator,
                 "updateProbeBackoff",
                 new Class<?>[]{long.class, long.class, AdaptivePollingProperties.Endpoint.class, boolean.class, int.class, long.class, boolean.class},
-                10_000L,
-                10_200L,
-                endpoint,
-                true,
-                3,
-                4_000L,
-                true
+                /* nowMillis */ 10_000L,
+                /* nextExpected */ 10_200L,
+                /* endpointCfg */ endpoint,
+                /* auction */ true,
+                /* currentBackoffStep */ 3,
+                /* currentInterval */ 4_000L,
+                /* recordMetric */ true
         );
         assertEquals(1_000L, resetDelay);
 
@@ -608,13 +616,13 @@ class AdaptivePollingCoordinatorTest {
                 fixture.coordinator,
                 "updateProbeBackoff",
                 new Class<?>[]{long.class, long.class, AdaptivePollingProperties.Endpoint.class, boolean.class, int.class, long.class, boolean.class},
-                20_000L,
-                10_000L,
-                endpoint,
-                false,
-                1,
-                2_000L,
-                false
+                /* nowMillis */ 20_000L,
+                /* nextExpected */ 10_000L,
+                /* endpointCfg */ endpoint,
+                /* auction */ false,
+                /* currentBackoffStep */ 1,
+                /* currentInterval */ 2_000L,
+                /* recordMetric */ false
         );
         assertEquals(8_000L, increasedDelay);
     }
