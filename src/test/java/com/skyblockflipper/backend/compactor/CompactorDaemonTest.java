@@ -6,6 +6,7 @@ import org.postgresql.PGConnection;
 import org.postgresql.PGNotification;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import tools.jackson.databind.ObjectMapper;
 
@@ -719,18 +720,21 @@ class CompactorDaemonTest {
                                          long active,
                                          long waiting,
                                          long lockWaits) {
+        when(jdbcTemplate.query(anyString(), any(PreparedStatementSetter.class), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            ResultSetExtractor<Object> extractor = (ResultSetExtractor<Object>) invocation.getArgument(2);
+            ResultSet rs = mock(ResultSet.class);
+
+            when(rs.next()).thenReturn(true);
+            when(rs.getBoolean("requested")).thenReturn(requested);
+            when(rs.getTimestamp("last_run_at")).thenReturn(lastRunAt == null ? null : Timestamp.from(lastRunAt));
+            return extractor.extractData(rs);
+        });
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
             String sql = ((String) invocation.getArgument(0)).toLowerCase(Locale.ROOT);
             @SuppressWarnings("unchecked")
             ResultSetExtractor<Object> extractor = (ResultSetExtractor<Object>) invocation.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
-
-            if (sql.contains("from compaction_control")) {
-                when(rs.next()).thenReturn(true);
-                when(rs.getBoolean("requested")).thenReturn(requested);
-                when(rs.getTimestamp("last_run_at")).thenReturn(lastRunAt == null ? null : Timestamp.from(lastRunAt));
-                return extractor.extractData(rs);
-            }
 
             if (sql.contains("from pg_stat_activity")) {
                 when(rs.next()).thenReturn(true);

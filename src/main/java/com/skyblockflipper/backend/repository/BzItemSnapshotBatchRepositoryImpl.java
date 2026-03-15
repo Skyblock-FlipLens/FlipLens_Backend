@@ -3,11 +3,15 @@ package com.skyblockflipper.backend.repository;
 import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.List;
 
 @Repository
@@ -24,6 +28,21 @@ public class BzItemSnapshotBatchRepositoryImpl implements BzItemSnapshotBatchRep
                 created_at_epoch_millis
             ) values (?, ?, ?, ?, ?, ?, ?)
             on conflict (snapshot_ts, product_id) do nothing
+            """;
+
+    private static final String SCAN_BUCKET_SQL = """
+            select
+                snapshot_ts,
+                product_id,
+                buy_price,
+                sell_price,
+                buy_volume,
+                sell_volume,
+                created_at_epoch_millis
+            from bz_item_snapshot
+            where snapshot_ts >= ?
+              and snapshot_ts < ?
+            order by product_id asc, snapshot_ts asc
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -55,5 +74,28 @@ public class BzItemSnapshotBatchRepositoryImpl implements BzItemSnapshotBatchRep
                 return snapshots.size();
             }
         });
+    }
+
+    @Override
+    public void scanBucketRows(long fromInclusive, long toExclusive, int fetchSize, Consumer<BzItemSnapshotEntity> consumer) {
+        Objects.requireNonNull(consumer, "consumer must not be null");
+        jdbcTemplate.query(connection -> {
+            PreparedStatement ps = connection.prepareStatement(SCAN_BUCKET_SQL, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            ps.setLong(1, fromInclusive);
+            ps.setLong(2, toExclusive);
+            ps.setFetchSize(Math.max(1, fetchSize));
+            return ps;
+        }, (RowCallbackHandler) rs -> consumer.accept(mapRow(rs)));
+    }
+
+    private BzItemSnapshotEntity mapRow(ResultSet rs) throws SQLException {
+        return new BzItemSnapshotEntity(
+                rs.getLong("snapshot_ts"),
+                rs.getString("product_id"),
+                rs.getObject("buy_price", Double.class),
+                rs.getObject("sell_price", Double.class),
+                rs.getObject("buy_volume", Long.class),
+                rs.getObject("sell_volume", Long.class)
+        );
     }
 }

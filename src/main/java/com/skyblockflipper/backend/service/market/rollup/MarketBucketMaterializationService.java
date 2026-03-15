@@ -32,11 +32,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 @Service
 @Profile("compactor")
 @Slf4j
 public class MarketBucketMaterializationService {
+
+    private static final int MATERIALIZATION_FETCH_SIZE = 1_000;
 
     private final SnapshotRollupProperties rollupProperties;
     private final PartitioningProperties partitioningProperties;
@@ -50,6 +55,7 @@ public class MarketBucketMaterializationService {
     private final BzItemBucketAnalyzer bzItemBucketAnalyzer;
     private final AhItemBucketAnalyzer ahItemBucketAnalyzer;
     private final TransactionTemplate requiresNewTransactionTemplate;
+    private final ReentrantLock materializationRunLock = new ReentrantLock();
 
     public MarketBucketMaterializationService(SnapshotRollupProperties rollupProperties,
                                               PartitioningProperties partitioningProperties,
@@ -89,24 +95,32 @@ public class MarketBucketMaterializationService {
         if (!rollupProperties.isEnabled()) {
             return BucketMaterializationReport.empty();
         }
-        Instant safeNow = now == null ? Instant.now() : now;
-        int processed = 0;
-        int failed = 0;
-        Map<String, Integer> processedByScope = new LinkedHashMap<>();
-
-        for (MarketBucketGranularity granularity : MarketBucketGranularity.values()) {
-            BucketProcessingReport bzReport = materializeBz(granularity, safeNow);
-            processed += bzReport.processedBuckets();
-            failed += bzReport.failedBuckets();
-            processedByScope.put("BZ:" + granularity.code(), bzReport.processedBuckets());
-
-            BucketProcessingReport ahReport = materializeAh(granularity, safeNow);
-            processed += ahReport.processedBuckets();
-            failed += ahReport.failedBuckets();
-            processedByScope.put("AH:" + granularity.code(), ahReport.processedBuckets());
+        if (!materializationRunLock.tryLock()) {
+            log.debug("Skipping bucket materialization because a previous run is still active.");
+            return BucketMaterializationReport.empty();
         }
+        try {
+            Instant safeNow = now == null ? Instant.now() : now;
+            int processed = 0;
+            int failed = 0;
+            Map<String, Integer> processedByScope = new LinkedHashMap<>();
 
-        return new BucketMaterializationReport(processed, failed, Map.copyOf(processedByScope));
+            for (MarketBucketGranularity granularity : MarketBucketGranularity.values()) {
+                BucketProcessingReport bzReport = materializeBz(granularity, safeNow);
+                processed += bzReport.processedBuckets();
+                failed += bzReport.failedBuckets();
+                processedByScope.put("BZ:" + granularity.code(), bzReport.processedBuckets());
+
+                BucketProcessingReport ahReport = materializeAh(granularity, safeNow);
+                processed += ahReport.processedBuckets();
+                failed += ahReport.failedBuckets();
+                processedByScope.put("AH:" + granularity.code(), ahReport.processedBuckets());
+            }
+
+            return new BucketMaterializationReport(processed, failed, Map.copyOf(processedByScope));
+        } finally {
+            materializationRunLock.unlock();
+        }
     }
 
     public boolean isAggregatePartitionMaterialized(String parentTable, LocalDate partitionDayUtc) {
@@ -146,7 +160,7 @@ public class MarketBucketMaterializationService {
                 now,
                 minSnapshotTs,
                 maxSnapshotTs,
-                (start, end) -> bzItemSnapshotRepository.findBySnapshotTsGreaterThanEqualAndSnapshotTsLessThanOrderBySnapshotTsAsc(start, end)
+                (start, end) -> materializeBzBucket(granularity, partitioningProperties.getBzSnapshotParentTable(), start, end)
         );
     }
 
@@ -160,17 +174,17 @@ public class MarketBucketMaterializationService {
                 now,
                 minSnapshotTs,
                 maxSnapshotTs,
-                (start, end) -> ahItemSnapshotRepository.findBySnapshotTsGreaterThanEqualAndSnapshotTsLessThanOrderBySnapshotTsAsc(start, end)
+                (start, end) -> materializeAhBucket(granularity, partitioningProperties.getAhSnapshotParentTable(), start, end)
         );
     }
 
-    private <T> BucketProcessingReport materializeMarket(String marketType,
-                                                         String parentTable,
-                                                         MarketBucketGranularity granularity,
-                                                         Instant now,
-                                                         Long minSnapshotTs,
-                                                         Long maxSnapshotTs,
-                                                         BucketLoader<T> bucketLoader) {
+    private BucketProcessingReport materializeMarket(String marketType,
+                                                     String parentTable,
+                                                     MarketBucketGranularity granularity,
+                                                     Instant now,
+                                                     Long minSnapshotTs,
+                                                     Long maxSnapshotTs,
+                                                     BucketMaterializer bucketMaterializer) {
         if (minSnapshotTs == null || maxSnapshotTs == null) {
             return BucketProcessingReport.empty();
         }
@@ -193,27 +207,10 @@ public class MarketBucketMaterializationService {
         for (int i = 0; i < maxBuckets && nextBucketStart <= upperBoundBucketStart; i++) {
             long bucketEnd = nextBucketStart + granularity.durationMillis();
             try {
-                List<T> rows = bucketLoader.load(nextBucketStart, bucketEnd);
                 long currentBucketStart = nextBucketStart;
-                requiresNewTransactionTemplate.executeWithoutResult(status -> {
-                    if ("BZ".equals(marketType)) {
-                        materializeBzBucket(
-                                granularity,
-                                parentTable,
-                                currentBucketStart,
-                                bucketEnd,
-                                castRows(rows, BzItemSnapshotEntity.class)
-                        );
-                    } else {
-                        materializeAhBucket(
-                                granularity,
-                                parentTable,
-                                currentBucketStart,
-                                bucketEnd,
-                                castRows(rows, AhItemSnapshotEntity.class)
-                        );
-                    }
-                });
+                requiresNewTransactionTemplate.executeWithoutResult(status ->
+                        bucketMaterializer.materialize(currentBucketStart, bucketEnd)
+                );
                 processed++;
             } catch (Exception e) {
                 failed++;
@@ -225,37 +222,32 @@ public class MarketBucketMaterializationService {
         return new BucketProcessingReport(processed, failed);
     }
 
-    @SuppressWarnings("unchecked")
-    private <T> List<T> castRows(List<?> rows, Class<T> expectedType) {
-        if (rows == null || rows.isEmpty()) {
-            return List.of();
-        }
-        List<T> casted = new ArrayList<>(rows.size());
-        for (Object row : rows) {
-            casted.add((T) expectedType.cast(row));
-        }
-        return casted;
-    }
-
     protected void materializeBzBucket(MarketBucketGranularity granularity,
                                        String parentTable,
                                        long bucketStart,
-                                       long bucketEnd,
-                                       List<BzItemSnapshotEntity> rows) {
-        Map<String, List<BzItemSnapshotEntity>> byProduct = new LinkedHashMap<>();
-        for (BzItemSnapshotEntity row : rows) {
-            if (row == null || row.getProductId() == null || row.getProductId().isBlank()) {
-                continue;
-            }
-            byProduct.computeIfAbsent(row.getProductId(), ignored -> new ArrayList<>()).add(row);
-        }
-
+                                       long bucketEnd) {
         List<BzItemBucketRollupEntity> rollups = new ArrayList<>();
         List<BzItemAnomalySegmentEntity> anomalies = new ArrayList<>();
-        for (Map.Entry<String, List<BzItemSnapshotEntity>> entry : byProduct.entrySet()) {
-            BzItemBucketAnalysisResult analysis = bzItemBucketAnalyzer.analyze(granularity, bucketStart, bucketEnd, entry.getKey(), entry.getValue());
-            analysis.rollup().ifPresent(rollups::add);
-            anomalies.addAll(analysis.anomalySegments());
+        long[] rawRowCount = {0L};
+        GroupedRowsAccumulator<BzItemSnapshotEntity> accumulator = new GroupedRowsAccumulator<>(
+                BzItemSnapshotEntity::getProductId,
+                (productId, rows) -> {
+                    BzItemBucketAnalysisResult analysis = bzItemBucketAnalyzer.analyze(granularity, bucketStart, bucketEnd, productId, rows);
+                    analysis.rollup().ifPresent(rollups::add);
+                    anomalies.addAll(analysis.anomalySegments());
+                }
+        );
+        bzItemSnapshotRepository.scanBucketRows(bucketStart, bucketEnd, MATERIALIZATION_FETCH_SIZE, row -> {
+            rawRowCount[0]++;
+            accumulator.accept(row);
+        });
+        accumulator.finish();
+
+        for (BzItemBucketRollupEntity rollup : rollups) {
+            rollup.setBucketEndEpochMillis(bucketEnd);
+        }
+        for (BzItemAnomalySegmentEntity anomaly : anomalies) {
+            anomaly.setBucketEndEpochMillis(bucketEnd);
         }
 
         bzItemAnomalySegmentRepository.deleteByBucketStartEpochMillisAndBucketGranularity(bucketStart, granularity.code());
@@ -266,28 +258,35 @@ public class MarketBucketMaterializationService {
         if (!anomalies.isEmpty()) {
             bzItemAnomalySegmentRepository.saveAll(anomalies);
         }
-        saveSuccessState("BZ", granularity, parentTable, bucketStart, bucketEnd, rows.size(), rollups.size(), anomalies.size());
+        saveSuccessState("BZ", granularity, parentTable, bucketStart, bucketEnd, rawRowCount[0], rollups.size(), anomalies.size());
     }
 
     protected void materializeAhBucket(MarketBucketGranularity granularity,
                                        String parentTable,
                                        long bucketStart,
-                                       long bucketEnd,
-                                       List<AhItemSnapshotEntity> rows) {
-        Map<String, List<AhItemSnapshotEntity>> byItemKey = new LinkedHashMap<>();
-        for (AhItemSnapshotEntity row : rows) {
-            if (row == null || row.getItemKey() == null || row.getItemKey().isBlank()) {
-                continue;
-            }
-            byItemKey.computeIfAbsent(row.getItemKey(), ignored -> new ArrayList<>()).add(row);
-        }
-
+                                       long bucketEnd) {
         List<AhItemBucketRollupEntity> rollups = new ArrayList<>();
         List<AhItemAnomalySegmentEntity> anomalies = new ArrayList<>();
-        for (Map.Entry<String, List<AhItemSnapshotEntity>> entry : byItemKey.entrySet()) {
-            AhItemBucketAnalysisResult analysis = ahItemBucketAnalyzer.analyze(granularity, bucketStart, bucketEnd, entry.getKey(), entry.getValue());
-            analysis.rollup().ifPresent(rollups::add);
-            anomalies.addAll(analysis.anomalySegments());
+        long[] rawRowCount = {0L};
+        GroupedRowsAccumulator<AhItemSnapshotEntity> accumulator = new GroupedRowsAccumulator<>(
+                AhItemSnapshotEntity::getItemKey,
+                (itemKey, rows) -> {
+                    AhItemBucketAnalysisResult analysis = ahItemBucketAnalyzer.analyze(granularity, bucketStart, bucketEnd, itemKey, rows);
+                    analysis.rollup().ifPresent(rollups::add);
+                    anomalies.addAll(analysis.anomalySegments());
+                }
+        );
+        ahItemSnapshotRepository.scanBucketRows(bucketStart, bucketEnd, MATERIALIZATION_FETCH_SIZE, row -> {
+            rawRowCount[0]++;
+            accumulator.accept(row);
+        });
+        accumulator.finish();
+
+        for (AhItemBucketRollupEntity rollup : rollups) {
+            rollup.setBucketEndEpochMillis(bucketEnd);
+        }
+        for (AhItemAnomalySegmentEntity anomaly : anomalies) {
+            anomaly.setBucketEndEpochMillis(bucketEnd);
         }
 
         ahItemAnomalySegmentRepository.deleteByBucketStartEpochMillisAndBucketGranularity(bucketStart, granularity.code());
@@ -298,7 +297,7 @@ public class MarketBucketMaterializationService {
         if (!anomalies.isEmpty()) {
             ahItemAnomalySegmentRepository.saveAll(anomalies);
         }
-        saveSuccessState("AH", granularity, parentTable, bucketStart, bucketEnd, rows.size(), rollups.size(), anomalies.size());
+        saveSuccessState("AH", granularity, parentTable, bucketStart, bucketEnd, rawRowCount[0], rollups.size(), anomalies.size());
     }
 
     private void saveSuccessState(String marketType,
@@ -436,8 +435,49 @@ public class MarketBucketMaterializationService {
         return 0L;
     }
 
-    private interface BucketLoader<T> {
-        List<T> load(long fromInclusive, long toExclusive);
+    private interface BucketMaterializer {
+        void materialize(long fromInclusive, long toExclusive);
+    }
+
+    private static final class GroupedRowsAccumulator<T> {
+
+        private final Function<T, String> keyExtractor;
+        private final BiConsumer<String, List<T>> groupConsumer;
+        private String currentKey;
+        private List<T> currentRows = new ArrayList<>();
+
+        private GroupedRowsAccumulator(Function<T, String> keyExtractor, BiConsumer<String, List<T>> groupConsumer) {
+            this.keyExtractor = Objects.requireNonNull(keyExtractor, "keyExtractor must not be null");
+            this.groupConsumer = Objects.requireNonNull(groupConsumer, "groupConsumer must not be null");
+        }
+
+        private void accept(T row) {
+            if (row == null) {
+                return;
+            }
+            String key = keyExtractor.apply(row);
+            if (key == null || key.isBlank()) {
+                return;
+            }
+            if (!Objects.equals(currentKey, key)) {
+                flushCurrent();
+                currentKey = key;
+            }
+            currentRows.add(row);
+        }
+
+        private void finish() {
+            flushCurrent();
+        }
+
+        private void flushCurrent() {
+            if (currentKey == null || currentRows.isEmpty()) {
+                return;
+            }
+            groupConsumer.accept(currentKey, currentRows);
+            currentKey = null;
+            currentRows = new ArrayList<>();
+        }
     }
 
     private record BucketProcessingReport(int processedBuckets, int failedBuckets) {

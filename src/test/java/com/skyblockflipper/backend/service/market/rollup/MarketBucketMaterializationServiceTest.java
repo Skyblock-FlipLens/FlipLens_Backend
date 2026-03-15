@@ -18,11 +18,15 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -51,12 +55,18 @@ class MarketBucketMaterializationServiceTest {
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         when(bzItemSnapshotRepository.findMinSnapshotTs()).thenReturn(bucketStart);
         when(bzItemSnapshotRepository.findMaxSnapshotTs()).thenReturn(bucketStart + 25_000L);
-        when(bzItemSnapshotRepository.findBySnapshotTsGreaterThanEqualAndSnapshotTsLessThanOrderBySnapshotTsAsc(bucketStart, bucketEnd))
-                .thenReturn(List.of(
-                        new com.skyblockflipper.backend.model.market.BzItemSnapshotEntity(bucketStart, "ENCHANTED_DIAMOND", 100.0D, 99.0D, 1_000L, 1_000L),
-                        new com.skyblockflipper.backend.model.market.BzItemSnapshotEntity(bucketStart + 5_000L, "ENCHANTED_DIAMOND", 100.1D, 99.1D, 1_010L, 1_000L),
-                        new com.skyblockflipper.backend.model.market.BzItemSnapshotEntity(bucketStart + 10_000L, "ENCHANTED_DIAMOND", 100.2D, 99.2D, 1_005L, 1_020L)
-                ));
+        List<com.skyblockflipper.backend.model.market.BzItemSnapshotEntity> rows = List.of(
+                new com.skyblockflipper.backend.model.market.BzItemSnapshotEntity(bucketStart, "ENCHANTED_DIAMOND", 100.0D, 99.0D, 1_000L, 1_000L),
+                new com.skyblockflipper.backend.model.market.BzItemSnapshotEntity(bucketStart + 5_000L, "ENCHANTED_DIAMOND", 100.1D, 99.1D, 1_010L, 1_000L),
+                new com.skyblockflipper.backend.model.market.BzItemSnapshotEntity(bucketStart + 10_000L, "ENCHANTED_DIAMOND", 100.2D, 99.2D, 1_005L, 1_020L)
+        );
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<com.skyblockflipper.backend.model.market.BzItemSnapshotEntity> consumer =
+                    (Consumer<com.skyblockflipper.backend.model.market.BzItemSnapshotEntity>) invocation.getArgument(3);
+            rows.forEach(consumer);
+            return null;
+        }).when(bzItemSnapshotRepository).scanBucketRows(eq(bucketStart), eq(bucketEnd), anyInt(), any());
         when(ahItemSnapshotRepository.findMinSnapshotTs()).thenReturn(null);
         when(ahItemSnapshotRepository.findMaxSnapshotTs()).thenReturn(null);
         when(materializationStateRepository.findTopByMarketTypeAndBucketGranularityAndFinalizedTrueOrderByBucketStartEpochMillisDesc("BZ", "1m"))
