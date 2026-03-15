@@ -20,6 +20,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -139,63 +141,40 @@ public class MarketSnapshotPersistenceService {
         }
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Optional<MarketSnapshot> latest() {
-        return blockingTimeTracker.record("db.marketSnapshot.latest", "db", () ->
-                newerSnapshot(
-                        nullableOptional(marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload),
-                        nullableOptional(retainedMarketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload)
-                ).map(this::toDomain)
+        Optional<SnapshotPayload> payload = blockingTimeTracker.record(
+                "db.marketSnapshot.latest",
+                "db",
+                this::loadLatestPayload
         );
+        return payload.map(this::toDomain);
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Optional<MarketSnapshot> asOf(Instant asOfTimestamp) {
         if (asOfTimestamp == null) {
             return latest();
         }
-        return blockingTimeTracker.record("db.marketSnapshot.asOf", "db", () ->
-                newerSnapshot(
-                        nullableOptional(marketSnapshotRepository
-                                .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfTimestamp.toEpochMilli()))
-                                .map(this::toPayload),
-                        nullableOptional(retainedMarketSnapshotRepository
-                                .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfTimestamp.toEpochMilli()))
-                                .map(this::toPayload)
-                ).map(this::toDomain)
+        Optional<SnapshotPayload> payload = blockingTimeTracker.record(
+                "db.marketSnapshot.asOf",
+                "db",
+                () -> loadAsOfPayload(asOfTimestamp)
         );
+        return payload.map(this::toDomain);
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<MarketSnapshot> between(Instant fromInclusive, Instant toInclusive) {
         if (fromInclusive == null || toInclusive == null || fromInclusive.isAfter(toInclusive)) {
             return List.of();
         }
-        return blockingTimeTracker.record("db.marketSnapshot.between", "db", () -> {
-            Map<Long, SnapshotPayload> snapshotsByTimestamp = new LinkedHashMap<>();
-            List<RetainedMarketSnapshotEntity> retainedSnapshots = retainedMarketSnapshotRepository
-                    .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
-                            fromInclusive.toEpochMilli(),
-                            toInclusive.toEpochMilli()
-                    );
-            if (retainedSnapshots == null) {
-                retainedSnapshots = List.of();
-            }
-            retainedSnapshots
-                    .forEach(entity -> snapshotsByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), toPayload(entity)));
-            List<MarketSnapshotEntity> rawSnapshots = marketSnapshotRepository
-                    .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
-                            fromInclusive.toEpochMilli(),
-                            toInclusive.toEpochMilli()
-                    );
-            if (rawSnapshots == null) {
-                rawSnapshots = List.of();
-            }
-            rawSnapshots
-                    .forEach(entity -> snapshotsByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), toPayload(entity)));
-            return snapshotsByTimestamp.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(Map.Entry::getValue)
-                    .map(this::toDomain)
-                    .toList();
-        });
+        List<SnapshotPayload> payloads = blockingTimeTracker.record(
+                "db.marketSnapshot.between",
+                "db",
+                () -> loadBetweenPayloads(fromInclusive, toInclusive)
+        );
+        return payloads.stream().map(this::toDomain).toList();
     }
 
     public SnapshotCompactionResult compactSnapshots() {
@@ -509,6 +488,53 @@ public class MarketSnapshotPersistenceService {
                 "db",
                 () -> retainedMarketSnapshotRepository.saveAll(retainedEntities)
         );
+    }
+
+    private Optional<SnapshotPayload> loadLatestPayload() {
+        return newerSnapshot(
+                nullableOptional(marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload),
+                nullableOptional(retainedMarketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload)
+        );
+    }
+
+    private Optional<SnapshotPayload> loadAsOfPayload(Instant asOfTimestamp) {
+        long asOfEpochMillis = asOfTimestamp.toEpochMilli();
+        return newerSnapshot(
+                nullableOptional(marketSnapshotRepository
+                        .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfEpochMillis))
+                        .map(this::toPayload),
+                nullableOptional(retainedMarketSnapshotRepository
+                        .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfEpochMillis))
+                        .map(this::toPayload)
+        );
+    }
+
+    private List<SnapshotPayload> loadBetweenPayloads(Instant fromInclusive, Instant toInclusive) {
+        Map<Long, SnapshotPayload> snapshotsByTimestamp = new LinkedHashMap<>();
+        List<RetainedMarketSnapshotEntity> retainedSnapshots = retainedMarketSnapshotRepository
+                .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
+                        fromInclusive.toEpochMilli(),
+                        toInclusive.toEpochMilli()
+                );
+        if (retainedSnapshots == null) {
+            retainedSnapshots = List.of();
+        }
+        retainedSnapshots.forEach(entity -> snapshotsByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), toPayload(entity)));
+
+        List<MarketSnapshotEntity> rawSnapshots = marketSnapshotRepository
+                .findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
+                        fromInclusive.toEpochMilli(),
+                        toInclusive.toEpochMilli()
+                );
+        if (rawSnapshots == null) {
+            rawSnapshots = List.of();
+        }
+        rawSnapshots.forEach(entity -> snapshotsByTimestamp.put(entity.getSnapshotTimestampEpochMillis(), toPayload(entity)));
+
+        return snapshotsByTimestamp.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .toList();
     }
 
     private MarketSnapshot toDomain(SnapshotPayload payload) {
