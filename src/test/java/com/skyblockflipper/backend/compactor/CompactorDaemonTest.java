@@ -29,12 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -393,7 +388,7 @@ class CompactorDaemonTest {
                 InvocationTargetException.class,
                 () -> invokePrivate(daemon, "probeApiReadiness")
         );
-        assertTrue(invocationTargetException.getCause() instanceof IllegalStateException);
+        assertInstanceOf(IllegalStateException.class, invocationTargetException.getCause());
         assertTrue(Thread.currentThread().isInterrupted());
         assertTrue(Thread.interrupted());
     }
@@ -421,7 +416,7 @@ class CompactorDaemonTest {
         when(resultSet.getLong("lock_waits")).thenReturn(0L);
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            ResultSetExtractor<Object> extractor = (ResultSetExtractor<Object>) invocation.getArgument(1);
+            ResultSetExtractor<Object> extractor = invocation.getArgument(1);
             return extractor.extractData(resultSet);
         });
         CompactorDaemon daemon = new CompactorDaemon(
@@ -721,7 +716,7 @@ class CompactorDaemonTest {
                                          long lockWaits) {
         when(jdbcTemplate.query(anyString(), any(PreparedStatementSetter.class), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            ResultSetExtractor<Object> extractor = (ResultSetExtractor<Object>) invocation.getArgument(2);
+            ResultSetExtractor<Object> extractor = invocation.getArgument(2);
             ResultSet rs = mock(ResultSet.class);
 
             when(rs.next()).thenReturn(true);
@@ -732,7 +727,7 @@ class CompactorDaemonTest {
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
             String sql = ((String) invocation.getArgument(0)).toLowerCase(Locale.ROOT);
             @SuppressWarnings("unchecked")
-            ResultSetExtractor<Object> extractor = (ResultSetExtractor<Object>) invocation.getArgument(1);
+            ResultSetExtractor<Object> extractor = invocation.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
 
             if (sql.contains("from pg_stat_activity")) {

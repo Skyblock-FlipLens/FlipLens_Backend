@@ -244,12 +244,9 @@ public class MarketSnapshotPersistenceService {
         if (scanResult.candidates().isEmpty()) {
             return new SnapshotCompactionResult(0, 0, 0);
         }
-
-        if (!scanResult.candidates().isEmpty()) {
-            int deletedFlips = deleteSnapshotsAndOrphansInBatches(scanResult.candidates(), scanResult.retainedSnapshotIds(), nowMillis);
-            if (deletedFlips > 0) {
-                log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
-            }
+        int deletedFlips = deleteSnapshotsAndOrphansInBatches(scanResult.candidates(), scanResult.retainedSnapshotIds(), nowMillis);
+        if (deletedFlips > 0) {
+            log.info("Compacted flip rows after snapshot deletion: deleted={}", deletedFlips);
         }
 
         int keptCount = scanResult.retainedSnapshotIds().size();

@@ -354,6 +354,26 @@ class MarketDataProcessingServiceTest {
         verifyNoInteractions(ahAggregator, bzAggregator);
     }
 
+    @Test
+    void ingestBazaarPayloadAndPersistReturnsTimestampWithoutBuildingFlipInput() {
+        HypixelClient client = mock(HypixelClient.class);
+        HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
+        MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = mock(UnifiedFlipInputMapper.class);
+        MarketDataProcessingService service = new MarketDataProcessingService(client, snapshotMapper, persistenceService, inputMapper);
+
+        AuctionResponse auctionResponse = auctionResponse(10_000L);
+        BazaarResponse bazaarResponse = bazaarResponse(11_000L);
+        when(persistenceService.save(any(MarketSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.ingestAuctionPayloadAndPersist(auctionResponse, "adaptive-auctions");
+        Instant snapshotTimestamp = service.ingestBazaarPayloadAndPersist(bazaarResponse, "adaptive-bazaar").orElseThrow();
+
+        assertEquals(Instant.ofEpochMilli(11_000L), snapshotTimestamp);
+        verify(persistenceService, times(1)).save(any(MarketSnapshot.class));
+        verifyNoInteractions(inputMapper);
+    }
+
     private AuctionResponse auctionResponse(long updatedAt) {
         Auction auction = new Auction(
                 "a-1", "auctioneer", "profile", List.of(), 1L, 2L,

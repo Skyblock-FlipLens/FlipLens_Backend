@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -254,10 +255,23 @@ public class MarketDataProcessingService {
         long payloadBytes = estimatePayload(auctionResponse, bazaarResponse);
         cycleInstrumentationService.endPhase("pull_http", pullHttpStart, hasAnyPayload, payloadBytes);
 
-        return mapAndPersistSnapshot(cycleId, auctionResponse, bazaarResponse, payloadBytes);
+        return mapAndPersistSnapshot(cycleId, auctionResponse, bazaarResponse, payloadBytes, true)
+                .flatMap(result -> Optional.ofNullable(result.inputSnapshot()));
     }
 
     public Optional<UnifiedFlipInputSnapshot> ingestAuctionPayload(AuctionResponse auctionResponse, String cycleId) {
+        return ingestAuctionPayloadInternal(auctionResponse, cycleId, true)
+                .flatMap(result -> Optional.ofNullable(result.inputSnapshot()));
+    }
+
+    public Optional<Instant> ingestAuctionPayloadAndPersist(AuctionResponse auctionResponse, String cycleId) {
+        return ingestAuctionPayloadInternal(auctionResponse, cycleId, false)
+                .map(SnapshotProcessingResult::snapshotTimestamp);
+    }
+
+    private Optional<SnapshotProcessingResult> ingestAuctionPayloadInternal(AuctionResponse auctionResponse,
+                                                                            String cycleId,
+                                                                            boolean prepareFlipInput) {
         AuctionResponse auctionSnapshot;
         BazaarResponse bazaarSnapshot;
         long payloadBytes;
@@ -270,10 +284,22 @@ public class MarketDataProcessingService {
             bazaarSnapshot = cachedBazaarResponse;
             payloadBytes = estimatePayload(auctionSnapshot, bazaarSnapshot);
         }
-        return mapAndPersistSnapshot(cycleId, auctionSnapshot, bazaarSnapshot, payloadBytes);
+        return mapAndPersistSnapshot(cycleId, auctionSnapshot, bazaarSnapshot, payloadBytes, prepareFlipInput);
     }
 
     public Optional<UnifiedFlipInputSnapshot> ingestBazaarPayload(BazaarResponse bazaarResponse, String cycleId) {
+        return ingestBazaarPayloadInternal(bazaarResponse, cycleId, true)
+                .flatMap(result -> Optional.ofNullable(result.inputSnapshot()));
+    }
+
+    public Optional<Instant> ingestBazaarPayloadAndPersist(BazaarResponse bazaarResponse, String cycleId) {
+        return ingestBazaarPayloadInternal(bazaarResponse, cycleId, false)
+                .map(SnapshotProcessingResult::snapshotTimestamp);
+    }
+
+    private Optional<SnapshotProcessingResult> ingestBazaarPayloadInternal(BazaarResponse bazaarResponse,
+                                                                           String cycleId,
+                                                                           boolean prepareFlipInput) {
         AuctionResponse auctionSnapshot;
         BazaarResponse bazaarSnapshot;
         long payloadBytes;
@@ -286,13 +312,14 @@ public class MarketDataProcessingService {
             bazaarSnapshot = cachedBazaarResponse;
             payloadBytes = estimatePayload(auctionSnapshot, bazaarSnapshot);
         }
-        return mapAndPersistSnapshot(cycleId, auctionSnapshot, bazaarSnapshot, payloadBytes);
+        return mapAndPersistSnapshot(cycleId, auctionSnapshot, bazaarSnapshot, payloadBytes, prepareFlipInput);
     }
 
-    private Optional<UnifiedFlipInputSnapshot> mapAndPersistSnapshot(String cycleId,
+    private Optional<SnapshotProcessingResult> mapAndPersistSnapshot(String cycleId,
                                                                      AuctionResponse auctionResponse,
                                                                      BazaarResponse bazaarResponse,
-                                                                     long payloadBytes) {
+                                                                     long payloadBytes,
+                                                                     boolean prepareFlipInput) {
         boolean hasAnyPayload = auctionResponse != null || bazaarResponse != null;
         if (!hasAnyPayload) {
             log.warn("Both auction and bazaar responses are null, returning empty");
@@ -321,11 +348,15 @@ public class MarketDataProcessingService {
         }
         cycleInstrumentationService.endPhase("persist/cache_update", persistStart, true, payloadBytes);
 
+        if (!prepareFlipInput) {
+            return Optional.of(new SnapshotProcessingResult(snapshot.snapshotTimestamp(), null));
+        }
+
         long computeStart = cycleInstrumentationService.startPhase();
         UnifiedFlipInputSnapshot inputSnapshot = unifiedFlipInputMapper.map(snapshot);
         cycleInstrumentationService.endPhase("compute_flips", computeStart, true, payloadBytes);
 
-        return Optional.of(inputSnapshot);
+        return Optional.of(new SnapshotProcessingResult(snapshot.snapshotTimestamp(), inputSnapshot));
     }
 
     public Optional<MarketSnapshot> latestMarketSnapshot() {
@@ -586,6 +617,12 @@ public class MarketDataProcessingService {
     private record PollPayload(
             AuctionResponse auctionResponse,
             BazaarResponse bazaarResponse
+    ) {
+    }
+
+    private record SnapshotProcessingResult(
+            Instant snapshotTimestamp,
+            UnifiedFlipInputSnapshot inputSnapshot
     ) {
     }
 }
