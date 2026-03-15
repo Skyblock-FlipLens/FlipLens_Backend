@@ -5,15 +5,19 @@ import com.skyblockflipper.backend.NEU.repository.ItemRepository;
 import com.skyblockflipper.backend.api.dto.DashboardOverviewDto;
 import com.skyblockflipper.backend.api.dto.MarketplaceType;
 import com.skyblockflipper.backend.api.dto.TrendingItemDto;
-import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
-import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
+import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.FlipRepository;
+import com.skyblockflipper.backend.repository.MarketSnapshotHistoryRepository;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContext;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContextService;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipDtoMapper;
+import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipCurrentReadService;
 import com.skyblockflipper.backend.service.item.ItemMarketplaceService;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,66 +29,60 @@ import java.util.*;
 public class DashboardReadService {
 
     private final MarketSnapshotPersistenceService marketSnapshotPersistenceService;
+    private final MarketSnapshotHistoryRepository marketSnapshotHistoryRepository;
+    private final BzItemSnapshotRepository bzItemSnapshotRepository;
     private final ItemRepository itemRepository;
     private final FlipRepository flipRepository;
     private final UnifiedFlipDtoMapper unifiedFlipDtoMapper;
     private final FlipCalculationContextService flipCalculationContextService;
+    private final UnifiedFlipCurrentReadService unifiedFlipCurrentReadService;
     private final ItemMarketplaceService itemMarketplaceService;
 
     public DashboardReadService(MarketSnapshotPersistenceService marketSnapshotPersistenceService,
+                                MarketSnapshotHistoryRepository marketSnapshotHistoryRepository,
+                                BzItemSnapshotRepository bzItemSnapshotRepository,
                                 ItemRepository itemRepository,
                                 FlipRepository flipRepository,
                                 UnifiedFlipDtoMapper unifiedFlipDtoMapper,
                                 FlipCalculationContextService flipCalculationContextService,
+                                UnifiedFlipCurrentReadService unifiedFlipCurrentReadService,
                                 ItemMarketplaceService itemMarketplaceService) {
         this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
+        this.marketSnapshotHistoryRepository = marketSnapshotHistoryRepository;
+        this.bzItemSnapshotRepository = bzItemSnapshotRepository;
         this.itemRepository = itemRepository;
         this.flipRepository = flipRepository;
         this.unifiedFlipDtoMapper = unifiedFlipDtoMapper;
         this.flipCalculationContextService = flipCalculationContextService;
+        this.unifiedFlipCurrentReadService = unifiedFlipCurrentReadService;
         this.itemMarketplaceService = itemMarketplaceService;
     }
 
     @Transactional(readOnly = true)
     public DashboardOverviewDto overview() {
         long totalItems = itemRepository.count();
-        Optional<MarketSnapshot> latestOpt = marketSnapshotPersistenceService.latest();
-        if (latestOpt.isEmpty()) {
+        MarketSnapshotHistoryRepository.MarketSnapshotSummaryProjection latestSummary =
+                marketSnapshotHistoryRepository.findLatestCombinedSnapshotSummary();
+        if (latestSummary == null) {
             return new DashboardOverviewDto(totalItems, 0L, 0L, 0L, null, "UNKNOWN", null);
         }
-        MarketSnapshot latest = latestOpt.get();
 
-        long ahListings = latest.auctions().size();
-        long bazaarProducts = latest.bazaarProducts().size();
+        long latestSnapshotEpochMillis = latestSummary.getSnapshotTimestampEpochMillis();
+        long ahListings = latestSummary.getAuctionCount();
+        long bazaarProducts = latestSummary.getBazaarProductCount();
 
-        Long latestFlipEpoch = flipRepository.findMaxSnapshotTimestampEpochMillis().orElse(null);
-        List<Flip> flips = latestFlipEpoch == null
-                ? List.of()
-                : flipRepository.findAllBySnapshotTimestampEpochMillis(latestFlipEpoch);
-
-        DashboardOverviewDto.TopFlipDto topFlip = null;
-        if (latestFlipEpoch != null && !flips.isEmpty()) {
-            FlipCalculationContext context = flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(latestFlipEpoch));
-            topFlip = flips.stream()
-                    .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
-                    .filter(dto -> dto != null && dto.expectedProfit() != null)
-                    .max(Comparator.comparingLong(UnifiedFlipDto::expectedProfit))
-                    .map(dto -> new DashboardOverviewDto.TopFlipDto(
-                            dto.id() == null ? null : dto.id().toString(),
-                            dto.outputItems().isEmpty() ? null : dto.outputItems().getFirst().itemId(),
-                            dto.expectedProfit()
-                    ))
-                    .orElse(null);
-        }
+        List<BzItemSnapshotEntity> latestBazaarRows = bzItemSnapshotRepository.findBySnapshotTsOrderByProductIdAsc(latestSnapshotEpochMillis);
+        DashboardOverviewDto.TopFlipDto topFlip = resolveTopFlip(latestSnapshotEpochMillis);
+        long totalActiveFlips = resolveTotalActiveFlips(latestSnapshotEpochMillis);
 
         return new DashboardOverviewDto(
                 totalItems,
-                flips.size(),
+                totalActiveFlips,
                 ahListings,
                 bazaarProducts,
                 topFlip,
-                marketTrend(latest.bazaarProducts()),
-                latest.snapshotTimestamp()
+                marketTrend(latestBazaarRows),
+                Instant.ofEpochMilli(latestSnapshotEpochMillis)
         );
     }
 
@@ -149,13 +147,66 @@ public class DashboardReadService {
         );
     }
 
-    private String marketTrend(Map<String, BazaarMarketRecord> bazaarProducts) {
-        if (bazaarProducts == null || bazaarProducts.isEmpty()) {
+    private DashboardOverviewDto.TopFlipDto resolveTopFlip(long latestSnapshotEpochMillis) {
+        if (unifiedFlipCurrentReadService != null) {
+            return unifiedFlipCurrentReadService.listCurrentPage(
+                            null,
+                            PageRequest.of(0, 1, Sort.by(
+                                    Sort.Order.desc("expectedProfit"),
+                                    Sort.Order.asc("stableFlipId")
+                            ))
+                    ).stream()
+                    .findFirst()
+                    .filter(dto -> dto.expectedProfit() != null)
+                    .map(dto -> new DashboardOverviewDto.TopFlipDto(
+                            dto.id() == null ? null : dto.id().toString(),
+                            dto.outputItems().isEmpty() ? null : dto.outputItems().getFirst().itemId(),
+                            dto.expectedProfit()
+                    ))
+                    .orElse(null);
+        }
+
+        if (latestSnapshotEpochMillis <= 0L) {
+            return null;
+        }
+        List<com.skyblockflipper.backend.model.Flipping.Flip> flips =
+                flipRepository.findAllBySnapshotTimestampEpochMillis(latestSnapshotEpochMillis);
+        if (flips.isEmpty()) {
+            return null;
+        }
+        FlipCalculationContext context = flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(latestSnapshotEpochMillis));
+        return flips.stream()
+                .map(flip -> unifiedFlipDtoMapper.toDto(flip, context))
+                .filter(dto -> dto != null && dto.expectedProfit() != null)
+                .max(Comparator.comparingLong(com.skyblockflipper.backend.api.dto.UnifiedFlipDto::expectedProfit))
+                .map(dto -> new DashboardOverviewDto.TopFlipDto(
+                        dto.id() == null ? null : dto.id().toString(),
+                        dto.outputItems().isEmpty() ? null : dto.outputItems().getFirst().itemId(),
+                        dto.expectedProfit()
+                ))
+                .orElse(null);
+    }
+
+    private long resolveTotalActiveFlips(long latestSnapshotEpochMillis) {
+        if (unifiedFlipCurrentReadService != null) {
+            Optional<UnifiedFlipCurrentReadService.CurrentSummary> summary = unifiedFlipCurrentReadService.currentSummary();
+            if (summary.isPresent() && summary.get().latestSnapshotEpochMillis() == latestSnapshotEpochMillis) {
+                return summary.get().totalCount();
+            }
+        }
+        if (latestSnapshotEpochMillis <= 0L) {
+            return 0L;
+        }
+        return flipRepository.findAllBySnapshotTimestampEpochMillis(latestSnapshotEpochMillis).size();
+    }
+
+    private String marketTrend(List<BzItemSnapshotEntity> bazaarRows) {
+        if (bazaarRows == null || bazaarRows.isEmpty()) {
             return "UNKNOWN";
         }
-        double avgSpreadPct = bazaarProducts.values().stream()
-                .filter(record -> record.buyPrice() > 0)
-                .mapToDouble(record -> (record.buyPrice() - record.sellPrice()) / record.buyPrice())
+        double avgSpreadPct = bazaarRows.stream()
+                .filter(row -> row != null && row.getBuyPrice() != null && row.getBuyPrice() > 0D && row.getSellPrice() != null)
+                .mapToDouble(row -> (row.getBuyPrice() - row.getSellPrice()) / row.getBuyPrice())
                 .average()
                 .orElse(0D);
         if (avgSpreadPct >= 0.04D) {

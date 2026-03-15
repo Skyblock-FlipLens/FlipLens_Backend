@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.repository.MarketSnapshotRepository;
+import com.skyblockflipper.backend.repository.RetainedMarketSnapshotRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,11 +30,15 @@ class MarketSnapshotPersistenceServiceTest {
     private MarketSnapshotRepository marketSnapshotRepository;
 
     @Autowired
+    private RetainedMarketSnapshotRepository retainedMarketSnapshotRepository;
+
+    @Autowired
     private FlipRepository flipRepository;
 
     @BeforeEach
     void clean() {
         flipRepository.deleteAll();
+        retainedMarketSnapshotRepository.deleteAll();
         marketSnapshotRepository.deleteAll();
     }
 
@@ -129,13 +134,26 @@ class MarketSnapshotPersistenceServiceTest {
         assertEquals(4, result.deletedCount());
         assertEquals(6, result.keptCount());
 
-        List<MarketSnapshot> survivors = marketSnapshotRepository.findAll().stream()
+        List<Instant> rawSurvivors = marketSnapshotRepository.findAll().stream()
                 .map(entity -> Instant.ofEpochMilli(entity.getSnapshotTimestampEpochMillis()))
                 .sorted()
-                .map(ts -> new MarketSnapshot(ts, List.of(), Map.of()))
+                .toList();
+        List<Instant> retainedSurvivors = retainedMarketSnapshotRepository.findAll().stream()
+                .map(entity -> Instant.ofEpochMilli(entity.getSnapshotTimestampEpochMillis()))
+                .sorted()
+                .toList();
+        List<MarketSnapshot> survivors = marketSnapshotPersistenceService.between(
+                        Instant.parse("2026-02-15T00:00:00Z"),
+                        Instant.parse("2026-02-17T12:00:00Z")
+                ).stream()
+                .sorted(java.util.Comparator.comparing(MarketSnapshot::snapshotTimestamp))
                 .toList();
 
         assertEquals(8, survivors.size());
+        assertEquals(2, rawSurvivors.size());
+        assertEquals(6, retainedSurvivors.size());
+        assertTrue(rawSurvivors.contains(Instant.parse("2026-02-17T11:59:10Z")));
+        assertTrue(rawSurvivors.contains(Instant.parse("2026-02-17T11:59:20Z")));
         assertTrue(survivors.stream().anyMatch(s -> s.snapshotTimestamp().equals(Instant.parse("2026-02-17T11:59:10Z"))));
         assertTrue(survivors.stream().anyMatch(s -> s.snapshotTimestamp().equals(Instant.parse("2026-02-17T11:59:20Z"))));
         assertTrue(survivors.stream().anyMatch(s -> s.snapshotTimestamp().equals(Instant.parse("2026-02-17T11:57:05Z"))));
@@ -172,6 +190,11 @@ class MarketSnapshotPersistenceServiceTest {
         assertTrue(remainingFlips.stream().anyMatch(f -> "DUPLICATE_TS_KEEP".equals(f.getResultItemId())));
         assertTrue(remainingFlips.stream().anyMatch(f -> "KEPT_SLOT".equals(f.getResultItemId())));
         assertTrue(remainingFlips.stream().noneMatch(f -> "DELETED_SLOT".equals(f.getResultItemId())));
+
+        MarketSnapshot asOf = marketSnapshotPersistenceService
+                .asOf(Instant.parse("2026-02-17T11:57:15Z"))
+                .orElseThrow();
+        assertEquals(Instant.parse("2026-02-17T11:57:00Z"), asOf.snapshotTimestamp());
     }
 
     private void saveAt(String timestamp) {

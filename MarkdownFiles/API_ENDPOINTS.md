@@ -1,7 +1,7 @@
 # SkyblockFlipper Backend API Reference
 
 Version: `v1`  
-Base URL (local): `http://localhost:8080`
+Base URL (local): `http://localhost:1880`
 
 This document is formatted as a public API reference (similar style to Hypixel docs): each endpoint includes purpose, parameters, and concrete response shape.
 
@@ -15,6 +15,8 @@ This document is formatted as a public API reference (similar style to Hypixel d
 - Requests with `size > 1000` are clamped to `1000` (no error)
 - Defaults are endpoint-specific and keep previous default window sizes
 - Response: `content`, `number`, `size`, `totalElements`, `totalPages`, `first`, `last`, `empty`
+- `GET /api/status` is a local health probe and does not call Hypixel or other upstream APIs
+- Flip reads default to unified current storage (`flip_current`) with legacy snapshot reads kept for parity/backfill/rollback paths
 
 ---
 
@@ -23,6 +25,10 @@ This document is formatted as a public API reference (similar style to Hypixel d
 ### `GET /api/status`
 
 Checks API status.
+
+Behavior:
+- Returns local application liveness only.
+- Safe for external uptime monitors such as Uptime Kuma.
 
 Response:
 
@@ -47,6 +53,7 @@ Behavior:
 - Uses latest available market snapshot.
 - If `productId` is set, metrics are calculated for that Bazaar product.
 - If `productId` is omitted, it returns a representative overview from the latest snapshot.
+- Uses lightweight `bz_item_snapshot` history for the 7-day series and current flip summary data for flip counts/profit.
 
 Response:
 
@@ -68,6 +75,49 @@ Response:
   "bestProfit": 22500000
 }
 ```
+
+---
+
+## Dashboard Endpoints
+
+### `GET /api/v1/dashboard/overview`
+
+High-level landing-page summary for the latest snapshot.
+
+Behavior:
+- Uses latest snapshot summary metadata instead of hydrating full raw snapshot payloads.
+- Uses latest `bz_item_snapshot` rows for market trend.
+- Uses unified current flip storage for top-flip and active-flip counts when available.
+
+Response:
+
+```json
+{
+  "totalItems": 3749,
+  "totalActiveFlips": 512,
+  "totalAHListings": 13554560,
+  "bazaarProducts": 3749,
+  "topFlip": {
+    "id": "9cf965a6-4a64-4f8d-95b3-2ba113c2e2d8",
+    "outputName": "ENCHANTED_DIAMOND",
+    "expectedProfit": 142000
+  },
+  "marketTrend": "SIDEWAYS",
+  "lastUpdated": "2026-02-20T12:00:00Z"
+}
+```
+
+---
+
+### `GET /api/v1/dashboard/trending`
+
+Lists the strongest 24h movers from the latest available market snapshots.
+
+Query params:
+- `limit` (optional, default `10`)
+
+Response:
+- `TrendingItemDto[]`
 
 ---
 
@@ -120,10 +170,13 @@ Response:
 Get type counts for one snapshot.
 
 Query params:
+- `flipType` (optional enum)
 - `snapshotTimestamp` (optional, ISO-8601)
+- `legacySnapshot` (optional boolean, default `false`)
 
 Behavior:
-- If missing: uses latest snapshot
+- If `legacySnapshot=true` or `snapshotTimestamp` is present without `flipType`, returns snapshot-style legacy-compatible stats.
+- Otherwise returns current summary stats, optionally filtered by `flipType`.
 - If no snapshots exist: returns `snapshotTimestamp = null`, `totalFlips = 0`
 
 Response:
@@ -193,6 +246,27 @@ Response:
 Example:
 
 `GET /api/v1/flips/filter?flipType=BAZAAR&minLiquidityScore=85&maxRiskScore=20&sortBy=LIQUIDITY_SCORE&sortDirection=DESC&page=0&size=25`
+
+---
+
+### `GET /api/v1/flips/top`
+
+Convenience endpoint returning the best `N` flips as a simple list.
+
+Query params:
+- `flipType` (optional enum)
+- `snapshotTimestamp` (optional ISO-8601)
+- `minLiquidityScore` (optional `double`)
+- `maxRiskScore` (optional `double`)
+- `minExpectedProfit` (optional `long`)
+- `minRoi` (optional `double`)
+- `minRoiPerHour` (optional `double`)
+- `maxRequiredCapital` (optional `long`)
+- `partial` (optional `boolean`)
+- `limit` (optional int, default `6`)
+
+Response:
+- `UnifiedFlipDto[]`
 
 ---
 
@@ -316,6 +390,10 @@ List items.
 
 Query params:
 - `itemId` (optional string filter)
+- `search` (optional string)
+- `category` (optional string)
+- `rarity` (optional string)
+- `marketplace` (optional enum)
 - `page` (optional, default `0`)
 - `size` (optional, default `12`)
 
@@ -329,6 +407,75 @@ Response:
 - `rarity`
 - `category`
 - `infoLinks[]`
+
+---
+
+### `GET /api/v1/items/{itemId}`
+
+Get one item by ID.
+
+Path params:
+- `itemId` (required string)
+
+Response:
+- `200` with `ItemDto`
+- `404` if not found
+
+---
+
+### `GET /api/v1/items/{itemId}/price-history`
+
+Get price history points for one item.
+
+Path params:
+- `itemId` (required string)
+
+Query params:
+- `range` (optional string, mapped to `PriceHistoryRange`)
+
+Response:
+- `PricePointDto[]`
+
+---
+
+### `GET /api/v1/items/{itemId}/score-history`
+
+Get score-history points for one item.
+
+Path params:
+- `itemId` (required string)
+
+Response:
+- `ScorePointDto[]`
+
+---
+
+### `GET /api/v1/items/{itemId}/quick-stats`
+
+Get quick aggregate stats for one item.
+
+Path params:
+- `itemId` (required string)
+
+Response:
+- `200` with `ItemQuickStatsDto`
+- `404` if not found
+
+---
+
+### `GET /api/v1/items/{itemId}/flips`
+
+List flips related to one item.
+
+Path params:
+- `itemId` (required string)
+
+Query params:
+- `page` (optional, default `0`)
+- `size` (optional, default `20`)
+
+Response:
+- `Page<UnifiedFlipDto>`
 
 ---
 
@@ -355,6 +502,100 @@ Response:
 
 ---
 
+## Bazaar Endpoints
+
+### `GET /api/v1/bazaar/{itemId}`
+
+Get the latest Bazaar product view for one item.
+
+Path params:
+- `itemId` (required string)
+
+Response:
+- `200` with `BazaarProductDto`
+- `404` if not found
+
+---
+
+### `GET /api/v1/bazaar/{itemId}/orders`
+
+Get an order-book style response for one Bazaar item.
+
+Path params:
+- `itemId` (required string)
+
+Query params:
+- `depth` (optional int, default `15`)
+
+Response:
+- `BazaarOrderBookDto`
+
+---
+
+### `GET /api/v1/bazaar/quick-flips`
+
+Get quick-spread Bazaar opportunities.
+
+Query params:
+- `minSpreadPct` (optional double)
+- `limit` (optional int, default `20`)
+
+Response:
+- `BazaarQuickFlipDto[]`
+
+---
+
+## Auction House Endpoints
+
+### `GET /api/v1/ah/listings/{itemId}`
+
+List Auction House listings for one item.
+
+Path params:
+- `itemId` (required string)
+
+Query params:
+- `sortBy` (optional enum)
+- `sortDirection` (optional `ASC` or `DESC`)
+- `bin` (optional boolean)
+- `minStars` (optional int)
+- `maxStars` (optional int)
+- `reforge` (optional string)
+- `page` (optional, default `0`)
+- `size` (optional, default `20`)
+
+Response:
+- `Page<AhListingDto>`
+
+---
+
+### `GET /api/v1/ah/listings/{itemId}/breakdown`
+
+Get Auction House pricing breakdown for one item.
+
+Path params:
+- `itemId` (required string)
+
+Response:
+- `AhListingBreakdownDto`
+
+---
+
+### `GET /api/v1/ah/recent-sales/{itemId}`
+
+Get recent sales for one item.
+
+Path params:
+- `itemId` (required string)
+
+Query params:
+- `limit` (optional int, default `10`)
+
+Response:
+- `AhRecentSaleDto[]`
+
+---
+
 ## Recipe Endpoints
 
 ### `GET /api/v1/recipes`
@@ -376,6 +617,19 @@ Response:
 - `processType`
 - `processDurationSeconds`
 - `ingredients[]` (`itemId`, `amount`)
+
+---
+
+### `GET /api/v1/recipes/{recipeId}/cost`
+
+Get cost breakdown for one recipe.
+
+Path params:
+- `recipeId` (required string)
+
+Response:
+- `200` with `RecipeCostBreakdownDto`
+- `404` if not found
 
 ---
 

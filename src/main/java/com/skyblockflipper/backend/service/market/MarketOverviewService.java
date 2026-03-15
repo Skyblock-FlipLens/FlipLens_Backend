@@ -4,14 +4,18 @@ import com.skyblockflipper.backend.api.dto.MarketOverviewDto;
 import com.skyblockflipper.backend.api.dto.UnifiedFlipDto;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
+import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.FlipRepository;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContext;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContextService;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipDtoMapper;
+import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipCurrentReadService;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -25,18 +29,24 @@ public class MarketOverviewService {
     private static final long SEVEN_DAYS_SECONDS = 7L * 24L * 60L * 60L;
 
     private final MarketSnapshotPersistenceService marketSnapshotPersistenceService;
+    private final BzItemSnapshotRepository bzItemSnapshotRepository;
     private final FlipRepository flipRepository;
     private final UnifiedFlipDtoMapper unifiedFlipDtoMapper;
     private final FlipCalculationContextService flipCalculationContextService;
+    private final UnifiedFlipCurrentReadService unifiedFlipCurrentReadService;
 
     public MarketOverviewService(MarketSnapshotPersistenceService marketSnapshotPersistenceService,
+                                 BzItemSnapshotRepository bzItemSnapshotRepository,
                                  FlipRepository flipRepository,
                                  UnifiedFlipDtoMapper unifiedFlipDtoMapper,
-                                 FlipCalculationContextService flipCalculationContextService) {
+                                 FlipCalculationContextService flipCalculationContextService,
+                                 UnifiedFlipCurrentReadService unifiedFlipCurrentReadService) {
         this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
+        this.bzItemSnapshotRepository = bzItemSnapshotRepository;
         this.flipRepository = flipRepository;
         this.unifiedFlipDtoMapper = unifiedFlipDtoMapper;
         this.flipCalculationContextService = flipCalculationContextService;
+        this.unifiedFlipCurrentReadService = unifiedFlipCurrentReadService;
     }
 
     public MarketOverviewDto overview(String productId) {
@@ -48,22 +58,23 @@ public class MarketOverviewService {
         MarketSnapshot latestSnapshot = latestSnapshotOptional.get();
         String normalizedProductId = normalizeProductId(productId);
         BazaarMarketRecord currentRecord = resolveCurrentRecord(latestSnapshot.bazaarProducts(), normalizedProductId);
+        String effectiveProductId = currentRecord == null ? normalizedProductId : currentRecord.productId();
 
         Instant now = Instant.now();
         Instant rangeEnd = latestSnapshot.snapshotTimestamp() != null ? latestSnapshot.snapshotTimestamp() : now;
         Instant rangeStart = rangeEnd.minusSeconds(SEVEN_DAYS_SECONDS);
 
-        List<MarketSnapshot> weeklySnapshots = marketSnapshotPersistenceService.between(rangeStart, rangeEnd);
-
-        List<BazaarMarketRecord> relevantRecords = weeklySnapshots.stream()
-                .map(MarketSnapshot::bazaarProducts)
-                .map(map -> resolveCurrentRecord(map, normalizedProductId))
-                .filter(Objects::nonNull)
-                .toList();
+        List<BazaarMarketRecord> relevantRecords = loadRelevantRecords(rangeStart, rangeEnd, currentRecord, effectiveProductId);
 
         long activeFlips = 0L;
         Long bestProfit = null;
-        if (latestSnapshot.snapshotTimestamp() != null) {
+        Optional<UnifiedFlipCurrentReadService.CurrentSummary> currentSummary = unifiedFlipCurrentReadService == null
+                ? Optional.empty()
+                : unifiedFlipCurrentReadService.currentSummary();
+        if (currentSummary.isPresent()) {
+            activeFlips = currentSummary.get().totalCount();
+            bestProfit = currentSummary.get().maxExpectedProfit();
+        } else if (latestSnapshot.snapshotTimestamp() != null) {
             long snapshotEpochMillis = latestSnapshot.snapshotTimestamp().toEpochMilli();
             List<Flip> flips = flipRepository.findAllBySnapshotTimestampEpochMillis(snapshotEpochMillis);
             activeFlips = flips.size();
@@ -102,7 +113,7 @@ public class MarketOverviewService {
         Double averageVolume = averageLong(relevantRecords.stream().map(BazaarMarketRecord::buyVolume).toList());
 
         return new MarketOverviewDto(
-                normalizedProductId,
+                effectiveProductId,
                 latestSnapshot.snapshotTimestamp(),
                 buy,
                 buyChange,
@@ -140,6 +151,41 @@ public class MarketOverviewService {
         return firstKey == null ? null : bazaarProducts.get(firstKey);
     }
 
+    private List<BazaarMarketRecord> loadRelevantRecords(Instant rangeStart,
+                                                         Instant rangeEnd,
+                                                         BazaarMarketRecord currentRecord,
+                                                         String productId) {
+        if (rangeStart == null || rangeEnd == null || productId == null || productId.isBlank()) {
+            return currentRecord == null ? List.of() : List.of(currentRecord);
+        }
+        List<BzItemSnapshotEntity> rows = bzItemSnapshotRepository.findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(
+                productId,
+                rangeStart.toEpochMilli(),
+                rangeEnd.toEpochMilli()
+        );
+        if (rows.isEmpty()) {
+            return currentRecord == null ? List.of() : List.of(currentRecord);
+        }
+        List<BazaarMarketRecord> records = new ArrayList<>(rows.size());
+        for (BzItemSnapshotEntity row : rows) {
+            if (row == null) {
+                continue;
+            }
+            records.add(new BazaarMarketRecord(
+                    row.getProductId(),
+                    defaultDouble(row.getBuyPrice()),
+                    defaultDouble(row.getSellPrice()),
+                    defaultLong(row.getBuyVolume()),
+                    defaultLong(row.getSellVolume()),
+                    0L,
+                    0L,
+                    0,
+                    0
+            ));
+        }
+        return records.isEmpty() && currentRecord != null ? List.of(currentRecord) : List.copyOf(records);
+    }
+
     private Double average(List<Double> values) {
         if (values == null || values.isEmpty()) {
             return null;
@@ -175,6 +221,14 @@ public class MarketOverviewService {
             return null;
         }
         return ((value - base) / base) * 100D;
+    }
+
+    private double defaultDouble(Double value) {
+        return value == null ? 0D : value;
+    }
+
+    private long defaultLong(Long value) {
+        return value == null ? 0L : value;
     }
 }
 

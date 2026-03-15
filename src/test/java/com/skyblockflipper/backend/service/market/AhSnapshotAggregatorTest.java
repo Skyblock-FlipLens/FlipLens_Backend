@@ -56,7 +56,7 @@ class AhSnapshotAggregatorTest {
         AhItemSnapshotEntity bow = entities.get(1);
         assertTrue(axe.getItemKey().compareTo(bow.getItemKey()) < 0);
 
-        assertEquals("AXE|T:EPIC|C:WEAPON|P:-|S:0|R:0", axe.getItemKey());
+        assertEquals("AXE|T:EPIC|C:WEAPON|P:-", axe.getItemKey());
         assertEquals(100L, axe.getBinLowest());
         assertEquals(300L, axe.getBinLowest5Mean());
         assertEquals(300L, axe.getBinP50());
@@ -65,7 +65,7 @@ class AhSnapshotAggregatorTest {
         assertEquals(150L, axe.getBidP50());
         assertEquals(4, axe.getEndingSoonCount());
 
-        assertEquals("BOW|T:EPIC|C:WEAPON|P:-|S:0|R:0", bow.getItemKey());
+        assertEquals("BOW|T:EPIC|C:WEAPON|P:-", bow.getItemKey());
         assertEquals(90L, bow.getBinLowest());
         assertEquals(1, bow.getBinCount());
     }
@@ -83,6 +83,42 @@ class AhSnapshotAggregatorTest {
         List<AhItemSnapshotEntity> entities = aggregator.aggregate(snapshot, auctions);
 
         assertTrue(entities.isEmpty());
+    }
+
+    @Test
+    void aggregateUsesOnlyNonAdditionalListingsForPricingButCountsAllBins() {
+        AhSnapshotAggregator aggregator = new AhSnapshotAggregator(new MarketItemKeyService());
+        Instant snapshot = Instant.ofEpochMilli(1_000L);
+        long endingSoon = snapshot.toEpochMilli() + 5_000L;
+
+        List<AuctionMarketRecord> auctions = List.of(
+                bin("base", "Axe", 100L, endingSoon),
+                new AuctionMarketRecord(
+                        "mod",
+                        "Axe",
+                        "weapon",
+                        "epic",
+                        1_000L,
+                        0L,
+                        1L,
+                        endingSoon,
+                        false,
+                        true,
+                        "Sharpness V",
+                        "{\"internalname\":\"AXE\"}"
+                )
+        );
+
+        List<AhItemSnapshotEntity> entities = aggregator.aggregate(snapshot, auctions);
+
+        assertEquals(1, entities.size());
+        AhItemSnapshotEntity axe = entities.getFirst();
+        assertEquals("AXE|T:EPIC|C:WEAPON|P:-", axe.getItemKey());
+        assertEquals(2, axe.getBinCount());
+        assertEquals(100L, axe.getBinLowest());
+        assertEquals(100L, axe.getBinLowest5Mean());
+        assertEquals(100L, axe.getBinP50());
+        assertEquals(100L, axe.getBinP95());
     }
 
     private static AuctionMarketRecord bin(String uuid, String name, long price, long endTs) {

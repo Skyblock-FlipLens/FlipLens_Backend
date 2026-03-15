@@ -1,5 +1,6 @@
 package com.skyblockflipper.backend.service.market;
 
+import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.model.market.AhItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,33 @@ public class AhSnapshotAggregator {
         this.marketItemKeyService = Objects.requireNonNull(marketItemKeyService, "marketItemKeyService must not be null");
     }
 
+    public List<AhItemSnapshotEntity> aggregateFromAuctions(Instant snapshotTimestamp, List<Auction> auctions) {
+        if (snapshotTimestamp == null || auctions == null || auctions.isEmpty()) {
+            return List.of();
+        }
+        List<AuctionMarketRecord> records = new ArrayList<>(auctions.size());
+        for (Auction auction : auctions) {
+            if (auction == null) {
+                continue;
+            }
+            records.add(new AuctionMarketRecord(
+                    auction.getUuid(),
+                    auction.getItemName(),
+                    auction.getCategory(),
+                    auction.getTier(),
+                    auction.getStartingBid(),
+                    auction.getHighestBidAmount(),
+                    auction.getStart(),
+                    auction.getEnd(),
+                    auction.isClaimed(),
+                    auction.isBin(),
+                    auction.getItemLore(),
+                    auction.getExtra()
+            ));
+        }
+        return aggregate(snapshotTimestamp, records);
+    }
+
     public List<AhItemSnapshotEntity> aggregate(Instant snapshotTimestamp, List<AuctionMarketRecord> auctions) {
         if (snapshotTimestamp == null || auctions == null || auctions.isEmpty()) {
             return List.of();
@@ -36,15 +64,19 @@ public class AhSnapshotAggregator {
             if (auction == null || auction.claimed()) {
                 continue;
             }
-            String itemKey = marketItemKeyService.toAuctionItemKey(auction);
+            String itemKey = marketItemKeyService.toAuctionAggregateItemKey(auction);
             if (itemKey == null || itemKey.isBlank()) {
                 continue;
             }
             ItemAccumulator accumulator = byItem.computeIfAbsent(itemKey, ignored -> new ItemAccumulator());
+            boolean hasAdditionals = marketItemKeyService.hasAuctionAdditionals(auction);
             if (auction.bin() && auction.startingBid() > 0L) {
-                accumulator.binPrices.add(auction.startingBid());
-            } else if (!auction.bin() && auction.highestBidAmount() > 0L) {
-                accumulator.bidPrices.add(auction.highestBidAmount());
+                accumulator.totalBinCount++;
+                if (!hasAdditionals) {
+                    accumulator.pricedBinPrices.add(auction.startingBid());
+                }
+            } else if (!auction.bin() && auction.highestBidAmount() > 0L && !hasAdditionals) {
+                accumulator.pricedBidPrices.add(auction.highestBidAmount());
             }
             if (auction.endTimestamp() > snapshotTs && auction.endTimestamp() <= endingSoonThreshold) {
                 accumulator.endingSoonCount++;
@@ -61,23 +93,33 @@ public class AhSnapshotAggregator {
                 .forEach(entry -> {
                     String itemKey = entry.getKey();
                     ItemAccumulator acc = entry.getValue();
-                    if (acc.binPrices.isEmpty()) {
+                    if (acc.totalBinCount == 0) {
                         return;
                     }
-                    acc.binPrices.sort(Comparator.naturalOrder());
+                    Long binLowest = null;
+                    Long binLowestFiveMean = null;
+                    Long binP50 = null;
+                    Long binP95 = null;
+                    if (!acc.pricedBinPrices.isEmpty()) {
+                        acc.pricedBinPrices.sort(Comparator.naturalOrder());
+                        binLowest = acc.pricedBinPrices.getFirst();
+                        binLowestFiveMean = lowestFiveMean(acc.pricedBinPrices);
+                        binP50 = percentile(acc.pricedBinPrices, 0.50D);
+                        binP95 = percentile(acc.pricedBinPrices, 0.95D);
+                    }
                     Long bidP50 = null;
-                    if (!acc.bidPrices.isEmpty()) {
-                        acc.bidPrices.sort(Comparator.naturalOrder());
-                        bidP50 = percentile(acc.bidPrices, 0.50D);
+                    if (!acc.pricedBidPrices.isEmpty()) {
+                        acc.pricedBidPrices.sort(Comparator.naturalOrder());
+                        bidP50 = percentile(acc.pricedBidPrices, 0.50D);
                     }
                     aggregates.add(new AhItemSnapshotEntity(
                             snapshotTs,
                             itemKey,
-                            acc.binPrices.getFirst(),
-                            lowestFiveMean(acc.binPrices),
-                            percentile(acc.binPrices, 0.50D),
-                            percentile(acc.binPrices, 0.95D),
-                            acc.binPrices.size(),
+                            binLowest,
+                            binLowestFiveMean,
+                            binP50,
+                            binP95,
+                            acc.totalBinCount,
                             bidP50,
                             acc.endingSoonCount
                     ));
@@ -104,8 +146,9 @@ public class AhSnapshotAggregator {
     }
 
     private static final class ItemAccumulator {
-        private final List<Long> binPrices = new ArrayList<>();
-        private final List<Long> bidPrices = new ArrayList<>();
+        private final List<Long> pricedBinPrices = new ArrayList<>();
+        private final List<Long> pricedBidPrices = new ArrayList<>();
+        private int totalBinCount;
         private int endingSoonCount;
     }
 }

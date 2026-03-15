@@ -52,9 +52,12 @@ public interface AhItemSnapshotRepository extends JpaRepository<AhItemSnapshotEn
                      @Param("endingSoonCount") int endingSoonCount,
                      @Param("createdAtEpochMillis") long createdAtEpochMillis);
 
+    List<AhItemSnapshotEntity> findBySnapshotTsGreaterThanEqualAndSnapshotTsLessThanOrderBySnapshotTsAsc(long fromInclusive,
+                                                                                                          long toExclusive);
+
     List<AhItemSnapshotEntity> findByItemKeyAndSnapshotTsBetweenOrderBySnapshotTsAsc(String itemKey,
-                                                                                       long fromInclusive,
-                                                                                      long toInclusive);
+                                                                                        long fromInclusive,
+                                                                                       long toInclusive);
 
     List<AhItemSnapshotEntity> findBySnapshotTsBetweenAndItemKeyInOrderBySnapshotTsAsc(long fromInclusive,
                                                                                          long toInclusive,
@@ -62,6 +65,27 @@ public interface AhItemSnapshotRepository extends JpaRepository<AhItemSnapshotEn
 
     List<AhItemSnapshotEntity> findBySnapshotTsInAndItemKeyInOrderBySnapshotTsAsc(Collection<Long> snapshotTs,
                                                                                    Collection<String> itemKeys);
+
+    @Query(value = """
+            select min(snapshot_ts)
+            from ah_item_snapshot
+            """, nativeQuery = true)
+    Long findMinSnapshotTs();
+
+    @Query(value = """
+            select max(snapshot_ts)
+            from ah_item_snapshot
+            """, nativeQuery = true)
+    Long findMaxSnapshotTs();
+
+    @Query(value = """
+            select count(distinct item_key)
+            from ah_item_snapshot
+            where snapshot_ts >= :fromInclusive
+              and snapshot_ts < :toExclusive
+            """, nativeQuery = true)
+    long countDistinctItemKeyBySnapshotTsGreaterThanEqualAndSnapshotTsLessThan(@Param("fromInclusive") long fromInclusive,
+                                                                               @Param("toExclusive") long toExclusive);
 
     @Query(value = """
             select min(snapshot_ts)

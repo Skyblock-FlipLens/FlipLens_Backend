@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,6 +16,11 @@ class MarketItemKeyServiceTest {
     @Test
     void toAuctionItemKeyReturnsNullForNullRecord() {
         assertNull(service.toAuctionItemKey(null));
+    }
+
+    @Test
+    void toAuctionAggregateItemKeyReturnsNullForNullRecord() {
+        assertNull(service.toAuctionAggregateItemKey(null));
     }
 
     @Test
@@ -44,7 +50,7 @@ class MarketItemKeyServiceTest {
                 2L,
                 false,
                 true,
-                "RARITY UPGRADED \u272A",
+                "RARITY UPGRADED ✪",
                 "{\"internalname\":\"ASPECT_OF_THE_END\"}"
         );
 
@@ -57,7 +63,7 @@ class MarketItemKeyServiceTest {
     void toAuctionItemKeyParsesPetLevelAndCountsStarsFromNameAndLore() {
         AuctionMarketRecord record = new AuctionMarketRecord(
                 "a2",
-                "[Lvl 85] Griffin Pet \u272A\u272A",
+                "[Lvl 85] Griffin Pet ✪✪",
                 "pet",
                 "legendary",
                 2_500_000L,
@@ -66,13 +72,13 @@ class MarketItemKeyServiceTest {
                 2L,
                 false,
                 true,
-                "my lore \u272A",
+                "my lore ✪",
                 null
         );
 
         String key = service.toAuctionItemKey(record);
 
-        assertTrue(key.startsWith("GRIFFIN_PET_\u272A\u272A|T:LEGENDARY|C:PET|P:85|S:3|R:0"));
+        assertTrue(key.startsWith("GRIFFIN_PET_✪✪|T:LEGENDARY|C:PET|P:85|S:3|R:0"));
     }
 
     @Test
@@ -152,5 +158,60 @@ class MarketItemKeyServiceTest {
 
         assertEquals("MY_ITEM|T:RARE|C:MISC|P:-|S:0|R:0", service.toAuctionItemKey(escaped));
         assertEquals("ALTERNATE_ITEM|T:RARE|C:MISC|P:-|S:0|R:0", service.toAuctionItemKey(alt));
+    }
+
+    @Test
+    void toAuctionAggregateItemKeyIgnoresStarsAndRecomb() {
+        AuctionMarketRecord record = new AuctionMarketRecord(
+                "a7",
+                "Aspect of the End ✪",
+                "weapon",
+                "epic",
+                100_000L,
+                0L,
+                1L,
+                2L,
+                false,
+                true,
+                "RARITY UPGRADED",
+                "{\"internalname\":\"ASPECT_OF_THE_END\"}"
+        );
+
+        assertEquals("ASPECT_OF_THE_END|T:EPIC|C:WEAPON|P:-", service.toAuctionAggregateItemKey(record));
+    }
+
+    @Test
+    void hasAuctionAdditionalsDetectsEnchantStarsAndRecomb() {
+        AuctionMarketRecord enchanted = new AuctionMarketRecord(
+                "a8",
+                "Axe",
+                "weapon",
+                "epic",
+                1_000L,
+                0L,
+                1L,
+                2L,
+                false,
+                true,
+                "Sharpness V",
+                "{\"internalname\":\"AXE\"}"
+        );
+        AuctionMarketRecord clean = new AuctionMarketRecord(
+                "a9",
+                "Axe",
+                "weapon",
+                "epic",
+                1_000L,
+                0L,
+                1L,
+                2L,
+                false,
+                true,
+                null,
+                "{\"internalname\":\"AXE\"}"
+        );
+
+        assertTrue(service.hasAuctionAdditionals(enchanted));
+        assertFalse(service.hasAuctionAdditionals(clean));
     }
 }

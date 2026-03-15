@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.skyblockflipper</groupId>
 	<artifactId>skyblock-flipper-backend</artifactId>
-	<version>1.0.2</version>
+	<version>1.0.3</version>
 	<name>Skyblock Flipper Backend</name>
 	<description>Backend service for Skyblock flipper workflows.</description>
 	<url/>

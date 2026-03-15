@@ -5,7 +5,6 @@ import com.skyblockflipper.backend.hypixel.HypixelConditionalClient;
 import com.skyblockflipper.backend.hypixel.HypixelHttpResult;
 import com.skyblockflipper.backend.hypixel.model.Auction;
 import com.skyblockflipper.backend.hypixel.model.AuctionResponse;
-import com.skyblockflipper.backend.hypixel.model.Auction.Bid;
 import com.skyblockflipper.backend.hypixel.model.BazaarProduct;
 import com.skyblockflipper.backend.hypixel.model.BazaarQuickStatus;
 import com.skyblockflipper.backend.hypixel.model.BazaarResponse;
@@ -449,12 +448,12 @@ public class AdaptivePollingCoordinator {
 
     private void processAuctionsUpdate(AuctionResponse response) {
         processUpdate("auctions", estimateAuctionBytes(response), () -> marketDataProcessingService
-                .ingestAuctionPayload(response, "adaptive-auctions")
-                .ifPresent(snapshot -> {
+                .ingestAuctionPayloadAndPersist(response, "adaptive-auctions")
+                .ifPresent(snapshotTimestamp -> {
                     if (response != null && response.getLastUpdated() > 0L) {
                         lastCommittedAuctionLastUpdated.accumulateAndGet(response.getLastUpdated(), Math::max);
                     }
-                    enqueueFlipGeneration(snapshot.snapshotTimestamp(), "auctions");
+                    enqueueFlipGeneration(snapshotTimestamp, "auctions");
                 }));
     }
 
@@ -462,8 +461,8 @@ public class AdaptivePollingCoordinator {
         processUpdate("bazaar", estimateBazaarBytes(response), () -> {
             try {
                 marketDataProcessingService
-                        .ingestBazaarPayload(response, "adaptive-bazaar")
-                        .ifPresent(snapshot -> enqueueFlipGeneration(snapshot.snapshotTimestamp(), "bazaar"));
+                        .ingestBazaarPayloadAndPersist(response, "adaptive-bazaar")
+                        .ifPresent(snapshotTimestamp -> enqueueFlipGeneration(snapshotTimestamp, "bazaar"));
                 startAuctionsIfBazaarReady();
             } finally {
                 setBazaarPhase(BazaarPollState.Phase.SLEEP);
