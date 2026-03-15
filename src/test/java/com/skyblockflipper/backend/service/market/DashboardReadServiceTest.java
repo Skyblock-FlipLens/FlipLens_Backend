@@ -10,18 +10,24 @@ import com.skyblockflipper.backend.model.Flipping.Enums.FlipType;
 import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.AuctionMarketRecord;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
+import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
+import com.skyblockflipper.backend.repository.BzItemSnapshotRepository;
 import com.skyblockflipper.backend.repository.FlipRepository;
+import com.skyblockflipper.backend.repository.MarketSnapshotHistoryRepository;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContext;
 import com.skyblockflipper.backend.service.flipping.FlipCalculationContextService;
 import com.skyblockflipper.backend.service.flipping.FlipScoreFeatureSet;
 import com.skyblockflipper.backend.service.flipping.UnifiedFlipDtoMapper;
+import com.skyblockflipper.backend.service.flipping.storage.UnifiedFlipCurrentReadService;
 import com.skyblockflipper.backend.service.item.ItemMarketplaceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -43,6 +49,10 @@ class DashboardReadServiceTest {
     @Mock
     private MarketSnapshotPersistenceService snapshotService;
     @Mock
+    private MarketSnapshotHistoryRepository marketSnapshotHistoryRepository;
+    @Mock
+    private BzItemSnapshotRepository bzItemSnapshotRepository;
+    @Mock
     private ItemRepository itemRepository;
     @Mock
     private FlipRepository flipRepository;
@@ -51,6 +61,8 @@ class DashboardReadServiceTest {
     @Mock
     private FlipCalculationContextService contextService;
     @Mock
+    private UnifiedFlipCurrentReadService unifiedFlipCurrentReadService;
+    @Mock
     private ItemMarketplaceService marketplaceService;
 
     private DashboardReadService service;
@@ -58,14 +70,22 @@ class DashboardReadServiceTest {
     @BeforeEach
     void setUp() {
         service = new DashboardReadService(
-                snapshotService, itemRepository, flipRepository, mapper, contextService, marketplaceService
+                snapshotService,
+                marketSnapshotHistoryRepository,
+                bzItemSnapshotRepository,
+                itemRepository,
+                flipRepository,
+                mapper,
+                contextService,
+                unifiedFlipCurrentReadService,
+                marketplaceService
         );
     }
 
     @Test
     void overviewReturnsUnknownWhenNoSnapshotExists() {
         when(itemRepository.count()).thenReturn(1247L);
-        when(snapshotService.latest()).thenReturn(Optional.empty());
+        when(marketSnapshotHistoryRepository.findLatestCombinedSnapshotSummary()).thenReturn(null);
 
         DashboardOverviewDto dto = service.overview();
 
@@ -77,29 +97,47 @@ class DashboardReadServiceTest {
     @Test
     void overviewReturnsTopFlipAndBullishTrendFromLatestSnapshot() {
         Instant ts = FIXED_INSTANT;
-        MarketSnapshot snapshot = new MarketSnapshot(
-                ts,
-                List.of(
-                        new AuctionMarketRecord("a", "H", "W", "L", 1L, 0L, 0L, 0L, false),
-                        new AuctionMarketRecord("b", "T", "W", "L", 1L, 0L, 0L, 0L, false)
-                ),
-                Map.of(
-                        "A", new BazaarMarketRecord("A", 100, 90, 10, 10, 0, 0, 1, 1),
-                        "B", new BazaarMarketRecord("B", 200, 180, 10, 10, 0, 0, 1, 1)
-                )
-        );
         when(itemRepository.count()).thenReturn(10L);
-        when(snapshotService.latest()).thenReturn(Optional.of(snapshot));
-        when(flipRepository.findMaxSnapshotTimestampEpochMillis()).thenReturn(Optional.of(ts.toEpochMilli()));
+        when(marketSnapshotHistoryRepository.findLatestCombinedSnapshotSummary()).thenReturn(new MarketSnapshotHistoryRepository.MarketSnapshotSummaryProjection() {
+            @Override
+            public String getIdText() {
+                return UUID.randomUUID().toString();
+            }
 
-        Flip f1 = new Flip(UUID.randomUUID(), FlipType.AUCTION, List.of(), "A", List.of());
-        Flip f2 = new Flip(UUID.randomUUID(), FlipType.BAZAAR, List.of(), "B", List.of());
-        when(flipRepository.findAllBySnapshotTimestampEpochMillis(ts.toEpochMilli())).thenReturn(List.of(f1, f2));
+            @Override
+            public long getSnapshotTimestampEpochMillis() {
+                return ts.toEpochMilli();
+            }
 
-        FlipCalculationContext context = new FlipCalculationContext(null, 0.0125D, 1D, false, FlipScoreFeatureSet.empty());
-        when(contextService.loadContextAsOf(ts)).thenReturn(context);
-        when(mapper.toDto(f1, context)).thenReturn(flipDto(f1.getId(), "A_OUTPUT", 1_000L));
-        when(mapper.toDto(f2, context)).thenReturn(flipDto(f2.getId(), "B_OUTPUT", 5_000L));
+            @Override
+            public int getAuctionCount() {
+                return 2;
+            }
+
+            @Override
+            public int getBazaarProductCount() {
+                return 2;
+            }
+
+            @Override
+            public long getCreatedAtEpochMillis() {
+                return ts.toEpochMilli();
+            }
+        });
+        when(bzItemSnapshotRepository.findBySnapshotTsOrderByProductIdAsc(ts.toEpochMilli())).thenReturn(List.of(
+                new BzItemSnapshotEntity(ts.toEpochMilli(), "A", 100D, 90D, 10L, 10L),
+                new BzItemSnapshotEntity(ts.toEpochMilli(), "B", 200D, 180D, 10L, 10L)
+        ));
+        when(unifiedFlipCurrentReadService.currentSummary()).thenReturn(Optional.of(
+                new UnifiedFlipCurrentReadService.CurrentSummary(2L, 5_000L, ts.toEpochMilli())
+        ));
+        UUID topFlipId = UUID.randomUUID();
+        when(unifiedFlipCurrentReadService.listCurrentPage(
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(PageRequest.class)
+        )).thenReturn(new PageImpl<>(List.of(
+                flipDto(topFlipId, "B_OUTPUT", 5_000L)
+        )));
 
         DashboardOverviewDto dto = service.overview();
 
@@ -108,7 +146,7 @@ class DashboardReadServiceTest {
         assertEquals(2L, dto.totalAHListings());
         assertEquals(2L, dto.bazaarProducts());
         assertEquals("BULLISH", dto.marketTrend());
-        assertEquals(f2.getId().toString(), dto.topFlip().id());
+        assertEquals(topFlipId.toString(), dto.topFlip().id());
         assertEquals("B_OUTPUT", dto.topFlip().outputName());
         assertEquals(5_000L, dto.topFlip().expectedProfit());
     }

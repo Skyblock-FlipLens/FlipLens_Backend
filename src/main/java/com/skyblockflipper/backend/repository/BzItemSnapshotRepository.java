@@ -13,6 +13,8 @@ import java.util.List;
 
 public interface BzItemSnapshotRepository extends JpaRepository<BzItemSnapshotEntity, BzItemSnapshotId>, BzItemSnapshotBatchRepository {
 
+    List<BzItemSnapshotEntity> findBySnapshotTsOrderByProductIdAsc(long snapshotTs);
+
     List<BzItemSnapshotEntity> findBySnapshotTsGreaterThanEqualAndSnapshotTsLessThanOrderBySnapshotTsAsc(long fromInclusive,
                                                                                                           long toExclusive);
 
