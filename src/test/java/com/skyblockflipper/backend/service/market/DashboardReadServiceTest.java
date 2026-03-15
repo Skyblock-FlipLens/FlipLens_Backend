@@ -218,19 +218,28 @@ class DashboardReadServiceTest {
         when(itemRepository.count()).thenReturn(3L);
         when(marketSnapshotHistoryRepository.findLatestCombinedSnapshotSummary()).thenReturn(summaryProjection(ts, 1, 1));
         when(bzItemSnapshotRepository.findBySnapshotTsOrderByProductIdAsc(ts.toEpochMilli())).thenReturn(List.of());
+        Flip first = mock(Flip.class);
+        Flip second = mock(Flip.class);
+        Flip third = mock(Flip.class);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
         when(unifiedFlipCurrentReadService.currentSummary()).thenReturn(Optional.of(
                 new UnifiedFlipCurrentReadService.CurrentSummary(99L, 100_000L, ts.minusSeconds(60).toEpochMilli())
         ));
-        when(unifiedFlipCurrentReadService.listCurrentPage(isNull(), any(PageRequest.class))).thenReturn(new PageImpl<>(List.of()));
-        when(flipRepository.findAllBySnapshotTimestampEpochMillis(ts.toEpochMilli())).thenReturn(List.of(mock(Flip.class), mock(Flip.class), mock(Flip.class)));
+        when(flipRepository.findAllBySnapshotTimestampEpochMillis(ts.toEpochMilli())).thenReturn(List.of(first, second, third));
+        when(contextService.loadContextAsOf(ts)).thenReturn(context);
+        when(mapper.toDto(first, context)).thenReturn(flipDto(UUID.randomUUID(), "A_OUTPUT", 5_000L));
+        when(mapper.toDto(second, context)).thenReturn(flipDto(UUID.randomUUID(), "B_OUTPUT", 15_000L));
+        when(mapper.toDto(third, context)).thenReturn(flipDto(UUID.randomUUID(), "C_OUTPUT", 9_000L));
 
         DashboardOverviewDto dto = service.overview();
 
         assertEquals(3L, dto.totalActiveFlips());
+        assertEquals("B_OUTPUT", dto.topFlip().outputName());
+        assertEquals(15_000L, dto.topFlip().expectedProfit());
         verify(unifiedFlipCurrentReadService).currentSummary();
-        verify(unifiedFlipCurrentReadService).listCurrentPage(isNull(), any(PageRequest.class));
+        verify(unifiedFlipCurrentReadService, never()).listCurrentPage(isNull(), any(PageRequest.class));
         verify(flipRepository).findAllBySnapshotTimestampEpochMillis(ts.toEpochMilli());
-        verifyNoInteractions(mapper, contextService);
+        verify(contextService).loadContextAsOf(ts);
     }
 
     @Test
@@ -314,14 +323,14 @@ class DashboardReadServiceTest {
                 FlipType.AUCTION,
                 List.of(),
                 List.of(new UnifiedFlipDto.ItemStackDto(outputItem, 1)),
-                null,
+                1_250_000L,
                 expectedProfit,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
+                0.28D,
+                0.84D,
+                1_200L,
+                175_000L,
+                72.5D,
+                18.0D,
                 FIXED_INSTANT,
                 false,
                 List.of(),

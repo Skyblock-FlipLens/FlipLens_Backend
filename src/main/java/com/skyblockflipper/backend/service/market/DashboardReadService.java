@@ -5,6 +5,7 @@ import com.skyblockflipper.backend.NEU.repository.ItemRepository;
 import com.skyblockflipper.backend.api.dto.DashboardOverviewDto;
 import com.skyblockflipper.backend.api.dto.MarketplaceType;
 import com.skyblockflipper.backend.api.dto.TrendingItemDto;
+import com.skyblockflipper.backend.model.Flipping.Flip;
 import com.skyblockflipper.backend.model.market.BazaarMarketRecord;
 import com.skyblockflipper.backend.model.market.BzItemSnapshotEntity;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
@@ -72,8 +73,16 @@ public class DashboardReadService {
         long bazaarProducts = latestSummary.getBazaarProductCount();
 
         List<BzItemSnapshotEntity> latestBazaarRows = bzItemSnapshotRepository.findBySnapshotTsOrderByProductIdAsc(latestSnapshotEpochMillis);
-        DashboardOverviewDto.TopFlipDto topFlip = resolveTopFlip(latestSnapshotEpochMillis);
-        long totalActiveFlips = resolveTotalActiveFlips(latestSnapshotEpochMillis);
+        Optional<UnifiedFlipCurrentReadService.CurrentSummary> currentSummary = currentSummaryForSnapshot(latestSnapshotEpochMillis);
+        List<Flip> legacyFlips = currentSummary.isPresent() || latestSnapshotEpochMillis <= 0L
+                ? List.of()
+                : flipRepository.findAllBySnapshotTimestampEpochMillis(latestSnapshotEpochMillis);
+        DashboardOverviewDto.TopFlipDto topFlip = currentSummary.isPresent()
+                ? resolveCurrentTopFlip()
+                : resolveLegacyTopFlip(latestSnapshotEpochMillis, legacyFlips);
+        long totalActiveFlips = currentSummary
+                .map(UnifiedFlipCurrentReadService.CurrentSummary::totalCount)
+                .orElse((long) legacyFlips.size());
 
         return new DashboardOverviewDto(
                 totalItems,
@@ -147,31 +156,37 @@ public class DashboardReadService {
         );
     }
 
-    private DashboardOverviewDto.TopFlipDto resolveTopFlip(long latestSnapshotEpochMillis) {
-        if (unifiedFlipCurrentReadService != null) {
-            return unifiedFlipCurrentReadService.listCurrentPage(
-                            null,
-                            PageRequest.of(0, 1, Sort.by(
-                                    Sort.Order.desc("expectedProfit"),
-                                    Sort.Order.asc("stableFlipId")
-                            ))
-                    ).stream()
-                    .findFirst()
-                    .filter(dto -> dto.expectedProfit() != null)
-                    .map(dto -> new DashboardOverviewDto.TopFlipDto(
-                            dto.id() == null ? null : dto.id().toString(),
-                            dto.outputItems().isEmpty() ? null : dto.outputItems().getFirst().itemId(),
-                            dto.expectedProfit()
-                    ))
-                    .orElse(null);
+    private Optional<UnifiedFlipCurrentReadService.CurrentSummary> currentSummaryForSnapshot(long latestSnapshotEpochMillis) {
+        if (unifiedFlipCurrentReadService == null) {
+            return Optional.empty();
         }
+        return unifiedFlipCurrentReadService.currentSummary()
+                .filter(summary -> summary.latestSnapshotEpochMillis() == latestSnapshotEpochMillis);
+    }
 
-        if (latestSnapshotEpochMillis <= 0L) {
+    private DashboardOverviewDto.TopFlipDto resolveCurrentTopFlip() {
+        if (unifiedFlipCurrentReadService == null) {
             return null;
         }
-        List<com.skyblockflipper.backend.model.Flipping.Flip> flips =
-                flipRepository.findAllBySnapshotTimestampEpochMillis(latestSnapshotEpochMillis);
-        if (flips.isEmpty()) {
+        return unifiedFlipCurrentReadService.listCurrentPage(
+                        null,
+                        PageRequest.of(0, 1, Sort.by(
+                                Sort.Order.desc("expectedProfit"),
+                                Sort.Order.asc("stableFlipId")
+                        ))
+                ).stream()
+                .findFirst()
+                .filter(dto -> dto.expectedProfit() != null)
+                .map(dto -> new DashboardOverviewDto.TopFlipDto(
+                        dto.id() == null ? null : dto.id().toString(),
+                        dto.outputItems().isEmpty() ? null : dto.outputItems().getFirst().itemId(),
+                        dto.expectedProfit()
+                ))
+                .orElse(null);
+    }
+
+    private DashboardOverviewDto.TopFlipDto resolveLegacyTopFlip(long latestSnapshotEpochMillis, List<Flip> flips) {
+        if (latestSnapshotEpochMillis <= 0L || flips.isEmpty()) {
             return null;
         }
         FlipCalculationContext context = flipCalculationContextService.loadContextAsOf(Instant.ofEpochMilli(latestSnapshotEpochMillis));
@@ -185,19 +200,6 @@ public class DashboardReadService {
                         dto.expectedProfit()
                 ))
                 .orElse(null);
-    }
-
-    private long resolveTotalActiveFlips(long latestSnapshotEpochMillis) {
-        if (unifiedFlipCurrentReadService != null) {
-            Optional<UnifiedFlipCurrentReadService.CurrentSummary> summary = unifiedFlipCurrentReadService.currentSummary();
-            if (summary.isPresent() && summary.get().latestSnapshotEpochMillis() == latestSnapshotEpochMillis) {
-                return summary.get().totalCount();
-            }
-        }
-        if (latestSnapshotEpochMillis <= 0L) {
-            return 0L;
-        }
-        return flipRepository.findAllBySnapshotTimestampEpochMillis(latestSnapshotEpochMillis).size();
     }
 
     private String marketTrend(List<BzItemSnapshotEntity> bazaarRows) {

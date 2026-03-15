@@ -489,19 +489,19 @@ public class MarketSnapshotPersistenceService {
 
     private Optional<SnapshotPayload> loadLatestPayload() {
         return newerSnapshot(
-                nullableOptional(marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload),
-                nullableOptional(retainedMarketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc()).map(this::toPayload)
+                marketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc().map(this::toPayload),
+                retainedMarketSnapshotRepository.findTopByOrderBySnapshotTimestampEpochMillisDesc().map(this::toPayload)
         );
     }
 
     private Optional<SnapshotPayload> loadAsOfPayload(Instant asOfTimestamp) {
         long asOfEpochMillis = asOfTimestamp.toEpochMilli();
         return newerSnapshot(
-                nullableOptional(marketSnapshotRepository
-                        .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfEpochMillis))
+                marketSnapshotRepository
+                        .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfEpochMillis)
                         .map(this::toPayload),
-                nullableOptional(retainedMarketSnapshotRepository
-                        .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfEpochMillis))
+                retainedMarketSnapshotRepository
+                        .findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(asOfEpochMillis)
                         .map(this::toPayload)
         );
     }
@@ -596,9 +596,5 @@ public class MarketSnapshotPersistenceService {
     private record SnapshotPayload(long snapshotTimestampEpochMillis,
                                    String auctionsJson,
                                    String bazaarProductsJson) {
-    }
-
-    private <T> Optional<T> nullableOptional(Optional<T> optional) {
-        return optional;
     }
 }

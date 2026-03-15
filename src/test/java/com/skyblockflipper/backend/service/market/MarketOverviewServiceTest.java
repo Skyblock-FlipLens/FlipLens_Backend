@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class MarketOverviewServiceTest {
@@ -101,6 +102,73 @@ class MarketOverviewServiceTest {
         assertEquals(900D, dto.averageVolume(), 0.0001D);
         assertEquals(2L, dto.activeFlips());
         assertEquals(2_000L, dto.bestProfit());
+        verify(unifiedFlipCurrentReadService).currentSummary();
+        verifyNoInteractions(flipRepository, contextService, mapper);
+    }
+
+    @Test
+    void overviewPrefersCurrentSummaryEvenWhenSnapshotTimestampIsStale() {
+        Instant latestTs = Instant.parse("2026-02-21T12:00:00Z");
+        MarketSnapshot latest = new MarketSnapshot(
+                latestTs,
+                List.of(),
+                Map.of("ENCHANTED_DIAMOND_BLOCK", new BazaarMarketRecord("ENCHANTED_DIAMOND_BLOCK", 110D, 100D, 1_000L, 900L, 0, 0, 1, 1))
+        );
+
+        when(snapshotService.latest()).thenReturn(Optional.of(latest));
+        when(bzItemSnapshotRepository.findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(
+                "ENCHANTED_DIAMOND_BLOCK",
+                latestTs.minusSeconds(7L * 24L * 60L * 60L).toEpochMilli(),
+                latestTs.toEpochMilli()
+        )).thenReturn(List.of());
+        when(unifiedFlipCurrentReadService.currentSummary()).thenReturn(Optional.of(
+                new UnifiedFlipCurrentReadService.CurrentSummary(7L, 9_500L, latestTs.minusSeconds(60L).toEpochMilli())
+        ));
+
+        MarketOverviewDto dto = service.overview("enchanted_diamond_block");
+
+        assertEquals(7L, dto.activeFlips());
+        assertEquals(9_500L, dto.bestProfit());
+        assertEquals(latestTs, dto.snapshotTimestamp());
+        verify(unifiedFlipCurrentReadService).currentSummary();
+        verifyNoInteractions(flipRepository, contextService, mapper);
+    }
+
+    @Test
+    void overviewSanitizesNullNumericHistoryFields() {
+        Instant ts = Instant.parse("2026-02-21T12:00:00Z");
+        MarketSnapshot latest = new MarketSnapshot(
+                ts,
+                List.of(),
+                Map.of("ENCHANTED_DIAMOND_BLOCK", new BazaarMarketRecord("ENCHANTED_DIAMOND_BLOCK", 40D, 20D, 60L, 80L, 0, 0, 1, 1))
+        );
+
+        when(snapshotService.latest()).thenReturn(Optional.of(latest));
+        when(bzItemSnapshotRepository.findByProductIdAndSnapshotTsBetweenOrderBySnapshotTsAsc(
+                "ENCHANTED_DIAMOND_BLOCK",
+                ts.minusSeconds(7L * 24L * 60L * 60L).toEpochMilli(),
+                ts.toEpochMilli()
+        )).thenReturn(List.of(
+                new BzItemSnapshotEntity(ts.minusSeconds(3600L * 24L).toEpochMilli(), "ENCHANTED_DIAMOND_BLOCK", 20D, 10D, 30L, 40L),
+                new BzItemSnapshotEntity(ts.minusSeconds(3600L).toEpochMilli(), "ENCHANTED_DIAMOND_BLOCK", null, null, null, null),
+                new BzItemSnapshotEntity(ts.toEpochMilli(), "ENCHANTED_DIAMOND_BLOCK", 40D, 20D, 60L, 80L)
+        ));
+        when(unifiedFlipCurrentReadService.currentSummary()).thenReturn(Optional.of(
+                new UnifiedFlipCurrentReadService.CurrentSummary(2L, 2_000L, ts.toEpochMilli())
+        ));
+
+        MarketOverviewDto dto = service.overview("enchanted_diamond_block");
+
+        assertEquals(40D, dto.buy());
+        assertEquals(20D, dto.sell());
+        assertEquals(20D, dto.spread());
+        assertEquals(50D, dto.spreadPercent(), 0.0001D);
+        assertEquals(100D, dto.buyChangePercent(), 0.0001D);
+        assertEquals(100D, dto.sellChangePercent(), 0.0001D);
+        assertEquals(40D, dto.sevenDayHigh());
+        assertEquals(0D, dto.sevenDayLow());
+        assertEquals(60L, dto.volume());
+        assertEquals(30D, dto.averageVolume(), 0.0001D);
     }
 
     @Test
