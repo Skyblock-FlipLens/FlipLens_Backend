@@ -17,7 +17,7 @@ public class SnapshotRetentionProperties {
     private long ahAggregateDays = 30L;
     private long bzAggregateDays = 30L;
     private int compactionCandidateBatchSize = 500;
-    private int flipDeleteBatchSize = 1_000;
+    private int flipDeleteBatchSize = 100;
     private long flipDeleteBatchPauseMillis = 0L;
 
 }
