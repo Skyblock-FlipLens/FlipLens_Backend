@@ -10,8 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class FlipStorageProperties {
 
     private boolean dualWriteEnabled = true;
-    private boolean readFromNew = false;
-    private boolean legacyWriteEnabled = true;
+    private boolean readFromNew = true;
+    private boolean legacyWriteEnabled = false;
     private double trendRelativeThreshold = 0.05D;
     private double trendScoreDeltaThreshold = 3.0D;
     private int paritySampleSize = 20;

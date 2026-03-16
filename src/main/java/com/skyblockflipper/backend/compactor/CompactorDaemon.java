@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -418,8 +419,9 @@ public class CompactorDaemon implements SmartLifecycle {
         return jdbcTemplate.query("""
                 select requested, last_run_at
                 from compaction_control
-                where id = 1
-                """, rs -> {
+                where id = ?
+                limit 1
+                """, (PreparedStatementSetter) ps -> ps.setInt(1, 1), rs -> {
             if (!rs.next()) {
                 return null;
             }

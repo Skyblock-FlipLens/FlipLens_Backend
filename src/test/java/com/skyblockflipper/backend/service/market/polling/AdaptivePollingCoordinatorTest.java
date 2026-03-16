@@ -505,6 +505,194 @@ class AdaptivePollingCoordinatorTest {
         assertNotEquals(hashA, hashB);
     }
 
+    @Test
+    void startAuctionsAtBootstrapStartsPollerOnlyOnce() throws Exception {
+        Fixture fixture = fixture(true);
+        @SuppressWarnings("unchecked")
+        AdaptivePoller<AuctionResponse> auctions = mock(AdaptivePoller.class);
+        setField(fixture.coordinator, "auctionsPoller", auctions);
+
+        invokePrivate(fixture.coordinator, "startAuctionsAtBootstrap");
+        invokePrivate(fixture.coordinator, "startAuctionsAtBootstrap");
+
+        verify(auctions, times(1)).start();
+        assertTrue(getAtomicBooleanField(fixture.coordinator, "auctionsStarted").get());
+    }
+
+    @Test
+    void updateAuctionPredictionStateResetsBackoffAndAdvancesExpectedTimes() throws Exception {
+        Fixture fixture = fixture(true);
+        AdaptivePollingProperties.Endpoint endpoint = AdaptivePollingProperties.Endpoint.defaults("auctions", "/auctions", java.time.Duration.ofSeconds(20));
+        endpoint.setMinProbeIntervalMs(1_000L);
+        endpoint.setJitterMs(0L);
+
+        AuctionPollState auctionPollState = (AuctionPollState) getField(fixture.coordinator, "auctionPollState");
+        auctionPollState.setLastSeenLastUpdated(10_000L);
+        auctionPollState.setEwmaPeriodMs(4_000L);
+        auctionPollState.setProbeBackoffStep(4);
+        auctionPollState.setProbeIntervalMs(8_000L);
+        invokeUpdateAuctionPredictionState(fixture.coordinator, 13_000L, 20_000L, endpoint);
+
+        assertEquals(13_000L, auctionPollState.getLastSeenLastUpdated());
+        assertEquals(0, auctionPollState.getProbeBackoffStep());
+        assertEquals(1_000L, auctionPollState.getProbeIntervalMs());
+        assertTrue(auctionPollState.getNextExpectedAtMs() >= 21_000L);
+        assertEquals(
+                1L,
+                fixture.meterRegistry.get("skyblock.adaptive.auctions.observed_period_ms").summary().count()
+        );
+        assertEquals(
+                3_000.0d,
+                fixture.meterRegistry.get("skyblock.adaptive.auctions.observed_period_ms").summary().totalAmount()
+        );
+    }
+
+    @Test
+    void updateBazaarPredictionStateResetsBackoffAndAdvancesExpectedTimes() throws Exception {
+        Fixture fixture = fixture(true);
+        AdaptivePollingProperties.Endpoint endpoint = AdaptivePollingProperties.Endpoint.defaults("bazaar", "/bazaar", java.time.Duration.ofSeconds(20));
+        endpoint.setMinProbeIntervalMs(1_000L);
+        endpoint.setJitterMs(0L);
+
+        BazaarPollState bazaarPollState = (BazaarPollState) getField(fixture.coordinator, "bazaarPollState");
+        bazaarPollState.setLastSeenLastUpdated(5_000L);
+        bazaarPollState.setEwmaPeriodMs(2_000L);
+        bazaarPollState.setProbeBackoffStep(3);
+        bazaarPollState.setProbeIntervalMs(6_000L);
+        invokeUpdateBazaarPredictionState(fixture.coordinator, 7_500L, 10_000L, endpoint);
+
+        assertEquals(7_500L, bazaarPollState.getLastSeenLastUpdated());
+        assertEquals(0, bazaarPollState.getProbeBackoffStep());
+        assertEquals(1_000L, bazaarPollState.getProbeIntervalMs());
+        assertTrue(bazaarPollState.getNextExpectedAtMs() >= 11_000L);
+        assertEquals(
+                1L,
+                fixture.meterRegistry.get("skyblock.adaptive.bazaar.observed_period_ms").summary().count()
+        );
+        assertEquals(
+                2_500.0d,
+                fixture.meterRegistry.get("skyblock.adaptive.bazaar.observed_period_ms").summary().totalAmount()
+        );
+    }
+
+    @Test
+    void updateProbeBackoffResetsNearExpectedWindowAndIncreasesWhenLate() throws Exception {
+        Fixture fixture = fixture(true);
+        AdaptivePollingProperties.Endpoint endpoint = AdaptivePollingProperties.Endpoint.defaults("bazaar", "/bazaar", java.time.Duration.ofSeconds(60));
+        endpoint.setMinProbeIntervalMs(1_000L);
+        endpoint.setMaxProbeIntervalMs(8_000L);
+        endpoint.setGraceWindowMs(500L);
+        endpoint.setJitterMs(0L);
+
+        long resetDelay = invokeUpdateProbeBackoff(
+                fixture.coordinator,
+                /* nowMillis */ 10_000L,
+                /* nextExpected */ 10_200L,
+                /* endpointCfg */ endpoint,
+                /* auction */ true,
+                /* currentBackoffStep */ 3,
+                /* currentInterval */ 4_000L,
+                /* recordMetric */ true
+        );
+        assertEquals(1_000L, resetDelay);
+
+        long increasedDelay = invokeUpdateProbeBackoff(
+                fixture.coordinator,
+                /* nowMillis */ 20_000L,
+                /* nextExpected */ 10_000L,
+                /* endpointCfg */ endpoint,
+                /* auction */ false,
+                /* currentBackoffStep */ 1,
+                /* currentInterval */ 2_000L,
+                /* recordMetric */ false
+        );
+        assertEquals(8_000L, increasedDelay);
+    }
+
+    @Test
+    void sleepDelayAndJitterHelpersHandleEdgeCases() throws Exception {
+        Fixture fixture = fixture(true);
+
+        long noExpected = (long) invokePrivate(
+                fixture.coordinator,
+                "computeSleepDelay",
+                new Class<?>[]{long.class, long.class, long.class, long.class},
+                10_000L,
+                0L,
+                500L,
+                0L
+        );
+        long probeNow = (long) invokePrivate(
+                fixture.coordinator,
+                "computeSleepDelay",
+                new Class<?>[]{long.class, long.class, long.class, long.class},
+                10_000L,
+                10_200L,
+                500L,
+                0L
+        );
+        long clamped = (long) invokePrivate(
+                fixture.coordinator,
+                "applyJitter",
+                new Class<?>[]{long.class, long.class},
+                -10L,
+                100L
+        );
+
+        assertEquals(0L, noExpected);
+        assertEquals(0L, probeNow);
+        assertEquals(0L, clamped);
+    }
+
+    @Test
+    void toMinimalAuctionKeepsOnlyRelevantFields() throws Exception {
+        Fixture fixture = fixture(true);
+        Auction source = new Auction(
+                "uuid-1",
+                "auctioneer",
+                "profile",
+                List.of("coop"),
+                1_000L,
+                2_000L,
+                "Aspect of the Dragons",
+                "lore",
+                "extra",
+                "weapon",
+                "LEGENDARY",
+                5_000_000L,
+                false,
+                true,
+                List.of("bidder"),
+                5_500_000L,
+                List.of()
+        );
+
+        Auction minimal = (Auction) invokePrivate(
+                fixture.coordinator,
+                "toMinimalAuction",
+                new Class<?>[]{Auction.class},
+                source
+        );
+
+        assertEquals("uuid-1", minimal.getUuid());
+        assertEquals("Aspect of the Dragons", minimal.getItemName());
+        assertEquals("weapon", minimal.getCategory());
+        assertEquals("LEGENDARY", minimal.getTier());
+        assertEquals(1_000L, minimal.getStart());
+        assertEquals(2_000L, minimal.getEnd());
+        assertEquals(5_000_000L, minimal.getStartingBid());
+        assertEquals(5_500_000L, minimal.getHighestBidAmount());
+        assertFalse(minimal.isClaimed());
+        assertTrue(minimal.isBin());
+        assertNull(minimal.getAuctioneer());
+        assertNull(minimal.getProfileId());
+        assertNull(minimal.getItemLore());
+        assertNull(minimal.getExtra());
+        assertTrue(minimal.getCoop() == null || minimal.getCoop().isEmpty());
+        assertTrue(minimal.getClaimedBidders() == null || minimal.getClaimedBidders().isEmpty());
+        assertTrue(minimal.getBids() == null || minimal.getBids().isEmpty());
+    }
+
     private static Fixture fixture(boolean enabled) {
         AdaptivePollingProperties properties = new AdaptivePollingProperties();
         properties.setEnabled(enabled);
@@ -573,6 +761,56 @@ class AdaptivePollingCoordinatorTest {
 
     private static Object invokePrivate(Object target, String methodName) throws Exception {
         return invokePrivate(target, methodName, new Class<?>[0]);
+    }
+
+    private static void invokeUpdateAuctionPredictionState(AdaptivePollingCoordinator coordinator,
+                                                           long newLastUpdated,
+                                                           long nowMillis,
+                                                           AdaptivePollingProperties.Endpoint endpoint) throws Exception {
+        invokePrivate(
+                coordinator,
+                "updateAuctionPredictionState",
+                new Class<?>[]{long.class, long.class, AdaptivePollingProperties.Endpoint.class},
+                newLastUpdated,
+                nowMillis,
+                endpoint
+        );
+    }
+
+    private static void invokeUpdateBazaarPredictionState(AdaptivePollingCoordinator coordinator,
+                                                          long newLastUpdated,
+                                                          long nowMillis,
+                                                          AdaptivePollingProperties.Endpoint endpoint) throws Exception {
+        invokePrivate(
+                coordinator,
+                "updateBazaarPredictionState",
+                new Class<?>[]{long.class, long.class, AdaptivePollingProperties.Endpoint.class},
+                newLastUpdated,
+                nowMillis,
+                endpoint
+        );
+    }
+
+    private static long invokeUpdateProbeBackoff(AdaptivePollingCoordinator coordinator,
+                                                 long nowMillis,
+                                                 long nextExpected,
+                                                 AdaptivePollingProperties.Endpoint endpoint,
+                                                 boolean auction,
+                                                 int currentBackoffStep,
+                                                 long currentInterval,
+                                                 boolean recordMetric) throws Exception {
+        return (long) invokePrivate(
+                coordinator,
+                "updateProbeBackoff",
+                new Class<?>[]{long.class, long.class, AdaptivePollingProperties.Endpoint.class, boolean.class, int.class, long.class, boolean.class},
+                nowMillis,
+                nextExpected,
+                endpoint,
+                auction,
+                currentBackoffStep,
+                currentInterval,
+                recordMetric
+        );
     }
 
     private static Object invokePrivate(Object target, String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {

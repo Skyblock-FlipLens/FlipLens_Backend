@@ -53,6 +53,7 @@ Default behavior uses coalescing (`queue-capacity: 1`, `coalesce-enabled: true`)
 - If processing is busy, only the latest pending payload is retained.
 - No parallel processing for the same endpoint.
 - Prevents pile-up under slow processing.
+- Adaptive commit paths persist and return the snapshot timestamp without rebuilding a second full `UnifiedFlipInputSnapshot`, which reduces heap churn under Bazaar load.
 
 ## Metrics
 

@@ -3,11 +3,15 @@ package com.skyblockflipper.backend.repository;
 import com.skyblockflipper.backend.model.market.AhItemSnapshotEntity;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.List;
 
 @Repository
@@ -27,6 +31,24 @@ public class AhItemSnapshotBatchRepositoryImpl implements AhItemSnapshotBatchRep
                 created_at_epoch_millis
             ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict (snapshot_ts, item_key) do nothing
+            """;
+
+    private static final String SCAN_BUCKET_SQL = """
+            select
+                snapshot_ts,
+                item_key,
+                bin_lowest,
+                bin_lowest5_mean,
+                bin_p50,
+                bin_p95,
+                bin_count,
+                bid_p50,
+                ending_soon_count,
+                created_at_epoch_millis
+            from ah_item_snapshot
+            where snapshot_ts >= ?
+              and snapshot_ts < ?
+            order by item_key asc, snapshot_ts asc
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -61,5 +83,31 @@ public class AhItemSnapshotBatchRepositoryImpl implements AhItemSnapshotBatchRep
                 return snapshots.size();
             }
         });
+    }
+
+    @Override
+    public void scanBucketRows(long fromInclusive, long toExclusive, int fetchSize, Consumer<AhItemSnapshotEntity> consumer) {
+        Objects.requireNonNull(consumer, "consumer must not be null");
+        jdbcTemplate.query(connection -> {
+            PreparedStatement ps = connection.prepareStatement(SCAN_BUCKET_SQL, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            ps.setLong(1, fromInclusive);
+            ps.setLong(2, toExclusive);
+            ps.setFetchSize(Math.max(1, fetchSize));
+            return ps;
+        }, (RowCallbackHandler) rs -> consumer.accept(mapRow(rs)));
+    }
+
+    private AhItemSnapshotEntity mapRow(ResultSet rs) throws SQLException {
+        return new AhItemSnapshotEntity(
+                rs.getLong("snapshot_ts"),
+                rs.getString("item_key"),
+                rs.getObject("bin_lowest", Long.class),
+                rs.getObject("bin_lowest5_mean", Long.class),
+                rs.getObject("bin_p50", Long.class),
+                rs.getObject("bin_p95", Long.class),
+                rs.getInt("bin_count"),
+                rs.getObject("bid_p50", Long.class),
+                rs.getInt("ending_soon_count")
+        );
     }
 }

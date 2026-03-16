@@ -13,31 +13,46 @@ public class MarketItemKeyService {
 
     private static final Pattern PET_LEVEL_PATTERN = Pattern.compile("^\\[Lvl\\s*(\\d+)]\\s*(.+)$");
     private static final Pattern INTERNAL_NAME_PATTERN = Pattern.compile("\"(?:internalname|id|item_id|itemId)\"\\s*:\\s*\"([^\"]+)\"", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SIMPLE_ID_ONLY_EXTRA_PATTERN = Pattern.compile(
+            "^\\s*\\{\\s*\"(?:internalname|id|item_id|itemId)\"\\s*:\\s*\"[^\"]+\"\\s*}\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern ENCHANT_LIKE_PATTERN = Pattern.compile("\\b[A-Z][A-Z'\\- ]{2,}\\s+[IVXLCDM]{1,6}\\b");
 
     public String toAuctionItemKey(AuctionMarketRecord record) {
-        if (record == null) {
+        AuctionKeyParts keyParts = extractAuctionKeyParts(record);
+        if (keyParts == null) {
             return null;
         }
-        ParsedItemName parsedItemName = parseItemName(record.itemName());
-        String baseId = firstNonBlank(
-                parseBaseIdFromExtra(record.extra()),
-                normalizeIdentifier(parsedItemName.baseName()),
-                normalizeIdentifier(record.itemName())
-        );
 
-        String tier = normalizeIdentifier(record.tier());
-        String category = normalizeIdentifier(record.category());
-        int stars = countStars(record.itemName()) + countStars(record.itemLore());
-        boolean recombobulated = containsIgnoreCase(record.itemLore(), "RARITY UPGRADED")
-                || containsIgnoreCase(record.extra(), "recombobulated");
-        String petLevel = parsedItemName.petLevel() == null ? "-" : parsedItemName.petLevel().toString();
+        return keyParts.baseId()
+                + "|T:" + keyParts.tier()
+                + "|C:" + keyParts.category()
+                + "|P:" + keyParts.petLevelToken()
+                + "|S:" + keyParts.stars()
+                + "|R:" + (keyParts.recombobulated() ? "1" : "0");
+    }
 
-        return baseId
-                + "|T:" + (tier.isBlank() ? "UNKNOWN" : tier)
-                + "|C:" + (category.isBlank() ? "UNKNOWN" : category)
-                + "|P:" + petLevel
-                + "|S:" + stars
-                + "|R:" + (recombobulated ? "1" : "0");
+    public String toAuctionAggregateItemKey(AuctionMarketRecord record) {
+        AuctionKeyParts keyParts = extractAuctionKeyParts(record);
+        if (keyParts == null) {
+            return null;
+        }
+        return keyParts.baseId()
+                + "|T:" + keyParts.tier()
+                + "|C:" + keyParts.category()
+                + "|P:" + keyParts.petLevelToken();
+    }
+
+    public boolean hasAuctionAdditionals(AuctionMarketRecord record) {
+        AuctionKeyParts keyParts = extractAuctionKeyParts(record);
+        if (keyParts == null) {
+            return false;
+        }
+        return keyParts.stars() > 0
+                || keyParts.recombobulated()
+                || hasEnchantLikeTokens(record.itemLore())
+                || hasAdditionalSignalsInExtra(record.extra());
     }
 
     public String toBazaarItemKey(BazaarMarketRecord record) {
@@ -91,8 +106,36 @@ public class MarketItemKeyService {
             return "";
         }
         String normalized = value.trim().toUpperCase(Locale.ROOT);
-        normalized = normalized.replaceAll("^\\[LVL\\s*\\d+\\]\\s*", "");
+        normalized = normalized.replaceAll("^\\[LVL\\s*\\d+]\\s*", "");
         return normalized.replace(' ', '_');
+    }
+
+    private AuctionKeyParts extractAuctionKeyParts(AuctionMarketRecord record) {
+        if (record == null) {
+            return null;
+        }
+        ParsedItemName parsedItemName = parseItemName(record.itemName());
+        String baseId = firstNonBlank(
+                parseBaseIdFromExtra(record.extra()),
+                normalizeIdentifier(parsedItemName.baseName()),
+                normalizeIdentifier(record.itemName())
+        );
+
+        String tier = normalizeIdentifier(record.tier());
+        String category = normalizeIdentifier(record.category());
+        int stars = countStars(record.itemName()) + countStars(record.itemLore());
+        boolean recombobulated = containsIgnoreCase(record.itemLore(), "RARITY UPGRADED")
+                || containsIgnoreCase(record.extra(), "recombobulated");
+        String petLevel = parsedItemName.petLevel() == null ? "-" : parsedItemName.petLevel().toString();
+
+        return new AuctionKeyParts(
+                baseId,
+                tier.isBlank() ? "UNKNOWN" : tier,
+                category.isBlank() ? "UNKNOWN" : category,
+                petLevel,
+                stars,
+                recombobulated
+        );
     }
 
     private int countStars(String text) {
@@ -101,7 +144,7 @@ public class MarketItemKeyService {
         }
         int stars = 0;
         for (int i = 0; i < text.length(); i++) {
-            if (text.charAt(i) == '\u272A') {
+            if (text.charAt(i) == '✪') {
                 stars++;
             }
         }
@@ -113,6 +156,35 @@ public class MarketItemKeyService {
             return false;
         }
         return text.toLowerCase(Locale.ROOT).contains(needle.toLowerCase(Locale.ROOT));
+    }
+
+    private boolean hasEnchantLikeTokens(String itemLore) {
+        if (itemLore == null || itemLore.isBlank()) {
+            return false;
+        }
+        String normalizedLore = stripMinecraftFormatting(itemLore).toUpperCase(Locale.ROOT);
+        return ENCHANT_LIKE_PATTERN.matcher(normalizedLore).find();
+    }
+
+    private boolean hasAdditionalSignalsInExtra(String extra) {
+        if (extra == null || extra.isBlank()) {
+            return false;
+        }
+        String[] candidates = {extra.replace("\\\"", "\""), extra};
+        for (String candidate : candidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            if (SIMPLE_ID_ONLY_EXTRA_PATTERN.matcher(candidate).matches()) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private String stripMinecraftFormatting(String text) {
+        return text.replaceAll("§.", " ");
     }
 
     private Integer tryParseInteger(String value) {
@@ -140,5 +212,15 @@ public class MarketItemKeyService {
     }
 
     private record ParsedItemName(String baseName, Integer petLevel) {
+    }
+
+    private record AuctionKeyParts(
+            String baseId,
+            String tier,
+            String category,
+            String petLevelToken,
+            int stars,
+            boolean recombobulated
+    ) {
     }
 }

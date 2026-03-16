@@ -2,6 +2,7 @@ package com.skyblockflipper.backend.repository;
 
 import com.skyblockflipper.backend.model.market.MarketSnapshotEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,6 +16,11 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
 
     Optional<MarketSnapshotEntity> findTopBySnapshotTimestampEpochMillisLessThanEqualOrderBySnapshotTimestampEpochMillisDesc(long snapshotTimestampEpochMillis);
 
+    Optional<MarketSnapshotEntity> findTopBySnapshotTimestampEpochMillisGreaterThanEqualAndSnapshotTimestampEpochMillisLessThanOrderBySnapshotTimestampEpochMillisAsc(
+            long fromInclusive,
+            long toExclusive
+    );
+
     List<MarketSnapshotEntity> findBySnapshotTimestampEpochMillisBetweenOrderBySnapshotTimestampEpochMillisAsc(
             long startInclusiveEpochMillis,
             long endInclusiveEpochMillis
@@ -24,6 +30,11 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
             long snapshotTimestampEpochMillis
     );
 
+    long countBySnapshotTimestampEpochMillisGreaterThanEqualAndSnapshotTimestampEpochMillisLessThan(
+            long fromInclusive,
+            long toExclusive
+    );
+
     @Query("""
             select m.id as id, m.snapshotTimestampEpochMillis as snapshotTimestampEpochMillis
             from MarketSnapshotEntity m
@@ -31,6 +42,7 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshotEn
             order by m.snapshotTimestampEpochMillis asc
             """)
     List<MarketSnapshotCompactionCandidate> findCompactionCandidates(
-            @Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis
+            @Param("snapshotTimestampEpochMillis") long snapshotTimestampEpochMillis,
+            Pageable pageable
     );
 }

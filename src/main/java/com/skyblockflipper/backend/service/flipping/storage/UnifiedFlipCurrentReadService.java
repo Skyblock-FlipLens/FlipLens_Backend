@@ -205,4 +205,20 @@ public class UnifiedFlipCurrentReadService {
         return counts;
     }
 
+    @Transactional(readOnly = true)
+    public Optional<CurrentSummary> currentSummary() {
+        FlipCurrentRepository.CurrentSummaryProjection projection = flipCurrentRepository.summarizeCurrent();
+        if (projection == null || projection.getLatestSnapshotEpochMillis() == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new CurrentSummary(
+                projection.getTotalCount(),
+                projection.getMaxExpectedProfit(),
+                projection.getLatestSnapshotEpochMillis()
+        ));
+    }
+
+    public record CurrentSummary(long totalCount, Long maxExpectedProfit, long latestSnapshotEpochMillis) {
+    }
+
 }
