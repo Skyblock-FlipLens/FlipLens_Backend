@@ -62,6 +62,7 @@ public class CompactorDaemon implements SmartLifecycle {
     private ScheduledExecutorService safetyTickExecutor;
     private ScheduledExecutorService adaptiveDecisionExecutor;
     private final AtomicBoolean claimedCompactionInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean advisoryLockContentionLogged = new AtomicBoolean(false);
     private volatile boolean running;
     private volatile boolean controlRowReady;
     private volatile long nextControlRowEnsureAttemptEpochMillis;
@@ -231,31 +232,45 @@ public class CompactorDaemon implements SmartLifecycle {
         if (!running) {
             return;
         }
+        if (claimedCompactionInProgress.get()) {
+            return;
+        }
         if (!ensureControlRowReady("try_run_if_requested")) {
             return;
         }
 
-        Boolean claimed = jdbcTemplate.query("""
-                update compaction_control
-                set requested = false
-                where id = 1 and requested = true
-                returning true
-                """, rs -> rs.next() ? Boolean.TRUE : Boolean.FALSE);
-        if (claimed == null || !claimed) {
+        CompactionControlState controlState = readCompactionControlState();
+        if (controlState == null || !controlState.requested()) {
             return;
         }
 
-        claimedCompactionInProgress.set(true);
+        if (!claimedCompactionInProgress.compareAndSet(false, true)) {
+            return;
+        }
         Connection advisoryConnection = null;
         boolean lockAcquired = false;
+        boolean requestClaimed = false;
         try {
             advisoryConnection = DataSourceUtils.getConnection(dataSource);
             lockAcquired = tryAcquireAdvisoryLock(advisoryConnection);
             if (!lockAcquired) {
-                log.info("Compaction requested but advisory lock is held. Re-queueing request.");
-                jdbcTemplate.update("update compaction_control set requested = true where id = 1");
+                if (advisoryLockContentionLogged.compareAndSet(false, true)) {
+                    log.info("Compaction requested but advisory lock is held. Leaving request pending.");
+                }
                 return;
             }
+            advisoryLockContentionLogged.set(false);
+
+            Boolean claimed = jdbcTemplate.query("""
+                    update compaction_control
+                    set requested = false
+                    where id = 1 and requested = true
+                    returning true
+                    """, rs -> rs.next() ? Boolean.TRUE : Boolean.FALSE);
+            if (claimed == null || !claimed) {
+                return;
+            }
+            requestClaimed = true;
 
             Instant startedAt = Instant.now();
             log.info("Compaction run started");
@@ -278,9 +293,8 @@ public class CompactorDaemon implements SmartLifecycle {
                     result.keptCount(),
                     result.deletedCount());
         } catch (Exception e) {
-            if (!lockAcquired) {
-                jdbcTemplate.update("update compaction_control set requested = true where id = 1");
-                log.warn("Failed before acquiring advisory lock; request was re-queued: {}", e.toString(), e);
+            if (!lockAcquired || !requestClaimed) {
+                log.warn("Failed before claiming compaction request: {}", e.toString(), e);
                 return;
             }
             jdbcTemplate.update("""

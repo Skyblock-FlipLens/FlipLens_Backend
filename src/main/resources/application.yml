@@ -133,8 +133,9 @@ config:
       minute-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_MINUTE_INTERVAL_SECONDS:60}
       two-hour-interval-seconds: ${CONFIG_SNAPSHOT_RETENTION_TWO_HOUR_INTERVAL_SECONDS:7200}
       compaction-candidate-batch-size: ${CONFIG_SNAPSHOT_RETENTION_COMPACTION_CANDIDATE_BATCH_SIZE:500}
-      flip-delete-batch-size: ${CONFIG_SNAPSHOT_RETENTION_FLIP_DELETE_BATCH_SIZE:1000}
-      flip-delete-batch-pause-millis: ${CONFIG_SNAPSHOT_RETENTION_FLIP_DELETE_BATCH_PAUSE_MILLIS:0}
+      flip-delete-batch-size: ${CONFIG_SNAPSHOT_RETENTION_FLIP_DELETE_BATCH_SIZE:100}
+      # Small default pause smooths orphan-delete pressure without materially slowing compaction.
+      flip-delete-batch-pause-millis: ${CONFIG_SNAPSHOT_RETENTION_FLIP_DELETE_BATCH_PAUSE_MILLIS:10}
       compaction-interval-ms: ${CONFIG_SNAPSHOT_RETENTION_COMPACTION_INTERVAL_MS:60000}
       compaction-initial-delay-ms: ${CONFIG_SNAPSHOT_RETENTION_COMPACTION_INITIAL_DELAY_MS:60000}
       ah-aggregate-days: ${CONFIG_SNAPSHOT_RETENTION_AH_AGGREGATE_DAYS:30}

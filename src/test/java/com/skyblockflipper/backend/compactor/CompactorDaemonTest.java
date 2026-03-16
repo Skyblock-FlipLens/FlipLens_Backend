@@ -72,6 +72,14 @@ class CompactorDaemonTest {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenReturn(Boolean.TRUE);
+        when(jdbcTemplate.query(anyString(), any(PreparedStatementSetter.class), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
+            ResultSetExtractor<Object> extractor = invocation.getArgument(2);
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.next()).thenReturn(true);
+            when(rs.getBoolean("requested")).thenReturn(true);
+            when(rs.getTimestamp("last_run_at")).thenReturn(null);
+            return extractor.extractData(rs);
+        });
         Connection connection = mockLockConnection(false, true);
         when(dataSource.getConnection()).thenReturn(connection);
         CompactorDaemon daemon = new CompactorDaemon(
@@ -89,7 +97,8 @@ class CompactorDaemonTest {
 
         invokePrivate(daemon, "tryRunIfRequested");
 
-        verify(jdbcTemplate).update("update compaction_control set requested = true where id = 1");
+        verify(jdbcTemplate, never()).query(contains("set requested = false"), any(ResultSetExtractor.class));
+        verify(jdbcTemplate, never()).update("update compaction_control set requested = true where id = 1");
         verify(marketDataProcessingService, never()).compactSnapshots();
     }
 
@@ -99,6 +108,14 @@ class CompactorDaemonTest {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenReturn(Boolean.TRUE);
+        when(jdbcTemplate.query(anyString(), any(PreparedStatementSetter.class), any(ResultSetExtractor.class))).thenAnswer(invocation -> {
+            ResultSetExtractor<Object> extractor = invocation.getArgument(2);
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.next()).thenReturn(true);
+            when(rs.getBoolean("requested")).thenReturn(true);
+            when(rs.getTimestamp("last_run_at")).thenReturn(null);
+            return extractor.extractData(rs);
+        });
         when(marketDataProcessingService.compactSnapshots())
                 .thenReturn(new MarketSnapshotPersistenceService.SnapshotCompactionResult(10, 4, 6));
         Connection connection = mockLockConnection(true, true);
@@ -120,6 +137,32 @@ class CompactorDaemonTest {
 
         verify(marketDataProcessingService).compactSnapshots();
         verify(jdbcTemplate, atLeastOnce()).update(contains("last_run_ok = true"), org.mockito.ArgumentMatchers.<Object[]>any());
+    }
+
+    @Test
+    void tryRunIfRequestedSkipsWhenLocalCompactionAlreadyInProgress() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        MarketDataProcessingService marketDataProcessingService = mock(MarketDataProcessingService.class);
+        CompactorDaemon daemon = new CompactorDaemon(
+                dataSource,
+                jdbcTemplate,
+                marketDataProcessingService,
+                new ObjectMapper(),
+                "compaction",
+                60_000L,
+                500L,
+                500L,
+                912345678L
+        );
+        setRunning(daemon, true);
+        setField(daemon, "claimedCompactionInProgress", new java.util.concurrent.atomic.AtomicBoolean(true));
+
+        invokePrivate(daemon, "tryRunIfRequested");
+
+        verify(jdbcTemplate, never()).query(anyString(), any(PreparedStatementSetter.class), any(ResultSetExtractor.class));
+        verify(dataSource, never()).getConnection();
+        verify(marketDataProcessingService, never()).compactSnapshots();
     }
 
     @Test

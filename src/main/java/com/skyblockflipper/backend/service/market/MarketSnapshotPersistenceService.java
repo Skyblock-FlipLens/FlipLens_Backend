@@ -44,7 +44,7 @@ public class MarketSnapshotPersistenceService {
 
     private static final long SECONDS_PER_DAY = 86_400L;
     private static final int DEFAULT_COMPACTION_CANDIDATE_BATCH_SIZE = 500;
-    private static final int DEFAULT_FLIP_DELETE_BATCH_SIZE = 1_000;
+    private static final int DEFAULT_FLIP_DELETE_BATCH_SIZE = 100;
 
     private static final TypeReference<List<AuctionMarketRecord>> AUCTIONS_TYPE = new TypeReference<>() {};
     private static final TypeReference<Map<String, BazaarMarketRecord>> BAZAAR_TYPE = new TypeReference<>() {};
@@ -345,11 +345,11 @@ public class MarketSnapshotPersistenceService {
                     .distinct()
                     .toList();
 
-            BatchDeleteStats batchStats = requiresNewTransactionTemplate.execute(status -> {
+            requiresNewTransactionTemplate.executeWithoutResult(status -> {
                 retainSnapshotHistory(retainedSnapshotIdBatch, retainedAtEpochMillis);
                 blockingTimeTracker.recordRunnable("db.marketSnapshot.deleteBatch", "db", () -> marketSnapshotRepository.deleteAllByIdInBatch(snapshotIdBatch));
-                return deleteOrphanedFlipsForSnapshotTimestampBatch(timestampBatch, batchFromIndex, toIndex);
             });
+            BatchDeleteStats batchStats = deleteOrphanedFlipsForSnapshotTimestampBatch(timestampBatch, batchFromIndex, toIndex);
             if (batchStats != null) {
                 deletedFlips += batchStats.deletedFlips();
                 deletedStepRows += batchStats.deletedStepRows();
@@ -387,21 +387,16 @@ public class MarketSnapshotPersistenceService {
                 break;
             }
 
-            deletedStepRows += blockingTimeTracker.record(
-                    "db.flip.deleteStepsByFlipIdBatch",
-                    "db",
-                    () -> flipRepository.deleteStepRowsByFlipIdIn(orphanFlipIds)
-            );
-            deletedConstraintRows += blockingTimeTracker.record(
-                    "db.flip.deleteConstraintsByFlipIdBatch",
-                    "db",
-                    () -> flipRepository.deleteConstraintRowsByFlipIdIn(orphanFlipIds)
-            );
-            int deletedFlipsInChunk = blockingTimeTracker.record(
-                    "db.flip.deleteByFlipIdBatch",
-                    "db",
-                    () -> flipRepository.deleteByIdIn(orphanFlipIds)
-            );
+            BatchDeleteStats chunkStats = requiresNewTransactionTemplate.execute(status -> deleteOrphanedFlipChunk(orphanFlipIds));
+            if (chunkStats == null) {
+                log.warn("Compaction orphan cleanup returned no chunk stats for timestamp batch {}-{}; stopping this batch.",
+                        fromIndex,
+                        toIndex);
+                break;
+            }
+            deletedStepRows += chunkStats.deletedStepRows();
+            deletedConstraintRows += chunkStats.deletedConstraintRows();
+            int deletedFlipsInChunk = chunkStats.deletedFlips();
             deletedFlips += deletedFlipsInChunk;
 
             if (deletedFlipsInChunk == 0) {
@@ -411,6 +406,25 @@ public class MarketSnapshotPersistenceService {
                 break;
             }
         }
+        return new BatchDeleteStats(deletedFlips, deletedStepRows, deletedConstraintRows);
+    }
+
+    private BatchDeleteStats deleteOrphanedFlipChunk(List<UUID> orphanFlipIds) {
+        int deletedStepRows = blockingTimeTracker.record(
+                "db.flip.deleteStepsByFlipIdBatch",
+                "db",
+                () -> flipRepository.deleteStepRowsByFlipIdIn(orphanFlipIds)
+        );
+        int deletedConstraintRows = blockingTimeTracker.record(
+                "db.flip.deleteConstraintsByFlipIdBatch",
+                "db",
+                () -> flipRepository.deleteConstraintRowsByFlipIdIn(orphanFlipIds)
+        );
+        int deletedFlips = blockingTimeTracker.record(
+                "db.flip.deleteByFlipIdBatch",
+                "db",
+                () -> flipRepository.deleteByIdIn(orphanFlipIds)
+        );
         return new BatchDeleteStats(deletedFlips, deletedStepRows, deletedConstraintRows);
     }
 
