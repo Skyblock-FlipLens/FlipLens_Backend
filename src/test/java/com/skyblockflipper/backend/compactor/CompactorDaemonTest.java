@@ -97,6 +97,7 @@ class CompactorDaemonTest {
 
         invokePrivate(daemon, "tryRunIfRequested");
 
+        verify(jdbcTemplate, never()).query(contains("set requested = false"), any(ResultSetExtractor.class));
         verify(jdbcTemplate, never()).update("update compaction_control set requested = true where id = 1");
         verify(marketDataProcessingService, never()).compactSnapshots();
     }
