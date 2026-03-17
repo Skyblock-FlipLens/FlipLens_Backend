@@ -134,8 +134,8 @@ public class MarketSnapshotPersistenceService {
                     objectMapper.writeValueAsString(snapshot.auctions()),
                     objectMapper.writeValueAsString(snapshot.bazaarProducts())
             );
-            MarketSnapshotEntity saved = blockingTimeTracker.record("db.marketSnapshot.save", "db", () -> marketSnapshotRepository.save(entity));
-            return toDomain(toPayload(saved));
+            blockingTimeTracker.record("db.marketSnapshot.save", "db", () -> marketSnapshotRepository.save(entity));
+            return snapshot;
         } catch (JacksonException e) {
             throw new IllegalStateException("Failed to serialize market snapshot for persistence.", e);
         }
