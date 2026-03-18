@@ -241,6 +241,7 @@ instrumentation:
     output:
       enabled: ${INSTRUMENTATION_REQUEST_TIMINGS_OUTPUT_ENABLED:true}
       file: ${INSTRUMENTATION_REQUEST_TIMINGS_OUTPUT_FILE:var/profiling/diagnostics/request-timings.jsonl}
+      max-history-lines: ${INSTRUMENTATION_REQUEST_TIMINGS_OUTPUT_MAX_HISTORY_LINES:1440}
   jfr:
     enabled: ${INSTRUMENTATION_JFR_ENABLED:true}
     output-dir: ${INSTRUMENTATION_JFR_OUTPUT_DIR:var/profiling/jfr}

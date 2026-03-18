@@ -5,7 +5,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
-import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -61,6 +61,7 @@ class RequestTimingDiagnosticsServiceTest {
     void readRecentSnapshotsReturnsNewestJsonlEntries() throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         RequestTimingDiagnosticsProperties properties = new RequestTimingDiagnosticsProperties();
+        ObjectMapper objectMapper = new ObjectMapper();
         Path tempFile = Files.createTempDirectory("request-timing-diagnostics-test")
                 .resolve("nested")
                 .resolve("request-timings.jsonl");
@@ -72,32 +73,46 @@ class RequestTimingDiagnosticsServiceTest {
                 registry,
                 properties,
                 new CompactionReadinessProperties(),
-                new ObjectMapper()
+                objectMapper
         );
 
-        invokePrivateWrite(
-                service,
-                "{\"timestampUtc\":\"2026-03-18T11:00:00Z\",\"readinessP95ThresholdMs\":250.0,\"totalRoutes\":1,\"routesOverReadinessThreshold\":1,\"routes\":[],\"errors\":[]}"
+        List<RequestTimingDiagnosticsDto.Snapshot> storedSnapshots = List.of(
+                new RequestTimingDiagnosticsDto.Snapshot(
+                        Instant.parse("2026-03-18T11:00:00Z"),
+                        250.0D,
+                        1,
+                        1,
+                        List.of(),
+                        List.of()
+                ),
+                new RequestTimingDiagnosticsDto.Snapshot(
+                        Instant.parse("2026-03-18T11:01:00Z"),
+                        250.0D,
+                        2,
+                        1,
+                        List.of(),
+                        List.of()
+                ),
+                new RequestTimingDiagnosticsDto.Snapshot(
+                        Instant.parse("2026-03-18T11:02:00Z"),
+                        250.0D,
+                        3,
+                        2,
+                        List.of(),
+                        List.of()
+                )
         );
-        invokePrivateWrite(
-                service,
-                "{\"timestampUtc\":\"2026-03-18T11:01:00Z\",\"readinessP95ThresholdMs\":250.0,\"totalRoutes\":2,\"routesOverReadinessThreshold\":1,\"routes\":[],\"errors\":[]}"
-        );
-        invokePrivateWrite(
-                service,
-                "{\"timestampUtc\":\"2026-03-18T11:02:00Z\",\"readinessP95ThresholdMs\":250.0,\"totalRoutes\":3,\"routesOverReadinessThreshold\":2,\"routes\":[],\"errors\":[]}"
-        );
+        Files.createDirectories(tempFile.getParent());
+        StringBuilder content = new StringBuilder();
+        for (RequestTimingDiagnosticsDto.Snapshot storedSnapshot : storedSnapshots) {
+            content.append(objectMapper.writeValueAsString(storedSnapshot)).append(System.lineSeparator());
+        }
+        Files.writeString(tempFile, content.toString(), StandardCharsets.UTF_8);
 
         List<RequestTimingDiagnosticsDto.Snapshot> history = service.readRecentSnapshots(10);
 
         assertEquals(2, history.size());
         assertEquals(Instant.parse("2026-03-18T11:01:00Z"), history.get(0).timestampUtc());
         assertEquals(Instant.parse("2026-03-18T11:02:00Z"), history.get(1).timestampUtc());
-    }
-
-    private void invokePrivateWrite(RequestTimingDiagnosticsService service, String serializedSnapshot) throws Exception {
-        Method method = RequestTimingDiagnosticsService.class.getDeclaredMethod("writeSnapshotToFile", String.class);
-        method.setAccessible(true);
-        method.invoke(service, serializedSnapshot);
     }
 }

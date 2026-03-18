@@ -19,20 +19,15 @@ public class RequestTimingDiagnosticsEndpoint {
     private final RequestTimingDiagnosticsProperties properties;
 
     @ReadOperation
-    public Object requestTimings(Integer historyLimit) {
-        if (historyLimit == null) {
-            RequestTimingDiagnosticsDto.Snapshot snapshot = diagnosticsService.getLastSnapshot();
-            if (snapshot == null) {
-                return baseResponse("NO_DATA");
-            }
-            return snapshot;
+    public Map<String, Object> requestTimings(Integer historyLimit) {
+        RequestTimingDiagnosticsDto.Snapshot latest = diagnosticsService.getLastSnapshot();
+        Map<String, Object> response = baseResponse(latest == null ? "NO_DATA" : "OK");
+        response.put("latest", latest);
+        if (historyLimit != null) {
+            int sanitizedLimit = sanitizeHistoryLimit(historyLimit);
+            response.put("historyLimit", sanitizedLimit);
+            response.put("history", diagnosticsService.readRecentSnapshots(sanitizedLimit));
         }
-
-        int sanitizedLimit = Math.min(Math.max(1, properties.getHistoryReadLimitMax()), Math.max(1, historyLimit));
-        Map<String, Object> response = baseResponse("OK");
-        response.put("historyLimit", sanitizedLimit);
-        response.put("latest", diagnosticsService.getLastSnapshot());
-        response.put("history", diagnosticsService.readRecentSnapshots(sanitizedLimit));
         return response;
     }
 
@@ -44,5 +39,9 @@ public class RequestTimingDiagnosticsEndpoint {
         response.put("outputFile", properties.getOutput().getFile() == null ? null : properties.getOutput().getFile().toString());
         response.put("historyReadLimitMax", Math.max(1, properties.getHistoryReadLimitMax()));
         return response;
+    }
+
+    private int sanitizeHistoryLimit(int historyLimit) {
+        return Math.min(Math.max(1, properties.getHistoryReadLimitMax()), Math.max(1, historyLimit));
     }
 }

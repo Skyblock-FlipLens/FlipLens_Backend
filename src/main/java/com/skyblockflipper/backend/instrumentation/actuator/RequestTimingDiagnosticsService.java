@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -27,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 @Component
 @Profile("!compactor")
@@ -96,10 +98,17 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
         }
         int sanitizedLimit = sanitizeHistoryLimit(limit);
         try {
-            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-            int fromIndex = Math.max(0, lines.size() - sanitizedLimit);
+            ArrayDeque<String> recentLines = new ArrayDeque<>(sanitizedLimit);
+            try (Stream<String> lines = Files.lines(file, StandardCharsets.UTF_8)) {
+                lines.forEachOrdered(line -> {
+                    if (recentLines.size() == sanitizedLimit) {
+                        recentLines.removeFirst();
+                    }
+                    recentLines.addLast(line);
+                });
+            }
             List<RequestTimingDiagnosticsDto.Snapshot> snapshots = new ArrayList<>();
-            for (String line : lines.subList(fromIndex, lines.size())) {
+            for (String line : recentLines) {
                 String trimmed = line == null ? "" : line.trim();
                 if (trimmed.isEmpty()) {
                     continue;
@@ -207,6 +216,7 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
+            rotateOrTruncateHistoryFile(file);
             Files.writeString(
                     file,
                     serializedSnapshot + System.lineSeparator(),
@@ -220,6 +230,44 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
                     summarize(exception),
                     exception);
         }
+    }
+
+    private void rotateOrTruncateHistoryFile(Path file) throws Exception {
+        if (!Files.exists(file)) {
+            return;
+        }
+
+        int maxHistoryLines = properties.getOutput().getMaxHistoryLines();
+        int retainedLinesBeforeAppend = Math.max(0, maxHistoryLines - 1);
+        ArrayDeque<String> retained = new ArrayDeque<>(Math.max(1, retainedLinesBeforeAppend));
+        long[] totalLines = {0L};
+        try (Stream<String> lines = Files.lines(file, StandardCharsets.UTF_8)) {
+            lines.forEachOrdered(line -> {
+                totalLines[0]++;
+                if (retainedLinesBeforeAppend > 0) {
+                    if (retained.size() == retainedLinesBeforeAppend) {
+                        retained.removeFirst();
+                    }
+                    retained.addLast(line);
+                }
+            });
+        }
+
+        if (totalLines[0] < maxHistoryLines) {
+            return;
+        }
+
+        StringBuilder truncatedContent = new StringBuilder();
+        for (String line : retained) {
+            truncatedContent.append(line).append(System.lineSeparator());
+        }
+        Files.writeString(
+                file,
+                truncatedContent.toString(),
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
     }
 
     private int sanitizeHistoryLimit(int limit) {

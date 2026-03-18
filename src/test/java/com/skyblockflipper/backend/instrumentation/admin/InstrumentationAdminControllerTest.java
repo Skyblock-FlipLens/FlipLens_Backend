@@ -179,6 +179,7 @@ class InstrumentationAdminControllerTest {
 
         Map<String, Object> result = controller.latestReport(request);
 
+        verify(adminAccessGuard, times(1)).validate(request);
         assertEquals(primary, result);  // Should return primary when fallback also fails
     }
 
@@ -227,6 +228,7 @@ class InstrumentationAdminControllerTest {
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> controller.appLog(request, 200));
 
+        verify(adminAccessGuard, times(1)).validate(request);
         assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
     }
 }
