@@ -4,6 +4,7 @@ import com.skyblockflipper.backend.instrumentation.InstrumentationProperties;
 import com.skyblockflipper.backend.instrumentation.JfrBlockingReportService;
 import com.skyblockflipper.backend.instrumentation.JfrRecordingManager;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,6 +28,7 @@ class InstrumentationAdminControllerTest {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
         Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-test.jfr");
         when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
@@ -34,6 +36,7 @@ class InstrumentationAdminControllerTest {
                 adminAccessGuard,
                 jfrRecordingManager,
                 reportService,
+                applicationLogFileService,
                 properties
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -51,6 +54,7 @@ class InstrumentationAdminControllerTest {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
         Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
         Map<String, Object> summary = Map.of("status", "ok");
@@ -60,6 +64,7 @@ class InstrumentationAdminControllerTest {
                 adminAccessGuard,
                 jfrRecordingManager,
                 reportService,
+                applicationLogFileService,
                 properties
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -76,6 +81,7 @@ class InstrumentationAdminControllerTest {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
         Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
         Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-1.jfr");
@@ -89,6 +95,7 @@ class InstrumentationAdminControllerTest {
                 adminAccessGuard,
                 jfrRecordingManager,
                 reportService,
+                applicationLogFileService,
                 properties
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -108,12 +115,14 @@ class InstrumentationAdminControllerTest {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
         properties.getAsyncProfiler().setEnabled(false);
         InstrumentationAdminController controller = new InstrumentationAdminController(
                 adminAccessGuard,
                 jfrRecordingManager,
                 reportService,
+                applicationLogFileService,
                 properties
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -129,6 +138,7 @@ class InstrumentationAdminControllerTest {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
         properties.getAsyncProfiler().setEnabled(true);
         properties.getAsyncProfiler().setOutputDir(Files.createTempDirectory("async-profiler-test"));
@@ -137,6 +147,7 @@ class InstrumentationAdminControllerTest {
                 adminAccessGuard,
                 jfrRecordingManager,
                 reportService,
+                applicationLogFileService,
                 properties
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -152,6 +163,7 @@ class InstrumentationAdminControllerTest {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
         Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
         Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-1.jfr");
@@ -162,11 +174,59 @@ class InstrumentationAdminControllerTest {
         when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
         when(reportService.summarize(snapshotPath)).thenReturn(fallbackError);
         InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard, jfrRecordingManager, reportService, properties);
+                adminAccessGuard, jfrRecordingManager, reportService, applicationLogFileService, properties);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
         Map<String, Object> result = controller.latestReport(request);
 
         assertEquals(primary, result);  // Should return primary when fallback also fails
+    }
+
+    @Test
+    void appLogReturnsPlainTextTailAndHeaders() {
+        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
+        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
+        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
+        InstrumentationProperties properties = new InstrumentationProperties();
+        Path logFile = Path.of("var", "log", "application.log");
+        when(applicationLogFileService.readTail(150)).thenReturn(new ApplicationLogFileService.ApplicationLogTail(
+                true,
+                logFile,
+                1234L,
+                java.time.Instant.parse("2026-03-18T12:00:00Z"),
+                false,
+                150,
+                "line-1\nline-2",
+                null
+        ));
+        InstrumentationAdminController controller = new InstrumentationAdminController(
+                adminAccessGuard, jfrRecordingManager, reportService, applicationLogFileService, properties);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        ResponseEntity<String> response = controller.appLog(request, 150);
+
+        verify(adminAccessGuard).validate(request);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("line-1\nline-2", response.getBody());
+        assertEquals(logFile.toString(), response.getHeaders().getFirst("X-Log-File-Path"));
+        assertEquals("150", response.getHeaders().getFirst("X-Log-Line-Limit"));
+    }
+
+    @Test
+    void appLogReturnsNotFoundWhenUnavailable() {
+        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
+        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
+        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
+        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
+        InstrumentationProperties properties = new InstrumentationProperties();
+        when(applicationLogFileService.readTail(200)).thenReturn(ApplicationLogFileService.ApplicationLogTail.unavailable("log_file_missing"));
+        InstrumentationAdminController controller = new InstrumentationAdminController(
+                adminAccessGuard, jfrRecordingManager, reportService, applicationLogFileService, properties);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> controller.appLog(request, 200));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
     }
 }
