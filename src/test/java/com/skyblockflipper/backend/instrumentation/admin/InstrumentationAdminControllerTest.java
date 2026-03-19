@@ -23,15 +23,12 @@ import static org.mockito.Mockito.when;
 
 class InstrumentationAdminControllerTest {
 
-    @Test
-    void dumpSnapshotDelegatesToRecordingManager() {
+    private TestFixture createFixture() {
         AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
         JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
         JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
         ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
         InstrumentationProperties properties = new InstrumentationProperties();
-        Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-test.jfr");
-        when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
         InstrumentationAdminController controller = new InstrumentationAdminController(
                 adminAccessGuard,
                 jfrRecordingManager,
@@ -39,159 +36,120 @@ class InstrumentationAdminControllerTest {
                 applicationLogFileService,
                 properties
         );
+        return new TestFixture(
+                adminAccessGuard,
+                jfrRecordingManager,
+                reportService,
+                applicationLogFileService,
+                properties,
+                controller
+        );
+    }
+
+    @Test
+    void dumpSnapshotDelegatesToRecordingManager() {
+        TestFixture fixture = createFixture();
+        Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-test.jfr");
+        when(fixture.jfrRecordingManager().dumpSnapshot()).thenReturn(snapshotPath);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        Map<String, Object> result = controller.dumpSnapshot(request);
+        Map<String, Object> result = fixture.controller().dumpSnapshot(request);
 
-        verify(adminAccessGuard, times(1)).validate(request);
-        verify(jfrRecordingManager, times(1)).dumpSnapshot();
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
+        verify(fixture.jfrRecordingManager(), times(1)).dumpSnapshot();
         assertEquals(snapshotPath.toString(), result.get("snapshot"));
         assertNotNull(result.get("createdAt"));
     }
 
     @Test
     void latestReportDelegatesToReportService() {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
+        TestFixture fixture = createFixture();
         Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
         Map<String, Object> summary = Map.of("status", "ok");
-        when(jfrRecordingManager.latestRecordingFile()).thenReturn(latestPath);
-        when(reportService.summarize(latestPath)).thenReturn(summary);
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard,
-                jfrRecordingManager,
-                reportService,
-                applicationLogFileService,
-                properties
-        );
+        when(fixture.jfrRecordingManager().latestRecordingFile()).thenReturn(latestPath);
+        when(fixture.reportService().summarize(latestPath)).thenReturn(summary);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        Map<String, Object> result = controller.latestReport(request);
+        Map<String, Object> result = fixture.controller().latestReport(request);
 
-        verify(adminAccessGuard, times(1)).validate(request);
-        verify(reportService, times(1)).summarize(latestPath);
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
+        verify(fixture.reportService(), times(1)).summarize(latestPath);
         assertEquals(summary, result);
     }
 
     @Test
     void latestReportFallsBackToSnapshotWhenLatestParseFails() {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
+        TestFixture fixture = createFixture();
         Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
         Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-1.jfr");
         Map<String, Object> first = Map.of("error", "Failed to parse JFR: Not a Flight Recorder file");
         Map<String, Object> fallback = Map.of("status", "ok");
-        when(jfrRecordingManager.latestRecordingFile()).thenReturn(latestPath);
-        when(reportService.summarize(latestPath)).thenReturn(first);
-        when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
-        when(reportService.summarize(snapshotPath)).thenReturn(fallback);
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard,
-                jfrRecordingManager,
-                reportService,
-                applicationLogFileService,
-                properties
-        );
+        when(fixture.jfrRecordingManager().latestRecordingFile()).thenReturn(latestPath);
+        when(fixture.reportService().summarize(latestPath)).thenReturn(first);
+        when(fixture.jfrRecordingManager().dumpSnapshot()).thenReturn(snapshotPath);
+        when(fixture.reportService().summarize(snapshotPath)).thenReturn(fallback);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        Map<String, Object> result = controller.latestReport(request);
+        Map<String, Object> result = fixture.controller().latestReport(request);
 
-        verify(adminAccessGuard, times(1)).validate(request);
-        verify(jfrRecordingManager, times(1)).latestRecordingFile();
-        verify(jfrRecordingManager, times(1)).dumpSnapshot();
-        verify(reportService, times(1)).summarize(latestPath);
-        verify(reportService, times(1)).summarize(snapshotPath);
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
+        verify(fixture.jfrRecordingManager(), times(1)).latestRecordingFile();
+        verify(fixture.jfrRecordingManager(), times(1)).dumpSnapshot();
+        verify(fixture.reportService(), times(1)).summarize(latestPath);
+        verify(fixture.reportService(), times(1)).summarize(snapshotPath);
         assertEquals(fallback, result);
     }
 
     @Test
     void runAsyncProfilerReturnsNotFoundWhenDisabled() {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
-        properties.getAsyncProfiler().setEnabled(false);
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard,
-                jfrRecordingManager,
-                reportService,
-                applicationLogFileService,
-                properties
-        );
+        TestFixture fixture = createFixture();
+        fixture.properties().getAsyncProfiler().setEnabled(false);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> controller.runAsyncProfiler(request));
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> fixture.controller().runAsyncProfiler(request));
 
-        verify(adminAccessGuard, times(1)).validate(request);
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
         assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
     }
 
     @Test
     void runAsyncProfilerReturnsServerErrorWhenScriptCannotStart() throws Exception {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
-        properties.getAsyncProfiler().setEnabled(true);
-        properties.getAsyncProfiler().setOutputDir(Files.createTempDirectory("async-profiler-test"));
-        properties.getAsyncProfiler().setScriptPath("this-command-does-not-exist-xyz");
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard,
-                jfrRecordingManager,
-                reportService,
-                applicationLogFileService,
-                properties
-        );
+        TestFixture fixture = createFixture();
+        fixture.properties().getAsyncProfiler().setEnabled(true);
+        fixture.properties().getAsyncProfiler().setOutputDir(Files.createTempDirectory("async-profiler-test"));
+        fixture.properties().getAsyncProfiler().setScriptPath("this-command-does-not-exist-xyz");
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> controller.runAsyncProfiler(request));
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> fixture.controller().runAsyncProfiler(request));
 
-        verify(adminAccessGuard, times(1)).validate(request);
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
     }
 
     @Test
     void latestReportReturnsPrimaryWhenFallbackAlsoFails() {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
+        TestFixture fixture = createFixture();
         Path latestPath = Path.of("var", "profiling", "jfr", "continuous.jfr");
         Path snapshotPath = Path.of("var", "profiling", "jfr", "snapshot-1.jfr");
         Map<String, Object> primary = Map.of("error", "Primary parse failed");
         Map<String, Object> fallbackError = Map.of("error", "Fallback also failed");
-        when(jfrRecordingManager.latestRecordingFile()).thenReturn(latestPath);
-        when(reportService.summarize(latestPath)).thenReturn(primary);
-        when(jfrRecordingManager.dumpSnapshot()).thenReturn(snapshotPath);
-        when(reportService.summarize(snapshotPath)).thenReturn(fallbackError);
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard, jfrRecordingManager, reportService, applicationLogFileService, properties);
+        when(fixture.jfrRecordingManager().latestRecordingFile()).thenReturn(latestPath);
+        when(fixture.reportService().summarize(latestPath)).thenReturn(primary);
+        when(fixture.jfrRecordingManager().dumpSnapshot()).thenReturn(snapshotPath);
+        when(fixture.reportService().summarize(snapshotPath)).thenReturn(fallbackError);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        Map<String, Object> result = controller.latestReport(request);
+        Map<String, Object> result = fixture.controller().latestReport(request);
 
-        verify(adminAccessGuard, times(1)).validate(request);
-        assertEquals(primary, result);  // Should return primary when fallback also fails
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
+        assertEquals(primary, result);
     }
 
     @Test
     void appLogReturnsPlainTextTailAndHeaders() {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
+        TestFixture fixture = createFixture();
         Path logFile = Path.of("var", "log", "application.log");
-        when(applicationLogFileService.readTail(150)).thenReturn(new ApplicationLogFileService.ApplicationLogTail(
+        when(fixture.applicationLogFileService().readTail(150)).thenReturn(new ApplicationLogFileService.ApplicationLogTail(
                 true,
                 logFile,
                 1234L,
@@ -201,13 +159,11 @@ class InstrumentationAdminControllerTest {
                 "line-1\nline-2",
                 null
         ));
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard, jfrRecordingManager, reportService, applicationLogFileService, properties);
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        ResponseEntity<String> response = controller.appLog(request, 150);
+        ResponseEntity<String> response = fixture.controller().appLog(request, 150);
 
-        verify(adminAccessGuard).validate(request);
+        verify(fixture.adminAccessGuard()).validate(request);
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("line-1\nline-2", response.getBody());
         assertEquals(logFile.toString(), response.getHeaders().getFirst("X-Log-File-Path"));
@@ -216,19 +172,23 @@ class InstrumentationAdminControllerTest {
 
     @Test
     void appLogReturnsNotFoundWhenUnavailable() {
-        AdminAccessGuard adminAccessGuard = mock(AdminAccessGuard.class);
-        JfrRecordingManager jfrRecordingManager = mock(JfrRecordingManager.class);
-        JfrBlockingReportService reportService = mock(JfrBlockingReportService.class);
-        ApplicationLogFileService applicationLogFileService = mock(ApplicationLogFileService.class);
-        InstrumentationProperties properties = new InstrumentationProperties();
-        when(applicationLogFileService.readTail(200)).thenReturn(ApplicationLogFileService.ApplicationLogTail.unavailable("log_file_missing"));
-        InstrumentationAdminController controller = new InstrumentationAdminController(
-                adminAccessGuard, jfrRecordingManager, reportService, applicationLogFileService, properties);
+        TestFixture fixture = createFixture();
+        when(fixture.applicationLogFileService().readTail(200)).thenReturn(ApplicationLogFileService.ApplicationLogTail.unavailable("log_file_missing"));
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> controller.appLog(request, 200));
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> fixture.controller().appLog(request, 200));
 
-        verify(adminAccessGuard, times(1)).validate(request);
+        verify(fixture.adminAccessGuard(), times(1)).validate(request);
         assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+    }
+
+    private record TestFixture(
+            AdminAccessGuard adminAccessGuard,
+            JfrRecordingManager jfrRecordingManager,
+            JfrBlockingReportService reportService,
+            ApplicationLogFileService applicationLogFileService,
+            InstrumentationProperties properties,
+            InstrumentationAdminController controller
+    ) {
     }
 }

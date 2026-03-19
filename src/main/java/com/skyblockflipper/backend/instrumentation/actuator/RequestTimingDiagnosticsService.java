@@ -60,7 +60,7 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
             thread.setDaemon(true);
             return thread;
         });
-        long intervalMillis = Math.max(1_000L, properties.getInterval().toMillis());
+        long intervalMillis = Math.max(1L, properties.getInterval().toMillis());
         scheduler.scheduleWithFixedDelay(this::runCollectionSafely, 0L, intervalMillis, TimeUnit.MILLISECONDS);
         log.info("Request timing diagnostics started (intervalMs={}, fileOutputEnabled={})",
                 intervalMillis,
@@ -108,12 +108,23 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
                 });
             }
             List<RequestTimingDiagnosticsDto.Snapshot> snapshots = new ArrayList<>();
+            int lineIndex = 0;
             for (String line : recentLines) {
+                lineIndex++;
                 String trimmed = line == null ? "" : line.trim();
                 if (trimmed.isEmpty()) {
                     continue;
                 }
-                snapshots.add(objectMapper.readValue(trimmed, RequestTimingDiagnosticsDto.Snapshot.class));
+                try {
+                    snapshots.add(objectMapper.readValue(trimmed, RequestTimingDiagnosticsDto.Snapshot.class));
+                } catch (Exception exception) {
+                    log.warn("Skipping malformed request timing history line {} in {}: {} line={}",
+                            lineIndex,
+                            file,
+                            summarize(exception),
+                            summarizeLine(trimmed));
+                    log.debug("Malformed request timing history line {} in {}", lineIndex, file, exception);
+                }
             }
             return snapshots;
         } catch (Exception exception) {
@@ -315,6 +326,13 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
             return exception.getClass().getSimpleName();
         }
         return message.length() > 160 ? message.substring(0, 160) : message;
+    }
+
+    private String summarizeLine(String line) {
+        if (line == null || line.isBlank()) {
+            return "<blank>";
+        }
+        return line.length() > 200 ? line.substring(0, 200) + "..." : line;
     }
 
     private final class RouteAccumulator {

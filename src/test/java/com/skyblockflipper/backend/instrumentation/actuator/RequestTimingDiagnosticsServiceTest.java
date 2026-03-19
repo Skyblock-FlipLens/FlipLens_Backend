@@ -115,4 +115,55 @@ class RequestTimingDiagnosticsServiceTest {
         assertEquals(Instant.parse("2026-03-18T11:01:00Z"), history.get(0).timestampUtc());
         assertEquals(Instant.parse("2026-03-18T11:02:00Z"), history.get(1).timestampUtc());
     }
+
+    @Test
+    void readRecentSnapshotsSkipsMalformedJsonlLines() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RequestTimingDiagnosticsProperties properties = new RequestTimingDiagnosticsProperties();
+        ObjectMapper objectMapper = new ObjectMapper();
+        Path tempFile = Files.createTempDirectory("request-timing-diagnostics-malformed-test")
+                .resolve("nested")
+                .resolve("request-timings.jsonl");
+        properties.getOutput().setEnabled(true);
+        properties.getOutput().setFile(tempFile);
+        properties.setHistoryReadLimitMax(5);
+
+        RequestTimingDiagnosticsService service = new RequestTimingDiagnosticsService(
+                registry,
+                properties,
+                new CompactionReadinessProperties(),
+                objectMapper
+        );
+
+        RequestTimingDiagnosticsDto.Snapshot firstSnapshot = new RequestTimingDiagnosticsDto.Snapshot(
+                Instant.parse("2026-03-18T11:00:00Z"),
+                250.0D,
+                1,
+                0,
+                List.of(),
+                List.of()
+        );
+        RequestTimingDiagnosticsDto.Snapshot secondSnapshot = new RequestTimingDiagnosticsDto.Snapshot(
+                Instant.parse("2026-03-18T11:02:00Z"),
+                250.0D,
+                3,
+                1,
+                List.of(),
+                List.of()
+        );
+        Files.createDirectories(tempFile.getParent());
+        String content = objectMapper.writeValueAsString(firstSnapshot)
+                + System.lineSeparator()
+                + "{not-json"
+                + System.lineSeparator()
+                + objectMapper.writeValueAsString(secondSnapshot)
+                + System.lineSeparator();
+        Files.writeString(tempFile, content, StandardCharsets.UTF_8);
+
+        List<RequestTimingDiagnosticsDto.Snapshot> history = service.readRecentSnapshots(10);
+
+        assertEquals(2, history.size());
+        assertEquals(Instant.parse("2026-03-18T11:00:00Z"), history.get(0).timestampUtc());
+        assertEquals(Instant.parse("2026-03-18T11:02:00Z"), history.get(1).timestampUtc());
+    }
 }
