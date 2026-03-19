@@ -27,6 +27,7 @@ import java.util.TreeSet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
@@ -41,6 +42,8 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
     private final CompactionReadinessProperties readinessProperties;
     private final ObjectMapper objectMapper;
     private final AtomicReference<RequestTimingDiagnosticsDto.Snapshot> lastSnapshot = new AtomicReference<>();
+    private final AtomicLong historyLineCount = new AtomicLong(-1L);
+    private final Object historyFileLock = new Object();
 
     private volatile boolean running;
     private ScheduledExecutorService scheduler;
@@ -60,6 +63,7 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
             thread.setDaemon(true);
             return thread;
         });
+        initializeHistoryFileState();
         long intervalMillis = Math.max(1L, properties.getInterval().toMillis());
         scheduler.scheduleWithFixedDelay(this::runCollectionSafely, 0L, intervalMillis, TimeUnit.MILLISECONDS);
         log.info("Request timing diagnostics started (intervalMs={}, fileOutputEnabled={})",
@@ -74,6 +78,7 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
             scheduler.shutdownNow();
             scheduler = null;
         }
+        historyLineCount.set(-1L);
         log.info("Request timing diagnostics stopped");
     }
 
@@ -227,14 +232,18 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            rotateOrTruncateHistoryFile(file);
-            Files.writeString(
-                    file,
-                    serializedSnapshot + System.lineSeparator(),
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND
-            );
+            synchronized (historyFileLock) {
+                initializeHistoryLineCountIfNeeded(file);
+                rotateOrTruncateHistoryFile(file);
+                Files.writeString(
+                        file,
+                        serializedSnapshot + System.lineSeparator(),
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+                historyLineCount.incrementAndGet();
+            }
         } catch (Exception exception) {
             log.warn("Failed to append request timing diagnostics snapshot to {}: {}",
                     file,
@@ -245,10 +254,19 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
 
     private void rotateOrTruncateHistoryFile(Path file) throws Exception {
         if (!Files.exists(file)) {
+            historyLineCount.set(0L);
             return;
         }
 
+        long knownLineCount = historyLineCount.get();
         int maxHistoryLines = properties.getOutput().getMaxHistoryLines();
+        if (knownLineCount >= 0L && knownLineCount < maxHistoryLines) {
+            return;
+        }
+        if (Files.size(file) == 0L) {
+            historyLineCount.set(0L);
+            return;
+        }
         int retainedLinesBeforeAppend = Math.max(0, maxHistoryLines - 1);
         ArrayDeque<String> retained = new ArrayDeque<>(Math.max(1, retainedLinesBeforeAppend));
         long[] totalLines = {0L};
@@ -263,6 +281,7 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
                 }
             });
         }
+        historyLineCount.set(totalLines[0]);
 
         if (totalLines[0] < maxHistoryLines) {
             return;
@@ -279,6 +298,46 @@ public class RequestTimingDiagnosticsService implements SmartLifecycle {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
+        historyLineCount.set(retained.size());
+    }
+
+    private void initializeHistoryFileState() {
+        if (!properties.getOutput().isEnabled()) {
+            historyLineCount.set(0L);
+            return;
+        }
+        Path file = properties.getOutput().getFile();
+        if (file == null) {
+            historyLineCount.set(0L);
+            return;
+        }
+        synchronized (historyFileLock) {
+            try {
+                historyLineCount.set(scanHistoryLineCount(file));
+            } catch (Exception exception) {
+                historyLineCount.set(-1L);
+                log.warn("Failed to initialize request timing history line count from {}: {}",
+                        file,
+                        summarize(exception),
+                        exception);
+            }
+        }
+    }
+
+    private void initializeHistoryLineCountIfNeeded(Path file) throws Exception {
+        if (historyLineCount.get() >= 0L) {
+            return;
+        }
+        historyLineCount.set(scanHistoryLineCount(file));
+    }
+
+    private long scanHistoryLineCount(Path file) throws Exception {
+        if (file == null || !Files.exists(file)) {
+            return 0L;
+        }
+        try (Stream<String> lines = Files.lines(file, StandardCharsets.UTF_8)) {
+            return lines.count();
+        }
     }
 
     private int sanitizeHistoryLimit(int limit) {

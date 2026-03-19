@@ -3,6 +3,7 @@ package com.skyblockflipper.backend.instrumentation.actuator;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -58,13 +59,11 @@ class RequestTimingDiagnosticsServiceTest {
     }
 
     @Test
-    void readRecentSnapshotsReturnsNewestJsonlEntries() throws Exception {
+    void readRecentSnapshotsReturnsNewestJsonlEntries(@TempDir Path tempDir) throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         RequestTimingDiagnosticsProperties properties = new RequestTimingDiagnosticsProperties();
         ObjectMapper objectMapper = new ObjectMapper();
-        Path tempFile = Files.createTempDirectory("request-timing-diagnostics-test")
-                .resolve("nested")
-                .resolve("request-timings.jsonl");
+        Path tempFile = tempDir.resolve("nested").resolve("request-timings.jsonl");
         properties.getOutput().setEnabled(true);
         properties.getOutput().setFile(tempFile);
         properties.setHistoryReadLimitMax(2);
@@ -117,13 +116,11 @@ class RequestTimingDiagnosticsServiceTest {
     }
 
     @Test
-    void readRecentSnapshotsSkipsMalformedJsonlLines() throws Exception {
+    void readRecentSnapshotsSkipsMalformedJsonlLines(@TempDir Path tempDir) throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         RequestTimingDiagnosticsProperties properties = new RequestTimingDiagnosticsProperties();
         ObjectMapper objectMapper = new ObjectMapper();
-        Path tempFile = Files.createTempDirectory("request-timing-diagnostics-malformed-test")
-                .resolve("nested")
-                .resolve("request-timings.jsonl");
+        Path tempFile = tempDir.resolve("nested").resolve("request-timings.jsonl");
         properties.getOutput().setEnabled(true);
         properties.getOutput().setFile(tempFile);
         properties.setHistoryReadLimitMax(5);
