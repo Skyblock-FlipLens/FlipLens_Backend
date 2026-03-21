@@ -6,9 +6,13 @@ import com.skyblockflipper.backend.instrumentation.JfrRecordingManager;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,6 +36,7 @@ public class InstrumentationAdminController {
     private final AdminAccessGuard adminAccessGuard;
     private final JfrRecordingManager jfrRecordingManager;
     private final JfrBlockingReportService jfrBlockingReportService;
+    private final ApplicationLogFileService applicationLogFileService;
     private final InstrumentationProperties properties;
 
     @PostMapping("/jfr/snapshot")
@@ -60,6 +65,27 @@ public class InstrumentationAdminController {
             log.error("Fallback snapshot dump/parse also failed: {}", Arrays.toString(ex.getStackTrace()));
         }
         return primary;
+    }
+
+    @GetMapping(value = "/logs/app", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> appLog(HttpServletRequest request,
+                                         @RequestParam(name = "lines", defaultValue = "200") int lines) {
+        adminAccessGuard.validate(request);
+        ApplicationLogFileService.ApplicationLogTail tail = applicationLogFileService.readTail(lines);
+        if (!tail.available()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, tail.error());
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType("text", "plain", java.nio.charset.StandardCharsets.UTF_8));
+        headers.add("X-Log-File-Path", tail.file() == null ? "" : tail.file().toString());
+        headers.add("X-Log-File-Size-Bytes", tail.sizeBytes() == null ? "0" : Long.toString(tail.sizeBytes()));
+        headers.add("X-Log-File-Truncated", Boolean.toString(tail.truncatedToRecentBytes()));
+        headers.add("X-Log-Line-Limit", tail.lineLimit() == null ? "0" : Integer.toString(tail.lineLimit()));
+        if (tail.lastModifiedUtc() != null) {
+            headers.add("X-Log-Last-Modified-Utc", tail.lastModifiedUtc().toString());
+        }
+        return new ResponseEntity<>(tail.content(), headers, HttpStatus.OK);
     }
 
     @PostMapping("/async-profiler/run")

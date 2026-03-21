@@ -22,6 +22,10 @@ spring:
 server:
   port: ${SERVER_PORT:1880}
 
+logging:
+  file:
+    path: ${LOGGING_FILE_PATH:var/log}
+
 flipping:
   auction-model-v2-enabled: ${FLIPPING_AUCTION_MODEL_V2_ENABLED:true}
   selltime-model-enabled: ${FLIPPING_SELLTIME_MODEL_ENABLED:false}
@@ -221,7 +225,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,threaddump,prometheus,compactionReadiness,diagnostics
+        include: health,info,metrics,threaddump,prometheus,compactionReadiness,diagnostics,requestTimings
   metrics:
     distribution:
       percentiles-histogram:
@@ -230,6 +234,14 @@ management:
         http.server.requests: 0.95,0.99
 
 instrumentation:
+  request-timings:
+    enabled: ${INSTRUMENTATION_REQUEST_TIMINGS_ENABLED:true}
+    interval: ${INSTRUMENTATION_REQUEST_TIMINGS_INTERVAL:60s}
+    history-read-limit-max: ${INSTRUMENTATION_REQUEST_TIMINGS_HISTORY_READ_LIMIT_MAX:50}
+    output:
+      enabled: ${INSTRUMENTATION_REQUEST_TIMINGS_OUTPUT_ENABLED:true}
+      file: ${INSTRUMENTATION_REQUEST_TIMINGS_OUTPUT_FILE:var/profiling/diagnostics/request-timings.jsonl}
+      max-history-lines: ${INSTRUMENTATION_REQUEST_TIMINGS_OUTPUT_MAX_HISTORY_LINES:1440}
   jfr:
     enabled: ${INSTRUMENTATION_JFR_ENABLED:true}
     output-dir: ${INSTRUMENTATION_JFR_OUTPUT_DIR:var/profiling/jfr}
@@ -246,6 +258,11 @@ instrumentation:
     token: ${INSTRUMENTATION_ADMIN_TOKEN:}
     # Optional CIDR allow-list when local-only=true, e.g. same /24 subnet.
     allowed-subnets: ${INSTRUMENTATION_ADMIN_ALLOWED_SUBNETS:}
+  logs:
+    enabled: ${INSTRUMENTATION_LOGS_ENABLED:true}
+    file: ${INSTRUMENTATION_LOGS_FILE:}
+    max-lines: ${INSTRUMENTATION_LOGS_MAX_LINES:500}
+    max-read-bytes: ${INSTRUMENTATION_LOGS_MAX_READ_BYTES:1048576}
   async-profiler:
     enabled: ${INSTRUMENTATION_ASYNC_PROFILER_ENABLED:false}
     output-dir: ${INSTRUMENTATION_ASYNC_PROFILER_OUTPUT_DIR:var/profiling/async-profiler}

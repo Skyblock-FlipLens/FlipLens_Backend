@@ -34,6 +34,7 @@ import java.util.function.Supplier;
 public class FlipReadService {
 
     private static final int GOODNESS_PAGE_SIZE = 10;
+    private static final double ROI_PER_HOUR_SCORE_REFERENCE = 100D;
     private static final int GOODNESS_CACHE_MAX_ENTRIES = 8;
     private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
     private static final int LEGACY_READ_PAGE_SIZE = 500;
@@ -1404,7 +1405,15 @@ public class FlipReadService {
 
     private double roiPerHourScore(Double roiPerHour) {
         double value = Math.max(0D, nullableDouble(roiPerHour));
-        return 100D * (1D - Math.exp(-2D * value));
+        if (value <= 0D) {
+            return 0D;
+        }
+        if (value <= 1D) {
+            return 100D * (1D - Math.exp(-value));
+        }
+        double baselineAtOne = 100D * (1D - Math.exp(-1D));
+        double normalized = Math.log(value) / Math.log(ROI_PER_HOUR_SCORE_REFERENCE);
+        return clamp(baselineAtOne + ((100D - baselineAtOne) * normalized), 0D, 100D);
     }
 
     private double profitScore(Long expectedProfit) {

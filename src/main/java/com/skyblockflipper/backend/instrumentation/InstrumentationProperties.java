@@ -17,6 +17,7 @@ public class InstrumentationProperties {
     private final Jfr jfr = new Jfr();
     private final Blocking blocking = new Blocking();
     private final Admin admin = new Admin();
+    private final Logs logs = new Logs();
     private final AsyncProfiler asyncProfiler = new AsyncProfiler();
 
     @PostConstruct
@@ -56,6 +57,15 @@ public class InstrumentationProperties {
         private boolean localOnly = true;
         private String token = "";
         private List<String> allowedSubnets = List.of();
+    }
+
+    @Getter
+    @Setter
+    public static class Logs {
+        private boolean enabled = true;
+        private Path file;
+        private int maxLines = 500;
+        private long maxReadBytes = 1_048_576L;
     }
 
     @Getter
