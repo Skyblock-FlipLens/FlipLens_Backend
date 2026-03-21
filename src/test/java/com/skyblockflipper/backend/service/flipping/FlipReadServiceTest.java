@@ -561,6 +561,40 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsKeepsRealisticRoiPerHourValuesSeparated() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlipReadService service = new FlipReadService(flipRepository, mapper, contextService);
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip moderate = mock(Flip.class);
+        Flip strong = mock(Flip.class);
+        UUID moderateId = UUID.fromString("41414141-4141-4141-4141-414141414141");
+        UUID strongId = UUID.fromString("42424242-4242-4242-4242-424242424242");
+        when(moderate.getId()).thenReturn(moderateId);
+        when(strong.getId()).thenReturn(strongId);
+        stubLegacyPagedAll(flipRepository, List.of(moderateId, strongId), List.of(moderate, strong));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(moderate, context)).thenReturn(sampleGoodnessDto(
+                moderateId,
+                15.0D, 1_000_000L, 70.0D, 20.0D, false
+        ));
+        when(mapper.toDto(strong, context)).thenReturn(sampleGoodnessDto(
+                strongId,
+                35.0D, 1_000_000L, 70.0D, 20.0D, false
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(strongId, result.getContent().getFirst().flip().id());
+        assertTrue(result.getContent().get(0).breakdown().roiPerHourScore()
+                > result.getContent().get(1).breakdown().roiPerHourScore());
+    }
+
+    @Test
     void topGoodnessFlipsExcludesMissingInputPriceEntries() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
