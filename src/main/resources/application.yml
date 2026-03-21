@@ -225,7 +225,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,threaddump,prometheus,compactionReadiness,diagnostics,requestTimings
+        include: health,info,metrics,threaddump,prometheus,compactionReadiness,diagnostics,requestTimings,partitionDiagnostics
   metrics:
     distribution:
       percentiles-histogram:
