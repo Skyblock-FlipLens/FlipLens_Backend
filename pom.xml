@@ -32,7 +32,7 @@
 		<maven.compiler.target>21</maven.compiler.target>
 		<assertj.version>3.27.7</assertj.version>
 		<logback.version>1.5.25</logback.version>
-		<jackson.tools.version>3.1.0</jackson.tools.version>
+		<jackson.tools.version>3.1.1</jackson.tools.version>
 		<jackson.fasterxml.core>2.21.1</jackson.fasterxml.core>
 	</properties>
 	<dependencies>
