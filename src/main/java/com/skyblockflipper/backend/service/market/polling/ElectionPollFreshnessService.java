@@ -2,7 +2,9 @@ package com.skyblockflipper.backend.service.market.polling;
 
 import com.skyblockflipper.backend.hypixel.HypixelClient;
 import com.skyblockflipper.backend.model.DataSourceHash;
+import com.skyblockflipper.backend.model.ElectionSnapshot;
 import com.skyblockflipper.backend.repository.DataSourceHashRepository;
+import com.skyblockflipper.backend.repository.ElectionSnapshotRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -25,14 +27,17 @@ public class ElectionPollFreshnessService {
     private static final Duration DEFAULT_MAX_AGE = Duration.ofHours(124);
 
     private final DataSourceHashRepository dataSourceHashRepository;
+    private final ElectionSnapshotRepository electionSnapshotRepository;
     private final HypixelClient hypixelClient;
     private final long maxAgeMillis;
     private final Object lock = new Object();
 
     public ElectionPollFreshnessService(DataSourceHashRepository dataSourceHashRepository,
+                                        ElectionSnapshotRepository electionSnapshotRepository,
                                         HypixelClient hypixelClient,
                                         @Value("${config.hypixel.polling.election-max-age:PT124H}") Duration maxAge) {
         this.dataSourceHashRepository = dataSourceHashRepository;
+        this.electionSnapshotRepository = electionSnapshotRepository;
         this.hypixelClient = hypixelClient;
         this.maxAgeMillis = sanitizeDuration(maxAge, DEFAULT_MAX_AGE);
     }
@@ -41,15 +46,25 @@ public class ElectionPollFreshnessService {
         synchronized (lock) {
             Instant now = Instant.now();
             DataSourceHash existing = dataSourceHashRepository.findBySourceKey(ELECTION_POLL_SOURCE_KEY);
-            if (isRecent(existing, now)) {
-                return;
-            }
 
             JsonNode electionPayload = null;
             try {
                 electionPayload = hypixelClient.fetchElection();
             } catch (RuntimeException e) {
                 log.warn("Election poll refresh failed: {}", e.getMessage());
+            }
+
+            if (electionPayload != null) {
+                String hash = sha256(electionPayload.toString());
+                if (existing == null || !hash.equals(existing.getHash())) {
+                    electionSnapshotRepository.save(new ElectionSnapshot(now, hash, electionPayload.toString()));
+                }
+                upsertHash(existing, hash, now);
+                return;
+            }
+
+            if (isRecent(existing, now)) {
+                return;
             }
 
             String hash = resolveHash(existing, electionPayload);

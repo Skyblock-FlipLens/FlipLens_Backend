@@ -1,9 +1,11 @@
 package com.skyblockflipper.backend.service.flipping;
 
 import com.skyblockflipper.backend.hypixel.HypixelClient;
+import com.skyblockflipper.backend.model.ElectionSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
-import com.skyblockflipper.backend.service.market.MarketTimescaleFeatureService;
+import com.skyblockflipper.backend.repository.ElectionSnapshotRepository;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
+import com.skyblockflipper.backend.service.market.MarketTimescaleFeatureService;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
@@ -16,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +31,7 @@ class FlipCalculationContextServiceTest {
     void marksElectionAsPartialWhenEndpointUnavailable() {
         MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
         HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
 
@@ -40,7 +44,9 @@ class FlipCalculationContextServiceTest {
                 marketSnapshotService,
                 inputMapper,
                 featureService,
-                hypixelClient
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
         );
 
         FlipCalculationContext context = service.loadCurrentContext();
@@ -53,9 +59,10 @@ class FlipCalculationContextServiceTest {
     }
 
     @Test
-    void appliesDerpyMultiplierWhenQuadTaxesPerkIsPresent() {
+    void appliesDerpyMultiplierWhenQuadTaxesPerkIsPresent() throws Exception {
         MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
         HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
 
@@ -79,7 +86,9 @@ class FlipCalculationContextServiceTest {
                 marketSnapshotService,
                 inputMapper,
                 featureService,
-                hypixelClient
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
         );
 
         FlipCalculationContext context = service.loadCurrentContext();
@@ -94,17 +103,22 @@ class FlipCalculationContextServiceTest {
     void loadContextAsOfUsesRequestedTimestampWhenSnapshotMissing() {
         MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
         HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
         Instant asOfTimestamp = Instant.parse("2026-02-10T12:00:00Z");
 
         when(marketSnapshotService.asOf(asOfTimestamp)).thenReturn(Optional.empty());
+        when(electionSnapshotRepository.findFirstByFetchedAtLessThanEqualOrderByFetchedAtDesc(asOfTimestamp))
+                .thenReturn(Optional.empty());
 
         FlipCalculationContextService service = new FlipCalculationContextService(
                 marketSnapshotService,
                 inputMapper,
                 featureService,
-                hypixelClient
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
         );
 
         FlipCalculationContext context = service.loadContextAsOf(asOfTimestamp);
@@ -115,16 +129,99 @@ class FlipCalculationContextServiceTest {
     }
 
     @Test
+    void loadContextAsOfUsesHistoricalElectionSnapshotWhenAvailable() throws Exception {
+        MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
+        HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
+        Instant asOfTimestamp = Instant.parse("2026-02-10T12:00:00Z");
+        ElectionSnapshot historical = new ElectionSnapshot(
+                Instant.parse("2026-02-10T11:58:00Z"),
+                "hash",
+                objectMapper.readTree("""
+                        {
+                          "success": true,
+                          "mayor": {
+                            "name": "Derpy",
+                            "perks": [
+                              {
+                                "name": "QUAD TAXES!!!",
+                                "description": "The Auction House has 4x the listing fee and tax."
+                              }
+                            ]
+                          }
+                        }
+                        """).toString()
+        );
+
+        when(marketSnapshotService.asOf(asOfTimestamp)).thenReturn(Optional.empty());
+        when(electionSnapshotRepository.findFirstByFetchedAtLessThanEqualOrderByFetchedAtDesc(asOfTimestamp))
+                .thenReturn(Optional.of(historical));
+
+        FlipCalculationContextService service = new FlipCalculationContextService(
+                marketSnapshotService,
+                inputMapper,
+                featureService,
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
+        );
+
+        FlipCalculationContext context = service.loadContextAsOf(asOfTimestamp);
+
+        assertEquals(4.0D, context.auctionTaxMultiplier());
+        assertFalse(context.electionPartial());
+        verify(hypixelClient, never()).fetchElection();
+    }
+
+    @Test
+    void loadContextAsOfMarksElectionPartialWhenHistoricalSnapshotIsTooOld() {
+        MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
+        HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
+        Instant asOfTimestamp = Instant.parse("2026-02-10T12:00:00Z");
+        ElectionSnapshot stale = new ElectionSnapshot(
+                Instant.parse("2026-02-05T07:00:00Z"),
+                "hash",
+                "{\"success\":true}"
+        );
+
+        when(marketSnapshotService.asOf(asOfTimestamp)).thenReturn(Optional.empty());
+        when(electionSnapshotRepository.findFirstByFetchedAtLessThanEqualOrderByFetchedAtDesc(asOfTimestamp))
+                .thenReturn(Optional.of(stale));
+
+        FlipCalculationContextService service = new FlipCalculationContextService(
+                marketSnapshotService,
+                inputMapper,
+                featureService,
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
+        );
+
+        FlipCalculationContext context = service.loadContextAsOf(asOfTimestamp);
+
+        assertTrue(context.electionPartial());
+        assertEquals(1.0D, context.auctionTaxMultiplier());
+    }
+
+    @Test
     void loadContextAsOfRejectsNullTimestamp() {
         MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
         HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
         FlipCalculationContextService service = new FlipCalculationContextService(
                 marketSnapshotService,
                 inputMapper,
                 featureService,
-                hypixelClient
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
         );
 
         assertThrows(NullPointerException.class, () -> service.loadContextAsOf(null));
@@ -134,6 +231,7 @@ class FlipCalculationContextServiceTest {
     void loadCurrentContextCachesElectionResponseWithinMaxAge() throws Exception {
         MarketSnapshotPersistenceService marketSnapshotService = mock(MarketSnapshotPersistenceService.class);
         HypixelClient hypixelClient = mock(HypixelClient.class);
+        ElectionSnapshotRepository electionSnapshotRepository = mock(ElectionSnapshotRepository.class);
         UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
         MarketTimescaleFeatureService featureService = mock(MarketTimescaleFeatureService.class);
 
@@ -157,7 +255,9 @@ class FlipCalculationContextServiceTest {
                 marketSnapshotService,
                 inputMapper,
                 featureService,
-                hypixelClient
+                hypixelClient,
+                electionSnapshotRepository,
+                objectMapper
         );
 
         FlipCalculationContext first = service.loadCurrentContext();

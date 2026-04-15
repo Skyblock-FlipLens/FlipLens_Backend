@@ -1,19 +1,24 @@
 package com.skyblockflipper.backend.service.flipping;
 
 import com.skyblockflipper.backend.hypixel.HypixelClient;
+import com.skyblockflipper.backend.model.ElectionSnapshot;
 import com.skyblockflipper.backend.model.market.MarketSnapshot;
 import com.skyblockflipper.backend.model.market.UnifiedFlipInputSnapshot;
+import com.skyblockflipper.backend.repository.ElectionSnapshotRepository;
 import com.skyblockflipper.backend.service.market.MarketTimescaleFeatureService;
 import com.skyblockflipper.backend.service.market.MarketSnapshotPersistenceService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 
 @Service
+@Slf4j
 public class FlipCalculationContextService {
 
     private static final double STANDARD_BAZAAR_TAX = 0.0125D;
@@ -26,6 +31,8 @@ public class FlipCalculationContextService {
     private final UnifiedFlipInputMapper unifiedFlipInputMapper;
     private final MarketTimescaleFeatureService marketTimescaleFeatureService;
     private final HypixelClient hypixelClient;
+    private final ElectionSnapshotRepository electionSnapshotRepository;
+    private final ObjectMapper objectMapper;
     private final Object electionCacheLock = new Object();
     @Value("${config.hypixel.polling.election-max-age:PT124H}")
     private Duration electionCacheMaxAge = DEFAULT_ELECTION_CACHE_MAX_AGE;
@@ -34,27 +41,31 @@ public class FlipCalculationContextService {
     public FlipCalculationContextService(MarketSnapshotPersistenceService marketSnapshotPersistenceService,
                                          UnifiedFlipInputMapper unifiedFlipInputMapper,
                                          MarketTimescaleFeatureService marketTimescaleFeatureService,
-                                         HypixelClient hypixelClient) {
+                                         HypixelClient hypixelClient,
+                                         ElectionSnapshotRepository electionSnapshotRepository,
+                                         ObjectMapper objectMapper) {
         this.marketSnapshotPersistenceService = marketSnapshotPersistenceService;
         this.unifiedFlipInputMapper = unifiedFlipInputMapper;
         this.marketTimescaleFeatureService = marketTimescaleFeatureService;
         this.hypixelClient = hypixelClient;
+        this.electionSnapshotRepository = electionSnapshotRepository;
+        this.objectMapper = objectMapper;
     }
 
     public FlipCalculationContext loadCurrentContext() {
         MarketSnapshot latestMarketSnapshot = marketSnapshotPersistenceService.latest().orElse(null);
-        return buildContext(latestMarketSnapshot, Instant.now(), true);
+        return buildContext(latestMarketSnapshot, Instant.now(), resolveLiveElection());
     }
 
     public FlipCalculationContext loadContextAsOf(Instant asOfTimestamp) {
         Instant requiredAsOfTimestamp = Objects.requireNonNull(asOfTimestamp, "asOfTimestamp must not be null");
         MarketSnapshot marketSnapshotAsOf = marketSnapshotPersistenceService.asOf(requiredAsOfTimestamp).orElse(null);
-        return buildContext(marketSnapshotAsOf, requiredAsOfTimestamp, false);
+        return buildContext(marketSnapshotAsOf, requiredAsOfTimestamp, resolveHistoricalElection(requiredAsOfTimestamp));
     }
 
     private FlipCalculationContext buildContext(MarketSnapshot marketSnapshotDomain,
                                                 Instant snapshotTimestamp,
-                                                boolean includeLiveElection) {
+                                                ElectionResolution electionResolution) {
         UnifiedFlipInputSnapshot marketSnapshot = marketSnapshotDomain == null
                 ? new UnifiedFlipInputSnapshot(snapshotTimestamp, null, null)
                 : unifiedFlipInputMapper.map(marketSnapshotDomain);
@@ -62,38 +73,51 @@ public class FlipCalculationContextService {
                 ? FlipScoreFeatureSet.empty()
                 : marketTimescaleFeatureService.computeFor(marketSnapshotDomain);
 
-        if (!includeLiveElection) {
-            return new FlipCalculationContext(
-                    marketSnapshot,
-                    STANDARD_BAZAAR_TAX,
-                    STANDARD_AUCTION_TAX_MULTIPLIER,
-                    true,
-                    scoreFeatures
-            );
-        }
+        return new FlipCalculationContext(
+                marketSnapshot,
+                STANDARD_BAZAAR_TAX,
+                electionResolution.auctionTaxMultiplier(),
+                electionResolution.partial(),
+                scoreFeatures
+        );
+    }
 
-        JsonNode election = loadLiveElection();
+    private ElectionResolution resolveLiveElection() {
+        return resolveElection(loadLiveElection());
+    }
+
+    private ElectionResolution resolveHistoricalElection(Instant asOfTimestamp) {
+        long maxAgeMillis = sanitizeDurationMillis(electionCacheMaxAge, DEFAULT_ELECTION_CACHE_MAX_AGE);
+        return electionSnapshotRepository.findFirstByFetchedAtLessThanEqualOrderByFetchedAtDesc(asOfTimestamp)
+                .filter(snapshot -> snapshot.getFetchedAt() != null)
+                .filter(snapshot -> !asOfTimestamp.isAfter(snapshot.getFetchedAt().plusMillis(maxAgeMillis)))
+                .map(this::parsePersistedElection)
+                .map(this::resolveElection)
+                .orElseGet(ElectionResolution::partialElection);
+    }
+
+    private JsonNode parsePersistedElection(ElectionSnapshot snapshot) {
+        String payloadJson = snapshot.getPayloadJson();
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(payloadJson);
+        } catch (Exception e) {
+            log.warn("Failed to parse persisted election snapshot at {}: {}", snapshot.getFetchedAt(), e.getMessage());
+            return null;
+        }
+    }
+
+    private ElectionResolution resolveElection(JsonNode election) {
         if (election == null) {
-            return new FlipCalculationContext(
-                    marketSnapshot,
-                    STANDARD_BAZAAR_TAX,
-                    STANDARD_AUCTION_TAX_MULTIPLIER,
-                    true,
-                    scoreFeatures
-            );
+            return ElectionResolution.partialElection();
         }
 
         double auctionTaxMultiplier = hasDerpyQuadTaxes(election)
                 ? DERPY_AUCTION_TAX_MULTIPLIER
                 : STANDARD_AUCTION_TAX_MULTIPLIER;
-
-        return new FlipCalculationContext(
-                marketSnapshot,
-                STANDARD_BAZAAR_TAX,
-                auctionTaxMultiplier,
-                false,
-                scoreFeatures
-        );
+        return new ElectionResolution(auctionTaxMultiplier, false);
     }
 
     private JsonNode loadLiveElection() {
@@ -179,5 +203,14 @@ public class FlipCalculationContextService {
             Instant fetchedAt,
             JsonNode payload
     ) {
+    }
+
+    private record ElectionResolution(
+            double auctionTaxMultiplier,
+            boolean partial
+    ) {
+        private static ElectionResolution partialElection() {
+            return new ElectionResolution(STANDARD_AUCTION_TAX_MULTIPLIER, true);
+        }
     }
 }
