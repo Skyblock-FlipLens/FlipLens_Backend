@@ -6,6 +6,7 @@ import com.skyblockflipper.backend.service.market.partitioning.PartitioningPrope
 import org.jspecify.annotations.Nullable;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -23,6 +24,7 @@ public class PartitionDiagnosticsEndpoint {
     private final PartitioningProperties partitioningProperties;
     private final Clock clock;
 
+    @Autowired
     public PartitionDiagnosticsEndpoint(PartitionAdminRepository partitionAdminRepository,
                                         PartitioningProperties partitioningProperties) {
         this(partitionAdminRepository, partitioningProperties, Clock.systemUTC());

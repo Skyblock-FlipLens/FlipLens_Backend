@@ -1569,6 +1569,117 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsScoringV1BreaksTiesByConfidence() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlippingModelProperties properties = new FlippingModelProperties();
+        properties.setScoringV2Enabled(false);
+        properties.setElectionPenaltySoftened(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository, mapper, contextService, null, null, null, properties
+        );
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip fullyBacked = mock(Flip.class);
+        Flip electionOnlyPartial = mock(Flip.class);
+        UUID fullyBackedId = UUID.fromString("8a8a8a8a-8a8a-8a8a-8a8a-8a8a8a8a8a8a");
+        UUID electionOnlyId = UUID.fromString("8b8b8b8b-8b8b-8b8b-8b8b-8b8b8b8b8b8b");
+        when(fullyBacked.getId()).thenReturn(fullyBackedId);
+        when(electionOnlyPartial.getId()).thenReturn(electionOnlyId);
+        stubLegacyPagedAll(
+                flipRepository,
+                List.of(fullyBackedId, electionOnlyId),
+                List.of(fullyBacked, electionOnlyPartial)
+        );
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(fullyBacked, context)).thenReturn(sampleGoodnessDto(
+                fullyBackedId,
+                1_000_000L,
+                400_000L,
+                0.5D,
+                2.0D,
+                70.0D,
+                20.0D,
+                false,
+                List.of()
+        ));
+        when(mapper.toDto(electionOnlyPartial, context)).thenReturn(sampleGoodnessDto(
+                electionOnlyId,
+                1_000_000L,
+                400_000L,
+                0.5D,
+                2.0D,
+                70.0D,
+                20.0D,
+                true,
+                List.of("MISSING_ELECTION_DATA")
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(result.getContent().get(0).goodnessScore(), result.getContent().get(1).goodnessScore(), 1e-9);
+        assertEquals(fullyBackedId, result.getContent().getFirst().flip().id());
+    }
+
+    @Test
+    void topGoodnessFlipsScoringV1BreaksRemainingTiesByKnownRequiredCapital() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlippingModelProperties properties = new FlippingModelProperties();
+        properties.setScoringV2Enabled(false);
+        FlipReadService service = new FlipReadService(
+                flipRepository, mapper, contextService, null, null, null, properties
+        );
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip knownCapital = mock(Flip.class);
+        Flip unknownCapital = mock(Flip.class);
+        UUID knownCapitalId = UUID.fromString("8c8c8c8c-8c8c-8c8c-8c8c-8c8c8c8c8c8c");
+        UUID unknownCapitalId = UUID.fromString("8d8d8d8d-8d8d-8d8d-8d8d-8d8d8d8d8d8d");
+        when(knownCapital.getId()).thenReturn(knownCapitalId);
+        when(unknownCapital.getId()).thenReturn(unknownCapitalId);
+        stubLegacyPagedAll(
+                flipRepository,
+                List.of(knownCapitalId, unknownCapitalId),
+                List.of(knownCapital, unknownCapital)
+        );
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(knownCapital, context)).thenReturn(sampleGoodnessDto(
+                knownCapitalId,
+                500_000L,
+                400_000L,
+                0.5D,
+                2.0D,
+                70.0D,
+                20.0D,
+                false,
+                List.of()
+        ));
+        when(mapper.toDto(unknownCapital, context)).thenReturn(sampleGoodnessDto(
+                unknownCapitalId,
+                null,
+                400_000L,
+                0.5D,
+                2.0D,
+                70.0D,
+                20.0D,
+                false,
+                List.of()
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(result.getContent().get(0).goodnessScore(), result.getContent().get(1).goodnessScore(), 1e-9);
+        assertEquals(knownCapitalId, result.getContent().getFirst().flip().id());
+    }
+
+    @Test
     void recommendationGatesExcludeLowConfidenceFlips() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);

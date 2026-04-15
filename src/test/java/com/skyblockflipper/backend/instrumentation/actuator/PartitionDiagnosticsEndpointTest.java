@@ -9,9 +9,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -121,5 +124,85 @@ class PartitionDiagnosticsEndpointTest {
 
         assertEquals("DISABLED", response.status());
         assertEquals(0, response.totalPartitions());
+    }
+
+    @Test
+    void partitionDiagnosticsAutowiredConstructorReportsNoPartitionedTargets() {
+        PartitionAdminRepository repository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMode(null);
+
+        when(repository.isTablePartitioned("public", "market_snapshot")).thenReturn(false);
+        when(repository.isTablePartitioned("public", "ah_item_snapshot")).thenReturn(false);
+        when(repository.isTablePartitioned("public", "bz_item_snapshot")).thenReturn(false);
+
+        PartitionDiagnosticsEndpoint endpoint = new PartitionDiagnosticsEndpoint(repository, properties);
+
+        PartitionDiagnosticsDto response = endpoint.partitionDiagnostics(null);
+
+        assertEquals("NO_PARTITIONED_TARGETS", response.status());
+        assertNull(response.mode());
+        assertEquals(0, response.totalPartitions());
+        assertNotNull(response.todayUtc());
+    }
+
+    @Test
+    void partitionDiagnosticsReturnsErrorStatusWhenRepositoryInspectionFails() {
+        PartitionAdminRepository repository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMode(null);
+        properties.setMarketSnapshotRetentionDays(0);
+        properties.setAhSnapshotRetentionDays(0);
+        properties.setBzSnapshotRetentionDays(0);
+
+        when(repository.isTablePartitioned("public", "market_snapshot"))
+                .thenThrow(new IllegalStateException());
+        when(repository.isTablePartitioned("public", "ah_item_snapshot")).thenReturn(false);
+        when(repository.isTablePartitioned("public", "bz_item_snapshot")).thenReturn(false);
+
+        PartitionDiagnosticsEndpoint endpoint = new PartitionDiagnosticsEndpoint(repository, properties, FIXED_CLOCK);
+
+        PartitionDiagnosticsDto response = endpoint.partitionDiagnostics(null);
+
+        assertEquals("ERROR", response.status());
+        assertNull(response.mode());
+        assertNull(response.targets().getFirst().oldestKeptDayUtc());
+        assertEquals("IllegalStateException", response.targets().getFirst().error());
+    }
+
+    @Test
+    void partitionDiagnosticsTreatsBlankAndInvalidPartitionsAsUnclassified() {
+        PartitionAdminRepository repository = mock(PartitionAdminRepository.class);
+        PartitioningProperties properties = new PartitioningProperties();
+        properties.setEnabled(true);
+        properties.setMarketSnapshotRetentionDays(0);
+
+        when(repository.isTablePartitioned("public", "market_snapshot")).thenReturn(true);
+        when(repository.isTablePartitioned("public", "ah_item_snapshot")).thenReturn(false);
+        when(repository.isTablePartitioned("public", "bz_item_snapshot")).thenReturn(false);
+        when(repository.listChildPartitions("public", "market_snapshot"))
+                .thenReturn(Arrays.asList(
+                        null,
+                        "   ",
+                        "market_snapshot_2026_02_30",
+                        "market_snapshot_default",
+                        "market_snapshot_2026_03_21"
+                ));
+
+        PartitionDiagnosticsEndpoint endpoint = new PartitionDiagnosticsEndpoint(repository, properties, FIXED_CLOCK);
+
+        PartitionDiagnosticsDto response = endpoint.partitionDiagnostics(null);
+        PartitionDiagnosticsDto.TargetDiagnosticsDto marketTarget = response.targets().getFirst();
+
+        assertEquals("OK", response.status());
+        assertNull(marketTarget.oldestKeptDayUtc());
+        assertEquals(5, marketTarget.partitionCount());
+        assertEquals(1, marketTarget.retainedPartitionCount());
+        assertEquals(1, marketTarget.defaultPartitionCount());
+        assertEquals(3, marketTarget.unclassifiedPartitionCount());
+        assertEquals(LocalDate.parse("2026-03-21"), marketTarget.oldestPartitionDayUtc());
+        assertEquals(LocalDate.parse("2026-03-21"), marketTarget.newestPartitionDayUtc());
     }
 }
