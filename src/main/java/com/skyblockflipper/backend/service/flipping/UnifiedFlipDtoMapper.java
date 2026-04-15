@@ -91,7 +91,7 @@ public class UnifiedFlipDtoMapper {
         );
         Long fees = pricing.totalFees();
         Double roi = flipEconomicsService.computeRoi(requiredCapital, expectedProfit);
-        Double roiPerHour = flipEconomicsService.computeRoiPerHour(roi, flip.getTotalDuration().toSeconds());
+        Double roiPerHour = flipEconomicsService.computeRoiPerHour(roi, pricing.executionDurationSeconds());
 
         return new UnifiedFlipDto(
                 flip.getId(),
@@ -102,7 +102,7 @@ public class UnifiedFlipDtoMapper {
                 expectedProfit,
                 roi,
                 roiPerHour,
-                flip.getTotalDuration().toSeconds(),
+                pricing.executionDurationSeconds(),
                 fees,
                 pricing.liquidityScore(),
                 pricing.riskScore(),
@@ -225,6 +225,7 @@ public class UnifiedFlipDtoMapper {
         long totalInputCost = 0L;
         long grossRevenue = 0L;
         long totalFees = 0L;
+        long executionDurationSeconds = 0L;
         double inputFillHours = 0D;
         double outputFillHours = 0D;
         double craftDelayHours = 0D;
@@ -240,11 +241,13 @@ public class UnifiedFlipDtoMapper {
                 ParsedItemStack parsed = parseItemStack(step, stepParseCache);
                 if (parsed == null) {
                     partialReasons.add("INVALID_BUY_PARAMS");
+                    executionDurationSeconds += fallbackStepDurationSeconds(step);
                     continue;
                 }
 
                 PriceQuote quote = resolveBuyPriceQuote(parsed, snapshot, partialReasons);
                 if (quote == null) {
+                    executionDurationSeconds += fallbackStepDurationSeconds(step);
                     continue;
                 }
 
@@ -269,6 +272,7 @@ public class UnifiedFlipDtoMapper {
                 if (fillTimeHours != null) {
                     inputFillHours += fillTimeHours;
                 }
+                executionDurationSeconds += resolveStepExecutionDurationSeconds(step, fillTimeHours);
                 continue;
             }
 
@@ -277,11 +281,13 @@ public class UnifiedFlipDtoMapper {
                 ParsedItemStack parsed = parseItemStack(step, stepParseCache);
                 if (parsed == null) {
                     partialReasons.add("INVALID_SELL_PARAMS");
+                    executionDurationSeconds += fallbackStepDurationSeconds(step);
                     continue;
                 }
 
                 SellComputation sellComputation = computeSell(parsed, step.getParamsJson(), snapshot, context, partialReasons);
                 if (sellComputation == null) {
+                    executionDurationSeconds += fallbackStepDurationSeconds(step);
                     continue;
                 }
 
@@ -305,10 +311,13 @@ public class UnifiedFlipDtoMapper {
                 if (fillTimeHours != null) {
                     outputFillHours += fillTimeHours;
                 }
+                executionDurationSeconds += resolveStepExecutionDurationSeconds(step, fillTimeHours);
                 continue;
             }
 
-            craftDelayHours += Math.max(0D, (step.getBaseDurationSeconds() == null ? 0L : step.getBaseDurationSeconds()) / 3600D);
+            long fallbackDurationSeconds = fallbackStepDurationSeconds(step);
+            craftDelayHours += Math.max(0D, fallbackDurationSeconds / 3600D);
+            executionDurationSeconds += fallbackDurationSeconds;
         }
 
         if (!hasExplicitSellStep && flip.getResultItemId() != null && !flip.getResultItemId().isBlank()) {
@@ -340,6 +349,7 @@ public class UnifiedFlipDtoMapper {
                 if (fillTimeHours != null) {
                     outputFillHours += fillTimeHours;
                 }
+                executionDurationSeconds += resolveStepExecutionDurationSeconds(null, fillTimeHours);
             } else {
                 partialReasons.add("MISSING_OUTPUT_PRICE:" + flip.getResultItemId());
             }
@@ -363,9 +373,24 @@ public class UnifiedFlipDtoMapper {
                 totalFees,
                 currentPriceBaseline,
                 peakExposure,
+                executionDurationSeconds,
                 liquidityScore,
                 riskScore
         );
+    }
+
+    private long resolveStepExecutionDurationSeconds(Step step, Double fillTimeHours) {
+        if (fillTimeHours == null || Double.isNaN(fillTimeHours) || Double.isInfinite(fillTimeHours) || fillTimeHours <= 0D) {
+            return fallbackStepDurationSeconds(step);
+        }
+        return ceilToLong(fillTimeHours * 3600D);
+    }
+
+    private long fallbackStepDurationSeconds(Step step) {
+        if (step == null || step.getBaseDurationSeconds() == null) {
+            return 0L;
+        }
+        return Math.max(0L, step.getBaseDurationSeconds());
     }
 
     private SellComputation computeSell(ParsedItemStack parsed,
@@ -908,6 +933,7 @@ public class UnifiedFlipDtoMapper {
             long totalFees,
             long currentPriceBaseline,
             long peakExposure,
+            long executionDurationSeconds,
             Double liquidityScore,
             Double riskScore
     ) {

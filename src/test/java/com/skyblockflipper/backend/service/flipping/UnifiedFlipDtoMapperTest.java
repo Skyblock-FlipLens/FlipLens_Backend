@@ -121,7 +121,8 @@ class UnifiedFlipDtoMapperTest {
         assertEquals(37L, dto.expectedProfit());
         assertEquals(3L, dto.fees());
         assertEquals(0.185D, dto.roi(), 1e-9);
-        assertEquals(16.65D, dto.roiPerHour(), 1e-9);
+        assertEquals(12L, dto.durationSeconds());
+        assertEquals(55.5D, dto.roiPerHour(), 1e-9);
         assertFalse(dto.partial());
         assertTrue(dto.partialReasons().isEmpty());
         assertEquals(Instant.parse("2026-02-16T10:00:00Z"), dto.snapshotTimestamp());
@@ -159,7 +160,8 @@ class UnifiedFlipDtoMapperTest {
         assertEquals(16_599_900L, dto.expectedProfit());
         assertEquals(2_400_100L, dto.fees());
         assertEquals(16_599_900D / 2_600_100D, dto.roi(), 1e-6);
-        assertEquals((16_599_900D / 2_600_100D) * 80D, dto.roiPerHour(), 1e-3);
+        assertEquals(43_201L, dto.durationSeconds());
+        assertEquals((16_599_900D / 2_600_100D) * (3600D / 43_201D), dto.roiPerHour(), 1e-9);
         assertFalse(dto.partial());
     }
 
@@ -192,6 +194,8 @@ class UnifiedFlipDtoMapperTest {
         assertEquals(152L, dto.requiredCapital());
         assertEquals(48L, dto.expectedProfit());
         assertEquals(102L, dto.fees());
+        assertEquals(43_202L, dto.durationSeconds());
+        assertEquals((48D / 152D) * (3600D / 43_202D), dto.roiPerHour(), 1e-12);
         assertFalse(dto.partial());
     }
 
@@ -221,6 +225,8 @@ class UnifiedFlipDtoMapperTest {
         assertEquals(200L, dto.requiredCapital());
         assertEquals(116L, dto.expectedProfit());
         assertEquals(4L, dto.fees());
+        assertEquals(38L, dto.durationSeconds());
+        assertEquals((116D / 200D) * (3600D / 38D), dto.roiPerHour(), 1e-9);
         assertFalse(dto.partial());
     }
 
