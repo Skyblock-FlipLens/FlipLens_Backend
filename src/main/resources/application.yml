@@ -29,7 +29,7 @@ logging:
 flipping:
   auction-model-v2-enabled: ${FLIPPING_AUCTION_MODEL_V2_ENABLED:true}
   selltime-model-enabled: ${FLIPPING_SELLTIME_MODEL_ENABLED:false}
-  scoring-v2-enabled: ${FLIPPING_SCORING_V2_ENABLED:false}
+  scoring-v2-enabled: ${FLIPPING_SCORING_V2_ENABLED:true}
   election-penalty-softened: ${FLIPPING_ELECTION_PENALTY_SOFTENED:true}
   recommendation-gates-enabled: ${FLIPPING_RECOMMENDATION_GATES_ENABLED:false}
   min-recommendation-liquidity-score: ${FLIPPING_MIN_RECOMMENDATION_LIQUIDITY_SCORE:15}

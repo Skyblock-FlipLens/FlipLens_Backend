@@ -1519,6 +1519,56 @@ class FlipReadServiceTest {
     }
 
     @Test
+    void topGoodnessFlipsScoringV2PrefersCapitalEfficientFlipOverHigherRawProfit() {
+        FlipRepository flipRepository = mock(FlipRepository.class);
+        UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
+        FlipCalculationContextService contextService = mock(FlipCalculationContextService.class);
+        FlippingModelProperties properties = new FlippingModelProperties();
+        properties.setScoringV2Enabled(true);
+        FlipReadService service = new FlipReadService(
+                flipRepository, mapper, contextService, null, null, null, properties
+        );
+        FlipCalculationContext context = FlipCalculationContext.standard(null);
+
+        Flip capitalEfficient = mock(Flip.class);
+        Flip heavyCapital = mock(Flip.class);
+        UUID efficientId = UUID.fromString("78787878-7878-7878-7878-787878787878");
+        UUID heavyId = UUID.fromString("79797979-7979-7979-7979-797979797979");
+        when(capitalEfficient.getId()).thenReturn(efficientId);
+        when(heavyCapital.getId()).thenReturn(heavyId);
+        stubLegacyPagedAll(flipRepository, List.of(efficientId, heavyId), List.of(capitalEfficient, heavyCapital));
+        when(contextService.loadCurrentContext()).thenReturn(context);
+
+        when(mapper.toDto(capitalEfficient, context)).thenReturn(sampleGoodnessDto(
+                efficientId,
+                500_000L,
+                400_000L,
+                0.8D,
+                4.0D,
+                70.0D,
+                20.0D,
+                false,
+                List.of()
+        ));
+        when(mapper.toDto(heavyCapital, context)).thenReturn(sampleGoodnessDto(
+                heavyId,
+                4_000_000L,
+                800_000L,
+                0.2D,
+                4.0D,
+                70.0D,
+                20.0D,
+                false,
+                List.of()
+        ));
+
+        Page<FlipGoodnessDto> result = service.topGoodnessFlips(null, null, 0);
+
+        assertEquals(2, result.getTotalElements());
+        assertEquals(efficientId, result.getContent().getFirst().flip().id());
+    }
+
+    @Test
     void recommendationGatesExcludeLowConfidenceFlips() {
         FlipRepository flipRepository = mock(FlipRepository.class);
         UnifiedFlipDtoMapper mapper = mock(UnifiedFlipDtoMapper.class);
@@ -1877,7 +1927,7 @@ class FlipReadServiceTest {
                                              Double liquidityScore,
                                              Double riskScore,
                                              boolean partial) {
-        return sampleGoodnessDto(id, roiPerHour, expectedProfit, liquidityScore, riskScore, partial, List.of());
+        return sampleGoodnessDto(id, 1_000_000L, expectedProfit, 0.5D, roiPerHour, liquidityScore, riskScore, partial, List.of());
     }
 
     private UnifiedFlipDto sampleGoodnessDto(UUID id,
@@ -1887,14 +1937,26 @@ class FlipReadServiceTest {
                                              Double riskScore,
                                              boolean partial,
                                              List<String> partialReasons) {
+        return sampleGoodnessDto(id, 1_000_000L, expectedProfit, 0.5D, roiPerHour, liquidityScore, riskScore, partial, partialReasons);
+    }
+
+    private UnifiedFlipDto sampleGoodnessDto(UUID id,
+                                             Long requiredCapital,
+                                             Long expectedProfit,
+                                             Double roi,
+                                             Double roiPerHour,
+                                             Double liquidityScore,
+                                             Double riskScore,
+                                             boolean partial,
+                                             List<String> partialReasons) {
         return new UnifiedFlipDto(
                 id,
                 FlipType.BAZAAR,
                 List.of(),
                 List.of(),
-                1_000_000L,
+                requiredCapital,
                 expectedProfit,
-                0.5D,
+                roi,
                 roiPerHour,
                 3_600L,
                 10_000L,
