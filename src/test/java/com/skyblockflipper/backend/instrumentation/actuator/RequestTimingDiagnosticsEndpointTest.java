@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RequestTimingDiagnosticsEndpointTest {
@@ -75,5 +76,36 @@ class RequestTimingDiagnosticsEndpointTest {
         assertEquals(5, response.get("historyLimit"));
         assertSame(snapshot, response.get("latest"));
         assertSame(history, response.get("history"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void requestTimingsClampsHistoryLimitToConfiguredBounds() {
+        RequestTimingDiagnosticsService service = mock(RequestTimingDiagnosticsService.class);
+        RequestTimingDiagnosticsProperties properties = new RequestTimingDiagnosticsProperties();
+        properties.setHistoryReadLimitMax(3);
+        RequestTimingDiagnosticsEndpoint endpoint = new RequestTimingDiagnosticsEndpoint(service, properties);
+        RequestTimingDiagnosticsDto.Snapshot snapshot = new RequestTimingDiagnosticsDto.Snapshot(
+                Instant.parse("2026-03-18T11:30:00Z"),
+                250.0D,
+                1,
+                1,
+                List.of(),
+                List.of()
+        );
+        List<RequestTimingDiagnosticsDto.Snapshot> history = List.of(snapshot);
+        when(service.getLastSnapshot()).thenReturn(snapshot);
+        when(service.readRecentSnapshots(3)).thenReturn(history);
+        when(service.readRecentSnapshots(1)).thenReturn(history);
+
+        Map<String, Object> upperBoundResponse = (Map<String, Object>) endpoint.requestTimings(50);
+        Map<String, Object> lowerBoundResponse = (Map<String, Object>) endpoint.requestTimings(0);
+
+        assertEquals(3, upperBoundResponse.get("historyLimit"));
+        assertSame(history, upperBoundResponse.get("history"));
+        assertEquals(1, lowerBoundResponse.get("historyLimit"));
+        assertSame(history, lowerBoundResponse.get("history"));
+        verify(service).readRecentSnapshots(3);
+        verify(service).readRecentSnapshots(1);
     }
 }

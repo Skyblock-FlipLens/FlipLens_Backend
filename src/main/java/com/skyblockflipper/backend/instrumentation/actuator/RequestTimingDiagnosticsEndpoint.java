@@ -1,6 +1,7 @@
 package com.skyblockflipper.backend.instrumentation.actuator;
 
 import lombok.RequiredArgsConstructor;
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.context.annotation.Profile;
@@ -19,7 +20,7 @@ public class RequestTimingDiagnosticsEndpoint {
     private final RequestTimingDiagnosticsProperties properties;
 
     @ReadOperation
-    public Map<String, Object> requestTimings(Integer historyLimit) {
+    public Map<String, Object> requestTimings(@Nullable Integer historyLimit) {
         RequestTimingDiagnosticsDto.Snapshot latest = diagnosticsService.getLastSnapshot();
         Map<String, Object> response = baseResponse(latest == null ? "NO_DATA" : "OK");
         response.put("latest", latest);

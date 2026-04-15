@@ -35,6 +35,7 @@ public class FlipReadService {
 
     private static final int GOODNESS_PAGE_SIZE = 10;
     private static final double ROI_PER_HOUR_SCORE_REFERENCE = 100D;
+    private static final double ROI_SCORE_REFERENCE = 5D;
     private static final int GOODNESS_CACHE_MAX_ENTRIES = 8;
     private static final long GOODNESS_CACHE_TTL_MILLIS = 15_000L;
     private static final int LEGACY_READ_PAGE_SIZE = 500;
@@ -1311,6 +1312,12 @@ public class FlipReadService {
 
     private Comparator<FlipGoodnessDto> goodnessComparator() {
         return Comparator.comparing(FlipGoodnessDto::goodnessScore, Comparator.reverseOrder())
+                .thenComparing(this::confidenceTieBreakScore, Comparator.reverseOrder())
+                .thenComparing(this::roiTieBreakScore, Comparator.reverseOrder())
+                .thenComparing(this::roiPerHourTieBreakScore, Comparator.reverseOrder())
+                .thenComparing(this::liquidityTieBreakScore, Comparator.reverseOrder())
+                .thenComparing(this::inverseRiskTieBreakScore, Comparator.reverseOrder())
+                .thenComparing(this::requiredCapitalTieBreakScore)
                 .thenComparing(entry -> {
                     UnifiedFlipDto flip = entry.flip();
                     if (flip == null || flip.expectedProfit() == null) {
@@ -1367,6 +1374,7 @@ public class FlipReadService {
 
     private FlipGoodnessDto toGoodnessDto(UnifiedFlipDto dto) {
         double roiPerHourScore = roiPerHourScore(dto.roiPerHour());
+        double roiScore = roiScore(dto.roi());
         double profitScore = profitScore(dto.expectedProfit());
         double liquidityScore = clamp(nullableDouble(dto.liquidityScore()), 0D, 100D);
         double inverseRiskScore = 100D - clamp(nullableDouble(dto.riskScore()), 0D, 100D);
@@ -1375,10 +1383,12 @@ public class FlipReadService {
 
         double weighted;
         if (flippingModelProperties.isScoringV2Enabled()) {
-            weighted = (0.45D * roiPerHourScore)
-                    + (0.25D * liquidityScore)
+            weighted = (0.30D * roiPerHourScore)
+                    + (0.20D * roiScore)
+                    + (0.20D * liquidityScore)
                     + (0.15D * inverseRiskScore)
-                    + (0.15D * confidenceScore);
+                    + (0.10D * confidenceScore)
+                    + (0.05D * profitScore);
         } else {
             weighted = (0.35D * roiPerHourScore)
                     + (0.25D * profitScore)
@@ -1416,6 +1426,19 @@ public class FlipReadService {
         return clamp(baselineAtOne + ((100D - baselineAtOne) * normalized), 0D, 100D);
     }
 
+    private double roiScore(Double roi) {
+        double value = Math.max(0D, nullableDouble(roi));
+        if (value <= 0D) {
+            return 0D;
+        }
+        if (value <= 1D) {
+            return 100D * (1D - Math.exp(-2D * value));
+        }
+        double baselineAtOne = 100D * (1D - Math.exp(-2D));
+        double normalized = Math.log(value) / Math.log(ROI_SCORE_REFERENCE);
+        return clamp(baselineAtOne + ((100D - baselineAtOne) * normalized), 0D, 100D);
+    }
+
     private double profitScore(Long expectedProfit) {
         double value = Math.max(0D, expectedProfit == null ? 0D : expectedProfit.doubleValue());
         return Math.min(100D, Math.log10(value + 1D) * 10D);
@@ -1430,6 +1453,38 @@ public class FlipReadService {
 
     private double round2(double value) {
         return Math.round(value * 100D) / 100D;
+    }
+
+    private double confidenceTieBreakScore(FlipGoodnessDto entry) {
+        return confidenceScore(entry == null ? null : entry.flip());
+    }
+
+    private double roiTieBreakScore(FlipGoodnessDto entry) {
+        UnifiedFlipDto flip = entry == null ? null : entry.flip();
+        return nullableDouble(flip == null ? null : flip.roi());
+    }
+
+    private double roiPerHourTieBreakScore(FlipGoodnessDto entry) {
+        UnifiedFlipDto flip = entry == null ? null : entry.flip();
+        return nullableDouble(flip == null ? null : flip.roiPerHour());
+    }
+
+    private double liquidityTieBreakScore(FlipGoodnessDto entry) {
+        UnifiedFlipDto flip = entry == null ? null : entry.flip();
+        return nullableDouble(flip == null ? null : flip.liquidityScore());
+    }
+
+    private double inverseRiskTieBreakScore(FlipGoodnessDto entry) {
+        UnifiedFlipDto flip = entry == null ? null : entry.flip();
+        return 100D - clamp(nullableDouble(flip == null ? null : flip.riskScore()), 0D, 100D);
+    }
+
+    private long requiredCapitalTieBreakScore(FlipGoodnessDto entry) {
+        UnifiedFlipDto flip = entry == null ? null : entry.flip();
+        if (flip == null || flip.requiredCapital() == null || flip.requiredCapital() <= 0L) {
+            return Long.MAX_VALUE;
+        }
+        return flip.requiredCapital();
     }
 
     private boolean isActionableFlip(UnifiedFlipDto dto) {
