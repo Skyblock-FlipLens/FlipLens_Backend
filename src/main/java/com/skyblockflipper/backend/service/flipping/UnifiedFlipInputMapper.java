@@ -86,7 +86,7 @@ public class UnifiedFlipInputMapper {
             if (record == null || record.itemName() == null || record.itemName().isBlank()) {
                 continue;
             }
-            if (!record.bin()) {
+            if (!record.bin() || record.claimed()) {
                 continue;
             }
             AuctionComparableKey comparableKey = toComparableKey(record);
@@ -119,7 +119,11 @@ public class UnifiedFlipInputMapper {
     private Map<String, UnifiedFlipInputSnapshot.AuctionQuote> mapAuctionQuotesLegacy(List<AuctionMarketRecord> auctions) {
         Map<String, AuctionAccumulator> byItem = new LinkedHashMap<>();
         for (AuctionMarketRecord record : auctions) {
-            if (record == null || record.itemName() == null || record.itemName().isBlank() || !record.bin()) {
+            if (record == null
+                    || record.itemName() == null
+                    || record.itemName().isBlank()
+                    || !record.bin()
+                    || record.claimed()) {
                 continue;
             }
             String key = normalizeIdentifier(record.itemName());

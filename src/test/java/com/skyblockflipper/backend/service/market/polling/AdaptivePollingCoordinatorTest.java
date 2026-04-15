@@ -686,8 +686,8 @@ class AdaptivePollingCoordinatorTest {
         assertTrue(minimal.isBin());
         assertNull(minimal.getAuctioneer());
         assertNull(minimal.getProfileId());
-        assertNull(minimal.getItemLore());
-        assertNull(minimal.getExtra());
+        assertEquals("lore", minimal.getItemLore());
+        assertEquals("extra", minimal.getExtra());
         assertTrue(minimal.getCoop() == null || minimal.getCoop().isEmpty());
         assertTrue(minimal.getClaimedBidders() == null || minimal.getClaimedBidders().isEmpty());
         assertTrue(minimal.getBids() == null || minimal.getBids().isEmpty());

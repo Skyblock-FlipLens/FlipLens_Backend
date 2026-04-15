@@ -79,6 +79,73 @@ class MarketDataProcessingServiceTest {
     }
 
     @Test
+    void captureCurrentSnapshotAndPrepareInputPersistsClaimedSalesButExcludesThemFromAuctionQuotes() {
+        HypixelClient client = mock(HypixelClient.class);
+        HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();
+        MarketSnapshotPersistenceService persistenceService = mock(MarketSnapshotPersistenceService.class);
+        UnifiedFlipInputMapper inputMapper = new UnifiedFlipInputMapper();
+        MarketDataProcessingService service = new MarketDataProcessingService(client, snapshotMapper, persistenceService, inputMapper);
+
+        Auction activeBin = new Auction(
+                "a-live", "auctioneer", "profile", List.of(), 1L, 2L,
+                "ENCHANTED_DIAMOND", "active lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
+                100L, false, List.of(), 120L, List.of()
+        );
+        activeBin.setBin(true);
+        Auction claimedBin = new Auction(
+                "a-sold-bin", "auctioneer", "profile", List.of(), 3L, 4L,
+                "ENCHANTED_DIAMOND", "claimed bin lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
+                80L, true, List.of("buyer"), 95L, List.of()
+        );
+        claimedBin.setBin(true);
+        Auction claimedAuction = new Auction(
+                "a-sold-auction", "auctioneer", "profile", List.of(), 5L, 6L,
+                "ENCHANTED_DIAMOND", "claimed auction lore", "{\"internalname\":\"ENCHANTED_DIAMOND\"}", "misc", "RARE",
+                70L, true, List.of("buyer"), 140L, List.of()
+        );
+        claimedAuction.setBin(false);
+        AuctionResponse auctionResponse = new AuctionResponse(
+                true,
+                0,
+                1,
+                3,
+                10_000L,
+                List.of(activeBin, claimedBin, claimedAuction)
+        );
+        BazaarQuickStatus quickStatus = new BazaarQuickStatus(10.0, 9.0, 100, 90, 1000, 900, 4, 3);
+        BazaarProduct bazaarProduct = new BazaarProduct("ENCHANTED_DIAMOND", quickStatus, List.of(), List.of());
+        BazaarResponse bazaarResponse = new BazaarResponse(true, 11_000L, Map.of("ENCHANTED_DIAMOND", bazaarProduct));
+
+        mockAuctionStreaming(client, auctionResponse);
+        when(client.fetchBazaar()).thenReturn(bazaarResponse);
+        when(persistenceService.save(org.mockito.ArgumentMatchers.any(MarketSnapshot.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        UnifiedFlipInputSnapshot input = service.captureCurrentSnapshotAndPrepareInput().orElseThrow();
+
+        ArgumentCaptor<MarketSnapshot> snapshotCaptor = ArgumentCaptor.forClass(MarketSnapshot.class);
+        verify(persistenceService).save(snapshotCaptor.capture());
+        MarketSnapshot persistedSnapshot = snapshotCaptor.getValue();
+
+        assertEquals(3, persistedSnapshot.auctions().size());
+        assertTrue(persistedSnapshot.auctions().stream()
+                .anyMatch(auction -> auction.claimed()
+                        && auction.bin()
+                        && "claimed bin lore".equals(auction.itemLore())
+                        && "{\"internalname\":\"ENCHANTED_DIAMOND\"}".equals(auction.extra())));
+        assertTrue(persistedSnapshot.auctions().stream()
+                .anyMatch(auction -> auction.claimed()
+                        && !auction.bin()
+                        && "claimed auction lore".equals(auction.itemLore())));
+
+        UnifiedFlipInputSnapshot.AuctionQuote diamondQuote = input.auctionQuotesByItem().get("ENCHANTED_DIAMOND");
+        assertNotNull(diamondQuote);
+        assertEquals(100L, diamondQuote.lowestStartingBid());
+        assertEquals(100L, diamondQuote.secondLowestStartingBid());
+        assertEquals(1, diamondQuote.sampleSize());
+    }
+
+    @Test
     void captureCurrentSnapshotAndPrepareInputReturnsEmptyWhenNoData() {
         HypixelClient client = mock(HypixelClient.class);
         HypixelMarketSnapshotMapper snapshotMapper = new HypixelMarketSnapshotMapper();

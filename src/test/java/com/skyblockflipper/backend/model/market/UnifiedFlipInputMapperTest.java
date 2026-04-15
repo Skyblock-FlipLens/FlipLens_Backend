@@ -38,13 +38,13 @@ class UnifiedFlipInputMapperTest {
 
         UnifiedFlipInputSnapshot.AuctionQuote diamondQuote = input.auctionQuotesByItem().get("ENCHANTED_DIAMOND");
         assertNotNull(diamondQuote);
-        assertEquals(80L, diamondQuote.lowestStartingBid());
+        assertEquals(100L, diamondQuote.lowestStartingBid());
         assertEquals(100L, diamondQuote.secondLowestStartingBid());
         assertEquals(100L, diamondQuote.highestObservedBid());
-        assertEquals(90.0, diamondQuote.averageObservedPrice());
-        assertEquals(80.0, diamondQuote.medianObservedPrice());
-        assertEquals(80.0, diamondQuote.p25ObservedPrice());
-        assertEquals(2, diamondQuote.sampleSize());
+        assertEquals(100.0, diamondQuote.averageObservedPrice());
+        assertEquals(100.0, diamondQuote.medianObservedPrice());
+        assertEquals(100.0, diamondQuote.p25ObservedPrice());
+        assertEquals(1, diamondQuote.sampleSize());
     }
 
     @Test

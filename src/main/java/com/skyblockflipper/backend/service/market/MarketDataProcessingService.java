@@ -504,7 +504,7 @@ public class MarketDataProcessingService {
         List<Auction> filteredAuctions = new ArrayList<>();
         try {
             AuctionProbeInfo scanned = hypixelClient.fetchAllAuctionPages(auction -> {
-                if (auction == null || !auction.isBin() || auction.isClaimed()) {
+                if (auction == null || (!auction.isBin() && !auction.isClaimed())) {
                     return;
                 }
                 filteredAuctions.add(toMinimalAuction(auction));

@@ -294,7 +294,7 @@ public class AdaptivePollingCoordinator {
                         endpointCfg.getPath(),
                         probeBody,
                         auction -> {
-                            if (auction == null || !auction.isBin() || auction.isClaimed()) {
+                            if (auction == null || (!auction.isBin() && !auction.isClaimed())) {
                                 return;
                             }
                             filteredAuctions.add(toMinimalAuction(auction));
@@ -710,8 +710,8 @@ public class AdaptivePollingCoordinator {
                 auction.getStart(),
                 auction.getEnd(),
                 auction.getItemName(),
-                null,
-                null,
+                auction.getItemLore(),
+                auction.getExtra(),
                 auction.getCategory(),
                 auction.getTier(),
                 auction.getStartingBid(),

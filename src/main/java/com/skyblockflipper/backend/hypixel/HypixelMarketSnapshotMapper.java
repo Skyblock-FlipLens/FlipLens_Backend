@@ -58,8 +58,8 @@ public class HypixelMarketSnapshotMapper {
                 auction.getEnd(),
                 auction.isClaimed(),
                 auction.isBin(),
-                null,
-                null
+                auction.getItemLore(),
+                auction.getExtra()
         );
     }
 
